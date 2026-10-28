@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AppEvent, ProjectInfo, TerminalInfo } from '../shared/types';
 import { api, bridge, errorText } from './api';
 import { DetailsPanel, type Selection } from './components/DetailsPanel';
+import { EntryPointsTab } from './components/EntryPointsTab';
+import { ModulesTab } from './components/ModulesTab';
 import { QueueTab } from './components/QueueTab';
 import { SettingsTab } from './components/SettingsTab';
 import { TerminalPanel } from './components/TerminalPanel';
@@ -37,6 +39,7 @@ export function App() {
   const [activeTerminal, setActiveTerminal] = useState<string | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [revision, setRevision] = useState(0);
+  const [mapModule, setMapModule] = useState<string | null>(null);
 
   const notify = useCallback((level: Notice['level'], text: string) => {
     const id = ++noticeSeq;
@@ -95,6 +98,11 @@ export function App() {
     setProjectId(ps[0]?.id ?? null);
   };
 
+  const openMap = useCallback((moduleId: string) => {
+    setMapModule(moduleId);
+    setTab('entry-points');
+  }, []);
+
   const project = projects.find((p) => p.id === projectId) ?? null;
   const current = TABS.find((t) => t.id === tab)!;
 
@@ -105,7 +113,7 @@ export function App() {
         <div className="section-title">Проекты</div>
         <ul className="project-list">
           {projects.map((p) => (
-            <li key={p.id} className={p.id === projectId ? 'active' : ''} onClick={() => (setProjectId(p.id), setSelection(null))}>
+            <li key={p.id} className={p.id === projectId ? 'active' : ''} onClick={() => (setProjectId(p.id), setSelection(null), setMapModule(null))}>
               <span className="project-name" title={p.root}>
                 {p.name}
               </span>
@@ -143,11 +151,40 @@ export function App() {
                 onSelect={setSelection}
                 onTerminal={showTerminal}
               />
+            ) : tab === 'modules' ? (
+              <ModulesTab
+                project={project}
+                revision={revision}
+                run={run}
+                selection={selection}
+                onSelect={setSelection}
+                onOpenMap={openMap}
+                onTerminal={showTerminal}
+              />
+            ) : tab === 'entry-points' ? (
+              <EntryPointsTab
+                project={project}
+                revision={revision}
+                run={run}
+                moduleId={mapModule}
+                onModule={setMapModule}
+                onSelect={setSelection}
+              />
             ) : (
               <div className="empty">Раздел «{current.title}» появится на этапе {current.stage}.</div>
             )}
           </section>
-          {tab !== 'settings' && <DetailsPanel project={project} selection={selection} revision={revision} run={run} onTerminal={showTerminal} />}
+          {tab !== 'settings' && (
+            <DetailsPanel
+              project={project}
+              selection={selection}
+              revision={revision}
+              run={run}
+              onTerminal={showTerminal}
+              onSelect={setSelection}
+              onOpenMap={openMap}
+            />
+          )}
         </div>
         <TerminalPanel terminals={terminals} active={activeTerminal} onActivate={setActiveTerminal} run={run} />
       </main>

@@ -136,3 +136,22 @@ table.compact td { padding: 3px 6px; }
 .notice { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 6px; padding: 8px 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); cursor: pointer; white-space: pre-wrap; }
 .notice.warn { border-left-color: var(--warn); }
 .notice.error { border-left-color: var(--err); }
+
+.row { display: flex; align-items: center; gap: 8px; }
+a { color: var(--accent); cursor: pointer; }
+.module-form { grid-template-columns: 1fr; }
+.details .module-form input, .details .module-form textarea { width: 100%; box-sizing: border-box; }
+.details .actions input { flex: 1; min-width: 0; }
+.snapshot-info { margin-bottom: 8px; }
+.entry-grid td:first-child { width: 14px; color: var(--muted); }
+.entry-grid tr.expanded { cursor: default; background: var(--bg); }
+.entry-grid tr.expanded:hover { background: var(--bg); }
+.entry-grid tr.removed td { text-decoration: line-through; color: var(--muted); }
+.tree, .tree ul { list-style: none; margin: 0; padding-left: 14px; }
+.tree { padding-left: 0; }
+.tree li { margin: 2px 0; }
+.tree ol.chain { margin: 2px 0; padding-left: 22px; }
+.status.sink { margin-left: 6px; color: var(--err); border-color: var(--err); }
+.c-added { color: var(--ok); border-color: var(--ok); }
+.c-changed { color: var(--warn); border-color: var(--warn); }
+.c-removed { color: var(--err); border-color: var(--err); }
