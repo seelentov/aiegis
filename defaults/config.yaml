@@ -1,0 +1,117 @@
+# aiegis global defaults (~/.aiegis/config.yaml).
+# Copied here on first start; edit freely. Project overrides live in <repo>/.aiegis/config.yaml.
+#
+# Cascade: global -> project -> role -> module -> matrix/standard -> item.
+# Level fields: model, effort, instructions, permissions, env.
+#   model, effort         - lower level replaces;
+#   instructions          - concatenated top-down; `mode: replace` drops everything above;
+#   permissions.allow/deny - union, deny wins;
+#   env                   - merged, lower level wins per key.
+# Instruction files are resolved relative to the directory of the config file that names them.
+
+model: sonnet
+effort: low
+permissions:
+  allow: []
+  deny: []
+env: {}
+
+claude:
+  binary: claude
+  # Extra args for background (`-p`) runs. Empty --setting-sources isolates runs from user hooks/plugins.
+  background_args: ["--strict-mcp-config", "--setting-sources", "", "--permission-mode", "dontAsk"]
+  # Extra args for interactive sessions (free session, resume).
+  interactive_args: []
+
+queue:
+  parallelism: 2
+  # Pause used when a rate limit is hit but the reset time is unknown.
+  rate_limit_fallback_pause_sec: 900
+
+limits:
+  # Background run is stopped when input + cache_creation + output tokens exceed this value.
+  max_tokens_per_run: 300000
+
+terminal:
+  # macOS application used by "open in external terminal".
+  external_app: Terminal
+
+sessions:
+  # Role of "Новая сессия" / "Открыть сессию для фикса".
+  free_role: assistant
+  # Role preselected for ad-hoc background tasks.
+  default_task_role: task
+
+roles:
+  # Free interactive session ("Новая сессия", "Открыть сессию для фикса").
+  assistant:
+    title: AppSec-ассистент
+    kind: interactive
+    mcp_access: manage
+    model: sonnet
+    effort: medium
+    instructions:
+      file: instructions/roles/assistant.md
+    permissions:
+      allow: ["mcp__aiegis"]
+
+  # Ad-hoc background task started from the queue UI or by the assistant via MCP.
+  task:
+    title: Фоновая задача
+    kind: background
+    mcp_access: scoped
+    model: haiku
+    effort: low
+    instructions:
+      file: instructions/roles/task.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  matrix:
+    title: Проверка матрицы
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: low
+    instructions:
+      file: instructions/roles/matrix.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  sca:
+    title: SCA
+    kind: background
+    mcp_access: scoped
+    model: haiku
+    effort: low
+    instructions:
+      file: instructions/roles/sca.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  entry-points:
+    title: Карта точек входа
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: low
+    instructions:
+      file: instructions/roles/entry-points.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  tester:
+    title: PoC-тестировщик
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: low
+    instructions:
+      file: instructions/roles/tester.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)", "Bash(curl:*)"]
+      deny: ["Edit", "NotebookEdit", "WebFetch", "WebSearch"]
