@@ -3,7 +3,8 @@ import type { AddressInfo } from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import type { Job, QueueState } from '../../shared/types';
+import { ENTRY_POINT_KINDS, type Job, type QueueState, type Run } from '../../shared/types';
+import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
 import type { ProjectStore } from '../store';
 import { authorize, type Action, type Grant, type TokenRegistry } from './tokens';
 
@@ -26,15 +27,23 @@ const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }],
 export function buildServer(grant: Grant, svc: McpServices): McpServer {
   const server = new McpServer({ name: 'aiegis', version: '0.1.0' });
   const pid = grant.projectId;
-  const guard = (action: Action, fn: () => ToolResult): ToolResult => {
+  const guard = async (action: Action, fn: () => ToolResult | Promise<ToolResult>): Promise<ToolResult> => {
     const d = authorize(grant, pid, action);
     if (!d.ok) return fail(`Отказано: ${d.reason}`);
     try {
-      return fn();
+      return await fn();
     } catch (e) {
       return fail((e as Error).message);
     }
   };
+  const by = { author: `ai:${grant.role}`, runId: grant.runId };
+  /** The run of this token; writes that depend on the checkout need it to be alive. */
+  const liveRun = (): Run => {
+    const run = svc.store(pid).getRun(grant.runId);
+    if (!run || run.finishedAt) throw new Error('прогон этого токена уже завершён; запись недоступна');
+    return run;
+  };
+
   server.registerTool(
     'whoami',
     { description: 'Who this session is: project, role, access level, session/run ids and the entities it may write.' },
@@ -100,6 +109,144 @@ export function buildServer(grant: Grant, svc: McpServices): McpServer {
         });
         svc.onWrite(pid);
         return ok({ saved: r.id });
+      }),
+  );
+
+  server.registerTool(
+    'list_modules',
+    { description: 'Current modules of the project: id, name, globs (git pathspec globs, "!" excludes), description.' },
+    async () => guard({ kind: 'read' }, () => ok(svc.store(pid).listModules())),
+  );
+
+  server.registerTool(
+    'upsert_module',
+    {
+      description:
+        'Create a module or update it (matched by module_id, else by name). Globs are relative to the repository root and must match tracked files. Requires the module_map entity in scope.',
+      inputSchema: {
+        name: z.string().min(1),
+        globs: z.array(z.string().min(1)).min(1),
+        description: z.string().min(1),
+        module_id: z.string().optional().describe('Existing module to update (allows renaming)'),
+      },
+    },
+    async ({ name, globs, description, module_id }) =>
+      guard({ kind: 'write', entity: { type: MODULE_MAP_ENTITY, id: pid } }, async () => {
+        const err = globsError(globs);
+        if (err) return fail(err);
+        const files = await matchFiles(liveRun().cwd, globs);
+        if (!files.length) return fail(`globs ${JSON.stringify(globs)} не совпадают ни с одним файлом репозитория`);
+        const s = svc.store(pid);
+        const id = module_id ?? s.moduleByName(name)?.id;
+        const m = s.saveModule({ id, name, globs, description }, by);
+        svc.onWrite(pid);
+        return ok({ module_id: m.id, name: m.name, matched_files: files.length });
+      }),
+  );
+
+  server.registerTool(
+    'remove_module',
+    {
+      description: 'Remove a module from the markup (history is kept). Requires the module_map entity in scope.',
+      inputSchema: { module_id: z.string(), reason: z.string().min(1) },
+    },
+    async ({ module_id, reason }) =>
+      guard({ kind: 'write', entity: { type: MODULE_MAP_ENTITY, id: pid } }, () => {
+        svc.store(pid).removeModule(module_id, reason, by);
+        svc.onWrite(pid);
+        return ok({ removed: module_id });
+      }),
+  );
+
+  server.registerTool(
+    'get_entry_points',
+    {
+      description: 'Entry point map of a module: the latest complete snapshot (or the given one) with its entries.',
+      inputSchema: { module_id: z.string(), snapshot_id: z.string().optional() },
+    },
+    async ({ module_id, snapshot_id }) =>
+      guard({ kind: 'read' }, () => {
+        const s = svc.store(pid);
+        const snap = snapshot_id ? s.getSnapshot(snapshot_id) : s.latestSnapshot(module_id);
+        if (!snap || snap.moduleId !== module_id) return ok({ snapshot: null, entry_points: [] });
+        return ok({ snapshot: snap, entry_points: s.listEntryPoints(snap.id) });
+      }),
+  );
+
+  const epIdentity = {
+    module_id: z.string(),
+    kind: z.enum(ENTRY_POINT_KINDS),
+    method: z.string().optional().describe('HTTP method or similar qualifier'),
+    name: z.string().min(1).describe('Route, RPC method, topic, job or command name'),
+  };
+
+  server.registerTool(
+    'upsert_entry_point',
+    {
+      description:
+        "Record an entry point of your module in this run's map snapshot (same kind+method+name replaces the entry). Requires module:<module_id> in scope.",
+      inputSchema: {
+        ...epIdentity,
+        handler_file: z.string().min(1).describe('Path relative to the repository root'),
+        handler_line: z.number().int().min(1),
+        middleware: z.array(z.string()).optional().describe('Filters, interceptors, middleware in order'),
+        auth: z.string().min(1).describe('Authorization requirements as found in code, or "none found"'),
+        params: z
+          .array(z.object({ name: z.string(), source: z.string().describe('path|query|header|body|cookie|message|arg|...'), type: z.string().optional() }))
+          .optional(),
+        call_chain: z
+          .array(
+            z.object({
+              file: z.string(),
+              function: z.string(),
+              line: z.number().int().min(1).optional(),
+              sink: z.string().optional().describe('Kind of sink reached at this step, e.g. SQL, file, exec'),
+            }),
+          )
+          .optional()
+          .describe('From the handler to sinks'),
+        notes: z.string().optional(),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: MODULE_ENTITY, id: a.module_id } }, () => {
+        const run = liveRun();
+        const callChain = a.call_chain ?? [];
+        for (const f of [a.handler_file, ...callChain.map((c) => c.file)]) {
+          const err = repoFileError(run.cwd, f);
+          if (err) return fail(err);
+        }
+        const s = svc.store(pid);
+        const snap = s.ensureSnapshot(run, a.module_id);
+        const e = s.upsertEntryPoint(snap.id, {
+          kind: a.kind,
+          method: a.method?.trim() || null,
+          name: a.name,
+          handler: { file: a.handler_file, line: a.handler_line },
+          middleware: a.middleware ?? [],
+          auth: a.auth,
+          params: a.params ?? [],
+          callChain,
+          notes: a.notes ?? null,
+        });
+        svc.onWrite(pid);
+        return ok({ saved: e.key, snapshot_id: snap.id, entries_in_snapshot: s.listEntryPoints(snap.id).length });
+      }),
+  );
+
+  server.registerTool(
+    'remove_entry_point',
+    {
+      description: "Remove an entry point from this run's map snapshot of your module.",
+      inputSchema: epIdentity,
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: MODULE_ENTITY, id: a.module_id } }, () => {
+        const s = svc.store(pid);
+        const snap = s.ensureSnapshot(liveRun(), a.module_id);
+        const removed = s.removeEntryPoint(snap.id, entryPointKey({ kind: a.kind, method: a.method ?? null, name: a.name }));
+        svc.onWrite(pid);
+        return ok({ removed });
       }),
   );
 
