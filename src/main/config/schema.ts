@@ -32,6 +32,15 @@ export const RoleSchema = z.looseObject({
   mcp_access: z.enum(['manage', 'scoped']).optional(),
 });
 
+/** Background task kind started by the app itself (module markup, entry point map, ...). */
+export const TaskSchema = z.looseObject({
+  role: z.string().optional(),
+  /** Job title template. */
+  title: z.string().optional(),
+  /** Prompt template file, relative to the directory of the config file that names it. */
+  prompt: z.string().optional(),
+});
+
 export const ConfigFileSchema = z.looseObject({
   ...LevelShape,
   claude: z
@@ -50,6 +59,7 @@ export const ConfigFileSchema = z.looseObject({
   limits: z.looseObject({ max_tokens_per_run: z.number().int().min(1).optional() }).optional(),
   terminal: z.looseObject({ external_app: z.string().optional() }).optional(),
   sessions: z.looseObject({ free_role: z.string().optional(), default_task_role: z.string().optional() }).optional(),
+  tasks: z.record(z.string(), TaskSchema).optional(),
   roles: z.record(z.string(), RoleSchema).optional(),
   modules: z.record(z.string(), LevelSchema).optional(),
 });
@@ -60,4 +70,4 @@ export type RoleConfig = z.infer<typeof RoleSchema>;
 export type ConfigFile = z.infer<typeof ConfigFileSchema>;
 
 /** Settings that are not cascade levels; merged global -> project. */
-export const SETTINGS_KEYS = ['claude', 'queue', 'limits', 'terminal', 'sessions'] as const;
+export const SETTINGS_KEYS = ['claude', 'queue', 'limits', 'terminal', 'sessions', 'tasks'] as const;

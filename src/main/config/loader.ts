@@ -70,6 +70,13 @@ export interface Settings {
   limits: { max_tokens_per_run: number };
   terminal: { external_app: string };
   sessions: { free_role: string; default_task_role: string };
+  tasks: Record<string, TaskSettings>;
+}
+
+export interface TaskSettings {
+  role: string;
+  title: string;
+  prompt: string;
 }
 
 export interface EffectiveConfig {
@@ -95,6 +102,7 @@ const REQUIRED_SETTINGS: string[] = [
   'terminal.external_app',
   'sessions.free_role',
   'sessions.default_task_role',
+  ...['modules', 'entry_points'].flatMap((t) => ['role', 'title', 'prompt'].map((k) => `tasks.${t}.${k}`)),
 ];
 
 function getPath(obj: Record<string, unknown>, dotted: string): unknown {
@@ -179,8 +187,42 @@ export function resolveConfig(loc: ConfigLocation, target: ResolveTarget): Effec
   };
 }
 
-/** Copies shipped defaults into the global dir without overwriting existing files. */
-export function ensureGlobalDefaults(defaultsDir: string, globalDir: string): void {
+/** Maps whose entries are added one by one when a newer app version ships new ones. */
+const MERGED_MAPS = ['roles', 'tasks'];
+
+/**
+ * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing
+ * entries of `roles`/`tasks`. Existing values are never changed; comments are preserved. Returns added paths.
+ */
+export function addMissingDefaults(userText: string, defaultsText: string): { text: string; added: string[] } {
+  const doc = YAML.parseDocument(userText);
+  const defaults = (YAML.parse(defaultsText) ?? {}) as Record<string, unknown>;
+  const added: string[] = [];
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!doc.has(key)) {
+      doc.set(key, value);
+      added.push(key);
+    } else if (MERGED_MAPS.includes(key) && value && typeof value === 'object') {
+      for (const [name, entry] of Object.entries(value)) {
+        if (!doc.hasIn([key, name])) {
+          doc.setIn([key, name], entry);
+          added.push(`${key}.${name}`);
+        }
+      }
+    }
+  }
+  return { text: added.length ? doc.toString() : userText, added };
+}
+
+/** Copies shipped defaults into the global dir without overwriting existing files; config.yaml gets new keys only. */
+export function ensureGlobalDefaults(defaultsDir: string, globalDir: string): string[] {
+  const cfg = globalConfigPath(globalDir);
+  let added: string[] = [];
+  if (fs.existsSync(cfg)) {
+    const r = addMissingDefaults(fs.readFileSync(cfg, 'utf8'), fs.readFileSync(globalConfigPath(defaultsDir), 'utf8'));
+    if (r.added.length) fs.writeFileSync(cfg, r.text);
+    added = r.added;
+  }
   const copy = (from: string, to: string) => {
     for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
       const src = path.join(from, entry.name);
@@ -195,4 +237,5 @@ export function ensureGlobalDefaults(defaultsDir: string, globalDir: string): vo
   };
   fs.mkdirSync(globalDir, { recursive: true });
   copy(defaultsDir, globalDir);
+  return added;
 }

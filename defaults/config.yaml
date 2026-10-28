@@ -42,6 +42,20 @@ sessions:
   # Role preselected for ad-hoc background tasks.
   default_task_role: task
 
+# Background tasks the app starts itself. `prompt` is a template file (relative to this config's directory);
+# {{placeholders}} are filled by the app, an unknown placeholder is a configuration error.
+tasks:
+  # Module markup of the repository. Placeholders: project, hint, modules.
+  modules:
+    role: modules
+    title: Разметка модулей
+    prompt: instructions/tasks/modules.md
+  # Entry point map of one module. Placeholders: project, module_id, module_name, module_globs, module_description.
+  entry_points:
+    role: entry-points
+    title: "Точки входа: {{module_name}}"
+    prompt: instructions/tasks/entry-points.md
+
 roles:
   # Free interactive session ("Новая сессия", "Открыть сессию для фикса").
   assistant:
@@ -90,6 +104,18 @@ roles:
       file: instructions/roles/sca.md
     permissions:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  modules:
+    title: Разметка модулей
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: low
+    instructions:
+      file: instructions/roles/modules.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)", "Bash(git ls-files:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
   entry-points:

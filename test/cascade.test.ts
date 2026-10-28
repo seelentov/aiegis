@@ -103,7 +103,7 @@ describe('config files', () => {
     const g = tmpDir();
     ensureGlobalDefaults(DEFAULTS_DIR, g);
     const roles = listRoles({ globalDir: g });
-    expect(roles.map((r) => r.name)).toEqual(expect.arrayContaining(['assistant', 'task', 'matrix', 'sca', 'entry-points', 'tester']));
+    expect(roles.map((r) => r.name)).toEqual(expect.arrayContaining(['assistant', 'task', 'modules', 'matrix', 'sca', 'entry-points', 'tester']));
     for (const r of roles) {
       const cfg = resolveConfig({ globalDir: g }, { role: r.name });
       expect(cfg.level.model).toBeDefined();
@@ -114,12 +114,26 @@ describe('config files', () => {
     expect(effectiveAllow(task.level)).not.toContain('Edit');
   });
 
-  it('ensureGlobalDefaults never overwrites user files', () => {
+  it('ensureGlobalDefaults never overwrites user values, only adds missing keys and roles/tasks entries', () => {
     const g = tmpDir();
-    write(path.join(g, 'config.yaml'), '# mine\n');
-    ensureGlobalDefaults(DEFAULTS_DIR, g);
-    expect(fs.readFileSync(path.join(g, 'config.yaml'), 'utf8')).toBe('# mine\n');
-    expect(fs.existsSync(path.join(g, 'instructions/roles/task.md'))).toBe(true);
+    const file = path.join(g, 'config.yaml');
+    write(file, '# mine\nmodel: mine\nroles:\n  task: { model: custom } # keep\n');
+    write(path.join(g, 'instructions/roles/task.md'), 'my task prompt');
+    const added = ensureGlobalDefaults(DEFAULTS_DIR, g);
+    expect(added).toEqual(expect.arrayContaining(['tasks', 'queue', 'roles.modules', 'roles.entry-points']));
+    expect(added).not.toContain('model');
+    expect(added).not.toContain('roles.task');
+    const text = fs.readFileSync(file, 'utf8');
+    expect(text).toContain('# mine');
+    expect(text).toContain('# keep');
+    const cfg = parseConfigText(text, file);
+    expect(cfg.model).toBe('mine');
+    expect(cfg.roles!.task).toEqual({ model: 'custom' });
+    expect(cfg.tasks!.modules.role).toBe('modules');
+    expect(fs.readFileSync(path.join(g, 'instructions/roles/task.md'), 'utf8')).toBe('my task prompt');
+    expect(fs.existsSync(path.join(g, 'instructions/tasks/entry-points.md'))).toBe(true);
+    expect(ensureGlobalDefaults(DEFAULTS_DIR, g)).toEqual([]);
+    expect(fs.readFileSync(file, 'utf8')).toBe(text);
   });
 
   it('cascade order: global -> project -> role(global) -> role(project) -> module', () => {
