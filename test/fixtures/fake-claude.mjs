@@ -41,6 +41,19 @@ if (!args.includes('-p')) {
       setInterval(() => undefined, 1000);
       return;
     }
+    const done = (text) => emit({ type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: 0.001, usage: { input_tokens: 5, output_tokens: 7 } });
+    if (prompt.includes('Mark up the repository')) {
+      const r = await mcp('upsert_module', { name: 'svc', globs: ['svc/**'], description: 'demo service' });
+      return done(r.content[0].text);
+    }
+    if (prompt.includes('Build the entry point map')) {
+      const moduleId = /module_id `([^`]+)`/.exec(prompt)[1];
+      const r = await mcp('upsert_entry_point', {
+        module_id: moduleId, kind: 'http', method: 'GET', name: '/api', handler_file: 'svc/Api.java', handler_line: 1,
+        auth: 'none found', call_chain: [{ file: 'svc/Api.java', function: 'get', sink: 'SQL' }],
+      });
+      return done(r.content[0].text);
+    }
     const who = JSON.parse((await mcp('whoami', {})).content[0].text);
     const own = who.writable_entities[0];
     await mcp('submit_result', { entity_type: own.type, entity_id: own.id, summary: `cwd=${process.cwd()}` });

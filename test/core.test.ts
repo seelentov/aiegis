@@ -31,6 +31,7 @@ beforeAll(async () => {
   const g = (...a: string[]) => execFileSync('git', a, { cwd: repo });
   g('init', '-q');
   write(path.join(repo, 'a.txt'), 'a');
+  write(path.join(repo, 'svc', 'Api.java'), 'class Api {}');
   g('add', '.');
   g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init');
 
@@ -140,4 +141,42 @@ describe('Core with a fake claude', () => {
     expect(core.effectiveView(pid, 'task').model).toEqual({ value: 'sonnet', source: 'роль task (проект)' });
   });
 
+  it('module markup and entry point maps: scope, cascade module level, versions', async () => {
+    const markup = await core.enqueueModuleMarkup(pid, 'only svc');
+    await expect(core.enqueueModuleMarkup(pid, '')).rejects.toThrow(/уже есть задача/);
+    expect(markup).toMatchObject({ role: 'modules', entityType: 'module_map', entityId: pid, title: 'Разметка модулей' });
+    expect(String(markup.payload.prompt)).toContain('only svc');
+    expect((await settled(markup)).status).toBe('done');
+    const [mod] = core.listModules(pid);
+    expect(mod).toMatchObject({ name: 'svc', globs: ['svc/**'], author: 'ai:modules', latestSnapshot: null });
+
+    write(path.join(repo, '.aiegis', 'config.yaml'), 'modules: { svc: { model: module-model } }\n');
+    const j1 = await core.enqueueEntryPoints(pid, mod.id);
+    expect(j1).toMatchObject({ role: 'entry-points', entityType: 'module', entityId: mod.id, title: 'Точки входа: svc' });
+    expect(String(j1.payload.prompt)).toContain('- svc/**');
+    const d1 = await settled(j1);
+    expect(d1.status).toBe('done');
+    const run1 = core.store(pid).getRun(d1.lastRunId!)!;
+    expect(run1.configSnapshot).toMatchObject({ model: { value: 'module-model', source: 'модуль svc' } });
+    const map1 = core.entryPointMap(pid, mod.id);
+    expect(map1.snapshot).toMatchObject({ runId: run1.id, status: 'complete', commitSha: run1.commitSha, touchedFiles: ['svc/Api.java'] });
+    expect(map1.baseline).toBeNull();
+    expect(map1.entries).toMatchObject([{ key: 'http GET /api', callChain: [{ sink: 'SQL' }] }]);
+
+    const [d2] = await Promise.all((await core.enqueueAllEntryPoints(pid)).map(settled));
+    expect(d2.status).toBe('done');
+    const map2 = core.entryPointMap(pid, mod.id);
+    expect(map2.snapshots).toHaveLength(2);
+    expect(map2.baseline!.id).toBe(map1.snapshot!.id);
+    expect(map2.entries.map((e) => e.change)).toEqual(['same']);
+    expect(core.listModules(pid)[0].latestSnapshot!.id).toBe(map2.snapshot!.id);
+    // Older versions stay viewable.
+    expect(core.entryPointMap(pid, mod.id, map1.snapshot!.id).entries).toHaveLength(1);
+
+    await expect(core.saveModule(pid, { id: mod.id, name: 'svc', globs: ['nope/**'], description: '' })).rejects.toThrow(/не совпадают/);
+    await core.saveModule(pid, { id: mod.id, name: 'svc', globs: ['svc/*.java'], description: 'edited' });
+    expect(core.moduleHistory(pid, mod.id).map((h) => h.author)).toEqual(['human', 'ai:modules']);
+    core.removeModule(pid, mod.id, 'test');
+    await expect(core.enqueueEntryPoints(pid, mod.id)).rejects.toThrow(/не найден/);
+  });
 });

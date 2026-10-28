@@ -2,7 +2,11 @@ import type {
   AppEvent,
   ConfigFileInfo,
   EffectiveConfigView,
+  EntryPointMap,
   Job,
+  Module,
+  ModuleRevision,
+  ModuleSummary,
   ProjectInfo,
   QueueState,
   ResultRecord,
@@ -29,7 +33,18 @@ export interface AiegisApi {
   newSession(projectId: string): string;
   openRun(projectId: string, runId: string): string;
   openExternal(projectId: string, runId: string): void;
-  openInEditor(file: string): void;
+  /** Opens a file (absolute, or relative to the project root) in VS Code, optionally at a line. */
+  openInEditor(file: string, line?: number, projectId?: string): void;
+
+  listModules(projectId: string): ModuleSummary[];
+  moduleHistory(projectId: string, moduleId: string): ModuleRevision[];
+  previewGlobs(projectId: string, globs: string[]): { count: number; sample: string[] };
+  saveModule(projectId: string, m: { id?: string; name: string; globs: string[]; description: string }): Module;
+  removeModule(projectId: string, moduleId: string, reason: string): void;
+  enqueueModuleMarkup(projectId: string, hint: string): Job;
+  enqueueEntryPoints(projectId: string, moduleId: string): Job;
+  enqueueAllEntryPoints(projectId: string): Job[];
+  entryPointMap(projectId: string, moduleId: string, snapshotId?: string): EntryPointMap;
 
   listTerminals(): TerminalInfo[];
   terminalSnapshot(terminalId: string): string;
@@ -39,7 +54,9 @@ export interface AiegisApi {
 
   listRoles(projectId: string | null): { name: string; title: string; kind: string; mcp_access: string }[];
   defaultTaskRole(projectId: string | null): string;
-  effectiveConfig(projectId: string | null, role: string): EffectiveConfigView;
+  effectiveConfig(projectId: string | null, role: string, module?: string): EffectiveConfigView;
+  /** Role of app-started task kind `tasks.<kind>`. */
+  taskRole(projectId: string, kind: string): string;
   listConfigFiles(projectId: string | null): ConfigFileInfo[];
   readConfigFile(projectId: string | null, file: string): string;
   writeConfigFile(projectId: string | null, file: string, text: string): void;

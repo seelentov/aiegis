@@ -32,11 +32,22 @@ function api(): ApiImpl {
     newSession: (pid) => core.newSession(pid),
     openRun: (pid, runId) => core.openRun(pid, runId),
     openExternal: (pid, runId) => core.openExternal(pid, runId),
-    openInEditor: (file) => {
-      execFile('code', [file], (err) => {
-        if (err) execFile('open', ['-a', 'Visual Studio Code', file], () => undefined);
+    openInEditor: (file, line, pid) => {
+      const abs = pid ? path.resolve(core.listProjects().find((p) => p.id === pid)?.root ?? '', file) : file;
+      execFile('code', line ? ['-g', `${abs}:${line}`] : [abs], (err) => {
+        if (err) execFile('open', ['-a', 'Visual Studio Code', abs], () => undefined);
       });
     },
+
+    listModules: (pid) => core.listModules(pid),
+    moduleHistory: (pid, id) => core.moduleHistory(pid, id),
+    previewGlobs: (pid, globs) => core.previewGlobs(pid, globs),
+    saveModule: (pid, m) => core.saveModule(pid, m),
+    removeModule: (pid, id, reason) => core.removeModule(pid, id, reason),
+    enqueueModuleMarkup: (pid, hint) => core.enqueueModuleMarkup(pid, hint),
+    enqueueEntryPoints: (pid, id) => core.enqueueEntryPoints(pid, id),
+    enqueueAllEntryPoints: (pid) => core.enqueueAllEntryPoints(pid),
+    entryPointMap: (pid, id, snap) => core.entryPointMap(pid, id, snap),
 
     listTerminals: () => core.terminals.list(),
     terminalSnapshot: (id) => core.terminals.snapshot(id),
@@ -46,7 +57,8 @@ function api(): ApiImpl {
 
     listRoles: (pid) => core.roles(pid),
     defaultTaskRole: (pid) => core.sessionsSettings(pid).default_task_role,
-    effectiveConfig: (pid, role) => core.effectiveView(pid, role),
+    effectiveConfig: (pid, role, module) => core.effectiveView(pid, role, module),
+    taskRole: (pid, kind) => core.taskRole(pid, kind),
     listConfigFiles: (pid) => core.listConfigFiles(pid),
     readConfigFile: (pid, file) => core.readConfigFile(pid, file),
     writeConfigFile: (pid, file, text) => core.writeConfigFile(pid, file, text),

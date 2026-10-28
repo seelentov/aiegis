@@ -7,7 +7,11 @@ import type {
   AppEvent,
   ConfigFileInfo,
   EffectiveConfigView,
+  EntryPointMap,
   Job,
+  Module,
+  ModuleRevision,
+  ModuleSummary,
   ProjectInfo,
   ResultRecord,
   Run,
@@ -28,6 +32,7 @@ import {
   projectConfigPath,
   resolveConfig,
   resolveSettings,
+  SOURCE_PROJECT,
   type EffectiveConfig,
   type RoleInfo,
   type Settings,
@@ -38,6 +43,7 @@ import { AiegisMcpServer, mcpConfigJson } from './mcp/server';
 import { TokenRegistry, type EntityRef } from './mcp/tokens';
 import { projectDataDir, type AppPaths } from './paths';
 import { ProjectRegistry, type Project } from './projects';
+import { diffEntryPoints, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, renderTemplate } from './modules';
 import { JobQueue, type JobOutcome } from './queue';
 import { ProjectStore } from './store';
 import { Terminals } from './terminals';
@@ -90,7 +96,10 @@ export class Core extends EventEmitter {
       enqueueTask: (pid, t) => this.enqueueTaskSync(pid, t),
       stopJob: (pid, jobId) => this.cancelJob(pid, jobId),
       queueState: () => this.queue.state(),
-      onWrite: (pid) => this.send({ type: 'runs-changed', projectId: pid }),
+      onWrite: (pid) => {
+        this.send({ type: 'runs-changed', projectId: pid });
+        this.send({ type: 'modules-changed', projectId: pid });
+      },
     });
     this.queue = new JobQueue(
       {
@@ -116,11 +125,13 @@ export class Core extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    ensureGlobalDefaults(this.paths.defaultsDir, this.paths.globalDir);
+    const added = ensureGlobalDefaults(this.paths.defaultsDir, this.paths.globalDir);
+    if (added.length) this.notice('info', `В глобальный конфиг добавлены новые настройки по умолчанию: ${added.join(', ')}`);
     await this.mcp.start();
     for (const p of this.registry.list()) {
       const s = this.store(p.id);
       s.recoverRuns();
+      s.recoverSnapshots();
       s.recoverJobs();
     }
     this.queue.pump();
@@ -196,11 +207,20 @@ export class Core extends EventEmitter {
     return this.lastSettings!;
   }
 
-  resolve(projectId: string | null, role: string): EffectiveConfig {
+  /** Effective config of a role, optionally with the module cascade level (`modules.<name>`). */
+  resolve(projectId: string | null, role: string, module?: string): EffectiveConfig {
     return resolveConfig(
       { globalDir: this.paths.globalDir, projectRoot: projectId ? this.project(projectId).root : undefined },
-      { role },
+      { role, module },
     );
+  }
+
+  /** Config of a job's run: module jobs get the module level of the cascade. */
+  private resolveForJob(job: Job): EffectiveConfig {
+    if (job.entityType !== MODULE_ENTITY) return this.resolve(job.projectId, job.role);
+    const mod = this.store(job.projectId).getModule(job.entityId);
+    if (!mod) throw new Error(`модуль ${job.entityId} удалён`);
+    return this.resolve(job.projectId, job.role, mod.name);
   }
 
   roles(projectId: string | null): RoleInfo[] {
@@ -213,8 +233,8 @@ export class Core extends EventEmitter {
     return resolveSettings(files.global, project).settings.sessions;
   }
 
-  effectiveView(projectId: string | null, role: string): EffectiveConfigView {
-    const cfg = this.resolve(projectId, role);
+  effectiveView(projectId: string | null, role: string, module?: string): EffectiveConfigView {
+    const cfg = this.resolve(projectId, role, module);
     const denied = new Set(cfg.level.permissions.deny.map((d) => d.value));
     const flat: { key: string; value: string; source: string }[] = [];
     const walk = (o: Record<string, unknown>, prefix: string) => {
@@ -301,18 +321,27 @@ export class Core extends EventEmitter {
   }
 
   private enqueueTaskSync(projectId: string, t: { prompt: string; role: string; title: string }, sha?: string): Job {
+    const id = crypto.randomUUID();
+    return this.addAgentJob(projectId, { ...t, entity: { type: TASK_ENTITY, id } }, sha ?? execFileSyncHead(this.project(projectId).root), id);
+  }
+
+  /** Queues a background claude run whose token may write `entity`. */
+  private addAgentJob(
+    projectId: string,
+    t: { prompt: string; role: string; title: string; entity: EntityRef },
+    sha: string,
+    id?: string,
+  ): Job {
     const cfg = this.resolve(projectId, t.role);
     if (cfg.role.kind !== 'background') throw new ConfigError(`роль ${t.role} не фоновая`);
-    const id = crypto.randomUUID();
-    const commit = sha ?? execFileSyncHead(this.project(projectId).root);
     const job = this.store(projectId).addJob(
       {
         type: AGENT_JOB,
         role: t.role,
         title: t.title,
-        entityType: TASK_ENTITY,
-        entityId: id,
-        payload: { prompt: t.prompt, commit_sha: commit },
+        entityType: t.entity.type,
+        entityId: t.entity.id,
+        payload: { prompt: t.prompt, commit_sha: sha },
       },
       id,
     );
@@ -359,13 +388,138 @@ export class Core extends EventEmitter {
     return this.openRun(projectId, active.runId);
   }
 
+  // --- modules and entry points ---
+
+  /** App-started task kind from config (`tasks.<kind>`) with its prompt template loaded. */
+  private taskSpec(projectId: string, kind: string): { role: string; title: string; template: string; file: string } {
+    const files = { global: loadConfigFile(globalConfigPath(this.paths.globalDir)) };
+    const root = this.project(projectId).root;
+    const { settings, sources } = resolveSettings(files.global, loadConfigFile(projectConfigPath(root)));
+    const t = settings.tasks[kind];
+    if (!t) throw new ConfigError(`в конфигурации не задана задача tasks.${kind}`);
+    const dir = sources[`tasks.${kind}.prompt`] === SOURCE_PROJECT ? projectConfigDir(root) : this.paths.globalDir;
+    const file = path.resolve(dir, t.prompt);
+    if (!fs.existsSync(file)) throw new ConfigError(`tasks.${kind}.prompt: не найден файл ${file}`);
+    return { role: t.role, title: t.title, template: fs.readFileSync(file, 'utf8'), file };
+  }
+
+  taskRole(projectId: string, kind: string): string {
+    return this.taskSpec(projectId, kind).role;
+  }
+
+  private assertNotQueued(projectId: string, entity: EntityRef): void {
+    const active = this.store(projectId).activeJobFor(entity.type, entity.id);
+    if (active) throw new Error(`для этой сущности уже есть задача в очереди: «${active.title}»`);
+  }
+
+  /** Queues the AI module markup of the repository; `hint` narrows or redirects it. */
+  async enqueueModuleMarkup(projectId: string, hint: string): Promise<Job> {
+    const p = this.project(projectId);
+    const entity = { type: MODULE_MAP_ENTITY, id: projectId };
+    this.assertNotQueued(projectId, entity);
+    const spec = this.taskSpec(projectId, 'modules');
+    const mods = this.store(projectId).listModules();
+    const vars = {
+      project: p.name,
+      hint: hint.trim() || '(none)',
+      modules: mods.length
+        ? mods.map((m) => `- ${m.name} (module_id ${m.id}): ${m.globs.join(', ')} — ${m.description}`).join('\n')
+        : '(none)',
+    };
+    return this.addAgentJob(
+      projectId,
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity },
+      await headSha(p.root),
+    );
+  }
+
+  /** Queues the entry point map run of one module on the current HEAD. */
+  async enqueueEntryPoints(projectId: string, moduleId: string, sha?: string): Promise<Job> {
+    const p = this.project(projectId);
+    const mod = this.store(projectId).getModule(moduleId);
+    if (!mod) throw new Error(`модуль ${moduleId} не найден`);
+    const entity = { type: MODULE_ENTITY, id: mod.id };
+    this.assertNotQueued(projectId, entity);
+    const spec = this.taskSpec(projectId, 'entry_points');
+    const vars = {
+      project: p.name,
+      module_id: mod.id,
+      module_name: mod.name,
+      module_globs: mod.globs.map((g) => `- ${g}`).join('\n'),
+      module_description: mod.description || '(none)',
+    };
+    return this.addAgentJob(
+      projectId,
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity },
+      sha ?? (await headSha(p.root)),
+    );
+  }
+
+  /** Queues entry point maps of all modules that have no job in the queue. */
+  async enqueueAllEntryPoints(projectId: string): Promise<Job[]> {
+    const sha = await headSha(this.project(projectId).root);
+    const s = this.store(projectId);
+    const jobs: Job[] = [];
+    for (const m of s.listModules()) {
+      if (!s.activeJobFor(MODULE_ENTITY, m.id)) jobs.push(await this.enqueueEntryPoints(projectId, m.id, sha));
+    }
+    return jobs;
+  }
+
+  listModules(projectId: string): ModuleSummary[] {
+    const s = this.store(projectId);
+    return s.listModules().map((m) => {
+      const job = s.activeJobFor(MODULE_ENTITY, m.id);
+      return { ...m, latestSnapshot: s.latestSnapshot(m.id) ?? null, activeJob: job ? { id: job.id, status: job.status } : null };
+    });
+  }
+
+  moduleHistory(projectId: string, moduleId: string): ModuleRevision[] {
+    return this.store(projectId).moduleHistory(moduleId);
+  }
+
+  /** Tracked files of the working tree matching globs (UI preview and validation of manual edits). */
+  async previewGlobs(projectId: string, globs: string[]): Promise<{ count: number; sample: string[] }> {
+    const files = await matchFiles(this.project(projectId).root, globs);
+    return { count: files.length, sample: files.slice(0, 20) };
+  }
+
+  /** Manual module edit from the UI: a new revision authored by "human". */
+  async saveModule(projectId: string, m: { id?: string; name: string; globs: string[]; description: string }): Promise<Module> {
+    const globs = m.globs.map((g) => g.trim()).filter(Boolean);
+    const err = globsError(globs);
+    if (err) throw new Error(err);
+    if (!(await this.previewGlobs(projectId, globs)).count) throw new Error('globs не совпадают ни с одним файлом репозитория');
+    const mod = this.store(projectId).saveModule({ ...m, globs, description: m.description.trim() }, { author: 'human', runId: null });
+    this.send({ type: 'modules-changed', projectId });
+    return mod;
+  }
+
+  removeModule(projectId: string, moduleId: string, reason: string): void {
+    if (!reason.trim()) throw new Error('укажите причину удаления');
+    this.store(projectId).removeModule(moduleId, reason.trim(), { author: 'human', runId: null });
+    this.send({ type: 'modules-changed', projectId });
+  }
+
+  /** A snapshot of the module's map (default: current) with changes against the previous complete snapshot. */
+  entryPointMap(projectId: string, moduleId: string, snapshotId?: string): EntryPointMap {
+    const s = this.store(projectId);
+    const snapshots = s.listSnapshots(moduleId);
+    const snapshot = (snapshotId ? snapshots.find((x) => x.id === snapshotId) : snapshots.find((x) => x.status === 'complete')) ?? null;
+    if (!snapshot) return { snapshots, snapshot: null, baseline: null, entries: [], removed: [] };
+    const idx = snapshots.indexOf(snapshot);
+    const baseline = snapshots.slice(idx + 1).find((x) => x.status === 'complete') ?? null;
+    const diff = diffEntryPoints(s.listEntryPoints(snapshot.id), baseline ? s.listEntryPoints(baseline.id) : null);
+    return { snapshots, snapshot, baseline, ...diff };
+  }
+
   // --- background execution ---
 
   private async execute(job: Job, signal: AbortSignal): Promise<JobOutcome> {
     if (job.type !== AGENT_JOB) return { kind: 'failed', error: `неизвестный тип задачи ${job.type}` };
     const p = this.project(job.projectId);
     const s = this.store(job.projectId);
-    const cfg = this.resolve(job.projectId, job.role);
+    const cfg = this.resolveForJob(job);
     const sha = String(job.payload.commit_sha);
     const cwd = await this.worktreeCache(p).ensure(sha);
     if (signal.aborted) return { kind: signal.reason === 'taken_over' ? 'taken_over' : 'cancelled' };
@@ -418,7 +572,7 @@ export class Core extends EventEmitter {
         terminalId,
         maxTokens: cfg.settings.limits.max_tokens_per_run,
       });
-      s.finishRun(runId, res.status, res.usage, res.error);
+      this.finishRun(p.id, runId, res.status, res.usage, res.error);
       switch (res.status) {
         case 'succeeded':
           return { kind: 'done' };
@@ -432,7 +586,7 @@ export class Core extends EventEmitter {
           return { kind: 'failed', error: res.error ?? res.status };
       }
     } catch (e) {
-      s.finishRun(runId, 'failed', zeroUsage(), (e as Error).message);
+      this.finishRun(p.id, runId, 'failed', zeroUsage(), (e as Error).message);
       throw e;
     } finally {
       this.tokens.revoke(grant.token);
@@ -442,6 +596,14 @@ export class Core extends EventEmitter {
       resolveDone();
       this.send({ type: 'runs-changed', projectId: p.id });
     }
+  }
+
+  /** Finalizes a run together with the entry point snapshots it was building (complete only on success). */
+  private finishRun(projectId: string, runId: string, status: RunStatus, usage: TokenUsage, error: string | null): void {
+    const s = this.store(projectId);
+    s.finishRun(runId, status, usage, error);
+    s.finalizeSnapshots(runId, status === 'succeeded' || status === 'exited');
+    this.send({ type: 'modules-changed', projectId });
   }
 
   private writeMcpConfig(projectId: string, name: string, token: string): string {
@@ -633,7 +795,7 @@ export class Core extends EventEmitter {
         this.liveSessions.delete(o.sessionId);
         this.tokens.revoke(token);
         fs.rmSync(mcpPath, { force: true });
-        this.store(projectId).finishRun(runId, 'exited', zeroUsage(), code === 0 ? null : `код выхода ${code}`);
+        this.finishRun(projectId, runId, 'exited', zeroUsage(), code === 0 ? null : `код выхода ${code}`);
         this.send({ type: 'runs-changed', projectId });
         if (o.cwd === p.root) void this.checkCommits(projectId, o.commitSha);
       },
@@ -672,7 +834,7 @@ export class Core extends EventEmitter {
       true,
     );
     // The external process is not tracked; its run record is finalized right away.
-    this.store(projectId).finishRun(newRunId, 'exited', zeroUsage(), null);
+    this.finishRun(projectId, newRunId, 'exited', zeroUsage(), null);
     const envPart = Object.entries(cmd.env).map(([k, v]) => `${k}=${shellQuote(v)}`);
     const line = ['cd', shellQuote(cwd), '&&', ...envPart, shellQuote(cmd.binary), ...cmd.args.map(shellQuote)].join(' ');
     const app = this.resolve(projectId, run.role).settings.terminal.external_app;
