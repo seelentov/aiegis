@@ -71,6 +71,91 @@ export interface ResultRecord {
   createdAt: string;
 }
 
+export interface Module {
+  id: string;
+  name: string;
+  /** Git pathspec globs relative to the repository root; a leading "!" excludes. */
+  globs: string[];
+  description: string;
+  /** Author and run of the latest revision. */
+  author: string;
+  runId: string | null;
+  updatedAt: string;
+}
+
+export interface ModuleRevision {
+  id: string;
+  moduleId: string;
+  name: string;
+  globs: string[];
+  description: string;
+  deleted: boolean;
+  reason: string | null;
+  runId: string | null;
+  author: string;
+  createdAt: string;
+}
+
+export const ENTRY_POINT_KINDS = ['http', 'grpc', 'graphql', 'queue', 'cron', 'cli', 'websocket'] as const;
+export type EntryPointKind = (typeof ENTRY_POINT_KINDS)[number];
+
+export interface EntryPointInput {
+  kind: EntryPointKind;
+  /** HTTP method or similar qualifier, if any. */
+  method: string | null;
+  /** Route, RPC/topic/job/command name. */
+  name: string;
+  handler: { file: string; line: number };
+  middleware: string[];
+  /** Authorization requirements as found in code. */
+  auth: string;
+  params: { name: string; source: string; type?: string }[];
+  /** Call chain from the handler to sinks. */
+  callChain: { file: string; function: string; line?: number; sink?: string }[];
+  notes: string | null;
+}
+
+export interface EntryPoint extends EntryPointInput {
+  id: string;
+  snapshotId: string;
+  /** Identity within a snapshot: kind + method + name. */
+  key: string;
+  updatedAt: string;
+}
+
+export type SnapshotStatus = 'building' | 'complete' | 'failed';
+
+export interface EntryPointSnapshot {
+  id: string;
+  moduleId: string;
+  runId: string;
+  commitSha: string;
+  globs: string[];
+  status: SnapshotStatus;
+  /** Handler and call chain files; null while building. */
+  touchedFiles: string[] | null;
+  entryCount: number;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export type EntryPointChange = 'added' | 'changed' | 'same';
+
+export interface ModuleSummary extends Module {
+  latestSnapshot: EntryPointSnapshot | null;
+  /** Queued or running entry point job of the module. */
+  activeJob: { id: string; status: JobStatus } | null;
+}
+
+export interface EntryPointMap {
+  snapshots: EntryPointSnapshot[];
+  snapshot: EntryPointSnapshot | null;
+  /** Snapshot the changes are computed against (previous complete one). */
+  baseline: EntryPointSnapshot | null;
+  entries: (EntryPoint & { change: EntryPointChange })[];
+  removed: EntryPoint[];
+}
+
 export interface ProjectInfo {
   id: string;
   name: string;
@@ -115,6 +200,7 @@ export interface EffectiveConfigView {
 export type AppEvent =
   | { type: 'jobs-changed'; projectId: string }
   | { type: 'runs-changed'; projectId: string }
+  | { type: 'modules-changed'; projectId: string }
   | { type: 'queue-changed'; state: QueueState }
   | { type: 'terminals-changed' }
   | { type: 'terminal-data'; terminalId: string; data: string }

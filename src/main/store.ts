@@ -1,6 +1,21 @@
 import crypto from 'node:crypto';
 import type { DB } from './db';
-import type { Job, JobStatus, ResultRecord, Run, RunKind, RunStatus, TokenUsage } from '../shared/types';
+import type {
+  EntryPoint,
+  EntryPointInput,
+  EntryPointSnapshot,
+  Job,
+  JobStatus,
+  Module,
+  ModuleRevision,
+  ResultRecord,
+  Run,
+  RunKind,
+  RunStatus,
+  SnapshotStatus,
+  TokenUsage,
+} from '../shared/types';
+import { entryPointKey, touchedFiles } from './modules';
 
 const now = () => new Date().toISOString();
 
@@ -52,6 +67,75 @@ function toRun(projectId: string, r: Row): Run {
     startedAt: r.started_at as string,
     finishedAt: (r.finished_at as string) ?? null,
   };
+}
+
+function toRevision(r: Row): ModuleRevision {
+  return {
+    id: r.id as string,
+    moduleId: r.module_id as string,
+    name: r.name as string,
+    globs: JSON.parse(r.globs as string),
+    description: r.description as string,
+    deleted: Boolean(r.deleted),
+    reason: (r.reason as string) ?? null,
+    runId: (r.run_id as string) ?? null,
+    author: r.author as string,
+    createdAt: r.created_at as string,
+  };
+}
+
+function toModule(r: ModuleRevision): Module {
+  return {
+    id: r.moduleId,
+    name: r.name,
+    globs: r.globs,
+    description: r.description,
+    author: r.author,
+    runId: r.runId,
+    updatedAt: r.createdAt,
+  };
+}
+
+function toSnapshot(r: Row): EntryPointSnapshot {
+  return {
+    id: r.id as string,
+    moduleId: r.module_id as string,
+    runId: r.run_id as string,
+    commitSha: r.commit_sha as string,
+    globs: JSON.parse(r.globs as string),
+    status: r.status as SnapshotStatus,
+    touchedFiles: r.touched_files ? JSON.parse(r.touched_files as string) : null,
+    entryCount: r.entry_count as number,
+    createdAt: r.created_at as string,
+    finishedAt: (r.finished_at as string) ?? null,
+  };
+}
+
+function toEntryPoint(r: Row): EntryPoint {
+  const d = JSON.parse(r.data as string);
+  return {
+    id: r.id as string,
+    snapshotId: r.snapshot_id as string,
+    key: r.key as string,
+    kind: r.kind as EntryPoint['kind'],
+    method: (r.method as string) ?? null,
+    name: r.name as string,
+    handler: { file: r.handler_file as string, line: r.handler_line as number },
+    middleware: d.middleware,
+    auth: d.auth,
+    params: d.params,
+    callChain: d.callChain,
+    notes: d.notes ?? null,
+    updatedAt: r.updated_at as string,
+  };
+}
+
+const SNAPSHOT_SELECT = `SELECT s.*, (SELECT COUNT(*) FROM entry_points e WHERE e.snapshot_id = s.id) AS entry_count FROM ep_snapshots s`;
+
+/** Who wrote a module revision. */
+export interface Authorship {
+  author: string;
+  runId: string | null;
 }
 
 export interface NewJob {
@@ -210,5 +294,180 @@ export class ProjectStore {
       author: r.author as string,
       createdAt: r.created_at as string,
     }));
+  }
+
+  /** A queued or running job of the entity, if any. */
+  activeJobFor(entityType: string, entityId: string): Job | undefined {
+    const r = this.db
+      .prepare(`SELECT * FROM jobs WHERE entity_type = ? AND entity_id = ? AND status IN ('queued', 'running') ORDER BY created_at LIMIT 1`)
+      .get(entityType, entityId) as Row | undefined;
+    return r && toJob(this.projectId, r);
+  }
+
+  // --- modules ---
+
+  private latestRevisions(): ModuleRevision[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM module_revisions r
+           WHERE rowid = (SELECT MAX(rowid) FROM module_revisions WHERE module_id = r.module_id) ORDER BY name`,
+        )
+        .all() as Row[]
+    ).map(toRevision);
+  }
+
+  listModules(): Module[] {
+    return this.latestRevisions()
+      .filter((r) => !r.deleted)
+      .map(toModule);
+  }
+
+  /** Current module; undefined if unknown or deleted. */
+  getModule(id: string): Module | undefined {
+    const r = this.db
+      .prepare('SELECT * FROM module_revisions WHERE module_id = ? ORDER BY rowid DESC LIMIT 1')
+      .get(id) as Row | undefined;
+    const rev = r && toRevision(r);
+    return rev && !rev.deleted ? toModule(rev) : undefined;
+  }
+
+  moduleByName(name: string): Module | undefined {
+    return this.listModules().find((m) => m.name === name);
+  }
+
+  moduleHistory(id: string): ModuleRevision[] {
+    return (this.db.prepare('SELECT * FROM module_revisions WHERE module_id = ? ORDER BY rowid DESC').all(id) as Row[]).map(
+      toRevision,
+    );
+  }
+
+  /**
+   * Creates a module (no id) or appends a revision to an existing one.
+   * Names are unique among live modules; an unchanged module gets no new revision.
+   */
+  saveModule(m: { id?: string; name: string; globs: string[]; description: string }, by: Authorship): Module {
+    const name = m.name.trim();
+    if (!name) throw new Error('пустое имя модуля');
+    const clash = this.moduleByName(name);
+    if (clash && clash.id !== m.id) throw new Error(`модуль с именем ${name} уже есть`);
+    const cur = m.id ? this.getModule(m.id) : undefined;
+    if (m.id && !cur) throw new Error(`модуль ${m.id} не найден`);
+    const same = cur && cur.name === name && cur.description === m.description && JSON.stringify(cur.globs) === JSON.stringify(m.globs);
+    if (same) return cur;
+    const id = m.id ?? crypto.randomUUID();
+    this.insertRevision({ moduleId: id, name, globs: m.globs, description: m.description, deleted: false, reason: null }, by);
+    return this.getModule(id)!;
+  }
+
+  removeModule(id: string, reason: string, by: Authorship): void {
+    const cur = this.getModule(id);
+    if (!cur) throw new Error(`модуль ${id} не найден`);
+    this.insertRevision({ moduleId: id, name: cur.name, globs: cur.globs, description: cur.description, deleted: true, reason }, by);
+  }
+
+  private insertRevision(
+    r: { moduleId: string; name: string; globs: string[]; description: string; deleted: boolean; reason: string | null },
+    by: Authorship,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO module_revisions (id, module_id, name, globs, description, deleted, reason, run_id, author, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(crypto.randomUUID(), r.moduleId, r.name, JSON.stringify(r.globs), r.description, r.deleted ? 1 : 0, r.reason, by.runId, by.author, now());
+  }
+
+  // --- entry point snapshots ---
+
+  getSnapshot(id: string): EntryPointSnapshot | undefined {
+    const r = this.db.prepare(`${SNAPSHOT_SELECT} WHERE s.id = ?`).get(id) as Row | undefined;
+    return r && toSnapshot(r);
+  }
+
+  snapshotOf(runId: string, moduleId: string): EntryPointSnapshot | undefined {
+    const r = this.db.prepare(`${SNAPSHOT_SELECT} WHERE s.run_id = ? AND s.module_id = ?`).get(runId, moduleId) as Row | undefined;
+    return r && toSnapshot(r);
+  }
+
+  /** Newest first. */
+  listSnapshots(moduleId: string): EntryPointSnapshot[] {
+    return (this.db.prepare(`${SNAPSHOT_SELECT} WHERE s.module_id = ? ORDER BY s.created_at DESC, s.rowid DESC`).all(moduleId) as Row[]).map(
+      toSnapshot,
+    );
+  }
+
+  /** Current map of a module = its latest complete snapshot. */
+  latestSnapshot(moduleId: string): EntryPointSnapshot | undefined {
+    return this.listSnapshots(moduleId).find((s) => s.status === 'complete');
+  }
+
+  /**
+   * Snapshot a run writes into, created on first write. A run that resumes another run's session
+   * (parent_run_id) starts from the parent's snapshot so it can correct it instead of starting over.
+   */
+  ensureSnapshot(run: Run, moduleId: string): EntryPointSnapshot {
+    const existing = this.snapshotOf(run.id, moduleId);
+    if (existing) return existing;
+    const mod = this.getModule(moduleId);
+    if (!mod) throw new Error(`модуль ${moduleId} не найден`);
+    const id = crypto.randomUUID();
+    this.db.transaction(() => {
+      this.db
+        .prepare(`INSERT INTO ep_snapshots (id, module_id, run_id, commit_sha, globs, status, created_at) VALUES (?, ?, ?, ?, ?, 'building', ?)`)
+        .run(id, moduleId, run.id, run.commitSha, JSON.stringify(mod.globs), now());
+      const parent = run.parentRunId ? this.snapshotOf(run.parentRunId, moduleId) : undefined;
+      for (const e of parent ? this.listEntryPoints(parent.id) : []) this.upsertEntryPoint(id, e);
+    })();
+    return this.getSnapshot(id)!;
+  }
+
+  listEntryPoints(snapshotId: string): EntryPoint[] {
+    return (this.db.prepare('SELECT * FROM entry_points WHERE snapshot_id = ? ORDER BY kind, name, method').all(snapshotId) as Row[]).map(
+      toEntryPoint,
+    );
+  }
+
+  upsertEntryPoint(snapshotId: string, e: EntryPointInput): EntryPoint {
+    const key = entryPointKey(e);
+    const data = JSON.stringify({ middleware: e.middleware, auth: e.auth, params: e.params, callChain: e.callChain, notes: e.notes });
+    this.db
+      .prepare(
+        `INSERT INTO entry_points (id, snapshot_id, key, kind, method, name, handler_file, handler_line, data, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (snapshot_id, key) DO UPDATE SET handler_file = excluded.handler_file,
+           handler_line = excluded.handler_line, data = excluded.data, updated_at = excluded.updated_at`,
+      )
+      .run(crypto.randomUUID(), snapshotId, key, e.kind, e.method, e.name.trim(), e.handler.file, e.handler.line, data, now());
+    return toEntryPoint(this.db.prepare('SELECT * FROM entry_points WHERE snapshot_id = ? AND key = ?').get(snapshotId, key) as Row);
+  }
+
+  removeEntryPoint(snapshotId: string, key: string): boolean {
+    return this.db.prepare('DELETE FROM entry_points WHERE snapshot_id = ? AND key = ?').run(snapshotId, key).changes > 0;
+  }
+
+  /** Finalizes the snapshots a run was building: complete on success, failed otherwise. */
+  finalizeSnapshots(runId: string, ok: boolean): void {
+    const rows = this.db.prepare(`SELECT id FROM ep_snapshots WHERE run_id = ? AND status = 'building'`).all(runId) as { id: string }[];
+    for (const { id } of rows) this.finalizeSnapshot(id, ok ? 'complete' : 'failed');
+  }
+
+  private finalizeSnapshot(id: string, status: SnapshotStatus): void {
+    const files = touchedFiles(this.listEntryPoints(id));
+    this.db
+      .prepare('UPDATE ep_snapshots SET status = ?, touched_files = ?, finished_at = ? WHERE id = ?')
+      .run(status, JSON.stringify(files), now(), id);
+  }
+
+  /** After a crash, snapshots of finalized runs that are still building are marked failed. */
+  recoverSnapshots(): number {
+    const rows = this.db
+      .prepare(
+        `SELECT s.id FROM ep_snapshots s JOIN runs r ON r.id = s.run_id
+         WHERE s.status = 'building' AND r.finished_at IS NOT NULL`,
+      )
+      .all() as { id: string }[];
+    for (const { id } of rows) this.finalizeSnapshot(id, 'failed');
+    return rows.length;
   }
 }
