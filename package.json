@@ -1,8 +1,28 @@
 {
   "name": "aiegis",
-  "version": "0.1.0",
+  "productName": "aiegis",
+  "version": "0.5.0",
   "private": true,
-  "description": "Desktop wrapper over Claude Code for AppSec audits",
+  "description": "Desktop app on top of Claude Code for AppSec audits: requirement matrices, entry-point maps, SAST/SCA triage and PoC checks",
+  "author": "Vladislav Komkov <komkov222111@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/seelentov/aiegis#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seelentov/aiegis.git"
+  },
+  "bugs": {
+    "url": "https://github.com/seelentov/aiegis/issues"
+  },
+  "keywords": [
+    "appsec",
+    "security-audit",
+    "claude-code",
+    "electron",
+    "sast",
+    "sca",
+    "mcp"
+  ],
   "main": "dist/main.js",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -12,9 +32,55 @@
     "e2e": "npm run build && ELECTRON_RUN_AS_NODE=1 electron dist/e2e.js",
     "rebuild": "electron-rebuild -f -w better-sqlite3,node-pty",
     "postinstall": "electron-rebuild -f -w better-sqlite3,node-pty",
-    "icons": "electron scripts/icons.mjs"
+    "icons": "electron scripts/icons.mjs",
+    "dist": "npm run build && electron-builder --publish never"
   },
-  "license": "UNLICENSED",
+  "build": {
+    "appId": "io.github.seelentov.aiegis",
+    "productName": "aiegis",
+    "asar": false,
+    "files": [
+      "dist/**/*",
+      "!dist/e2e.js*",
+      "defaults/**/*",
+      "build/icon.png",
+      "build/icon.ico",
+      "build/icons/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "build/icons",
+      "maintainer": "Vladislav Komkov <komkov222111@gmail.com>"
+    }
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "better-sqlite3": "^13.0.3",
@@ -32,6 +98,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

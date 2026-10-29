@@ -212,7 +212,7 @@ function snapshot(cfg: EffectiveConfig): unknown {
   };
 }
 
-/** Everything the app does, independent of Electron (used by the window process and by e2e). */
+/** Everything the app does, independent of Electron (used by the window process and by headless runners). */
 export class Core extends EventEmitter {
   readonly registry: ProjectRegistry;
   readonly tokens = new TokenRegistry();

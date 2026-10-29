@@ -17,7 +17,7 @@ function platformDataDir(): string {
   return path.join(process.env.XDG_DATA_HOME ?? path.join(home, '.local', 'share'), 'aiegis');
 }
 
-/** AIEGIS_HOME / AIEGIS_DATA override locations (used by e2e). */
+/** AIEGIS_HOME / AIEGIS_DATA override locations (isolated data for headless runs). */
 export function resolveAppPaths(defaultsDir: string): AppPaths {
   return {
     globalDir: process.env.AIEGIS_HOME ?? path.join(os.homedir(), '.aiegis'),

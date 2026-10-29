@@ -9,7 +9,7 @@ mkdirSync('dist/renderer', { recursive: true });
 await Promise.all([
   build({ ...common, entryPoints: ['src/main/main.ts'], outfile: 'dist/main.js', platform: 'node', format: 'cjs', external }),
   build({ ...common, entryPoints: ['src/preload/preload.ts'], outfile: 'dist/preload.js', platform: 'node', format: 'cjs', external }),
-  // The e2e runner is local-only (not in the repository).
+  // Optional local runner, not part of the repository.
   ...(existsSync('e2e/run.ts')
     ? [build({ ...common, entryPoints: ['e2e/run.ts'], outfile: 'dist/e2e.js', platform: 'node', format: 'cjs', external })]
     : []),
