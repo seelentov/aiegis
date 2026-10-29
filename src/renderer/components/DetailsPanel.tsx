@@ -6,10 +6,11 @@ import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
 import { CellDetailsView, FindingDetailsView } from './AuditDetails';
 import { ConfigView } from './ConfigView';
 import { ModuleForm } from './ModulesTab';
+import { ScaItemDetailsView } from './ScaDetails';
 import { SignalDetailsView, SuppressionDetailsView } from './SignalDetails';
 
 export interface Selection {
-  kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression';
+  kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression' | 'sca';
   id: string;
   /** Matrix the cell was opened from (its cascade level). */
   matrixId?: string;
@@ -164,6 +165,13 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
       </aside>
     );
   }
+
+  if (selection.kind === 'sca')
+    return (
+      <aside className="details">
+        <ScaItemDetailsView project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} onTerminal={onTerminal} />
+      </aside>
+    );
 
   if (selection.kind === 'cell' || selection.kind === 'finding') {
     const common = { project, revision, run, onSelect, onTerminal };

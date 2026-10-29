@@ -51,7 +51,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
             <th>Статус</th>
             <th>CWE</th>
             <th>Модуль</th>
-            <th>Ячеек</th>
+            <th>Связи</th>
             <th>Создана</th>
           </tr>
         </thead>
@@ -78,7 +78,10 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
               </td>
               <td className="mono">{f.cwe ?? ''}</td>
               <td>{moduleName(f.moduleId)}</td>
-              <td>{f.cells.length}</td>
+              <td className="small">
+                {f.cells.length > 0 && <div>ячеек {f.cells.length}</div>}
+                {f.scaItems.length > 0 && <div>SCA {f.scaItems.length}</div>}
+              </td>
               <td className="small">
                 {time(f.createdAt)}
                 <div className="muted">{f.author}</div>

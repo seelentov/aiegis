@@ -2,9 +2,11 @@ import type {
   CellStatus,
   DocVersionStatus,
   FindingStatus,
+  InventoryStatus,
   JobStatus,
   ReviewState,
   RunStatus,
+  ScaItemStatus,
   ScanStatus,
   Severity,
   SignalKind,
@@ -95,3 +97,12 @@ export const SUPPRESSION_SCOPE: Record<SuppressionScope, string> = {
 };
 
 export const SUPPRESSION_STATE: Record<SuppressionState, string> = { active: 'действует', stale: 'устарело', expired: 'истёк срок', revoked: 'отозвано' };
+
+export const SCA_STATUS: Record<ScaItemStatus, string> = {
+  not_checked: 'не проверено',
+  reachable: 'достижима',
+  not_reachable: 'не достижима',
+  needs_human: 'нужен человек',
+};
+
+export const INVENTORY_STATUS: Record<InventoryStatus, string> = { building: 'строится', complete: 'готова', failed: 'неполная' };

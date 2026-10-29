@@ -165,6 +165,10 @@ a { color: var(--accent); cursor: pointer; }
 .cs-na, .fs-false_positive, .fs-accepted_risk, .sev-info { color: var(--muted); }
 .cs-not_checked { color: var(--muted); border-style: dashed; }
 .fs-verified { color: var(--accent); border-color: var(--accent); }
+.ss-reachable { color: var(--err); border-color: var(--err); }
+.ss-not_reachable { color: var(--ok); border-color: var(--ok); }
+.ss-needs_human { color: var(--warn); border-color: var(--warn); }
+.ss-not_checked { color: var(--muted); border-style: dashed; }
 .v-approved { color: var(--ok); border-color: var(--ok); }
 .v-review, .v-extracting { color: var(--accent); border-color: var(--accent); }
 .v-failed { color: var(--err); border-color: var(--err); }

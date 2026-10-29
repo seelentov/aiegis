@@ -164,6 +164,13 @@ export function SettingsTab({ project, run, notify }: Props) {
                   <td className="muted">{d.source}</td>
                 </tr>
               ))}
+              {view.dirs.map((d) => (
+                <tr key={'p' + d.value}>
+                  <td>dir</td>
+                  <td className="mono">{d.value}</td>
+                  <td className="muted">{d.source}</td>
+                </tr>
+              ))}
               {view.env.map((e) => (
                 <tr key={'e' + e.key}>
                   <td>env.{e.key}</td>

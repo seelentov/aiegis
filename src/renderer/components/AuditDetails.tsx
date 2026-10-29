@@ -16,7 +16,7 @@ interface Common {
 }
 
 /** "path[:line] [note]" per line. */
-function parseEvidence(text: string): Evidence[] {
+export function parseEvidence(text: string): Evidence[] {
   return text
     .split('\n')
     .map((l) => l.trim())
@@ -27,7 +27,7 @@ function parseEvidence(text: string): Evidence[] {
     });
 }
 
-function EvidenceList({ project, run, items }: { project: ProjectInfo; run: RunFn; items: Evidence[] }) {
+export function EvidenceList({ project, run, items }: { project: ProjectInfo; run: RunFn; items: Evidence[] }) {
   if (!items.length) return <span className="muted">—</span>;
   return (
     <ul className="evidence">
@@ -419,6 +419,20 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
         </div>
       ))}
 
+      {d.scaItems.length > 0 && (
+        <>
+          <h4>Уязвимые зависимости (SCA)</h4>
+          {d.scaItems.map((x) => (
+            <div key={`${x.moduleId}/${x.packageKey}#${x.vulnId}`} className="result">
+              <a onClick={() => onSelect({ kind: 'sca', id: `${x.moduleId}/${x.packageKey}#${x.vulnId}` })}>
+                <span className="mono">{x.vulnId}</span> в {x.packageKey}
+              </a>
+              <div className="muted small">модуль {x.moduleName ?? x.moduleId}</div>
+            </div>
+          ))}
+        </>
+      )}
+
       {!f.mergedInto && d.similar.length > 0 && (
         <>
           <h4>Похожие (ручное слияние)</h4>
@@ -452,7 +466,9 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
             {e.kind === 'created'
               ? 'создана'
               : e.kind === 'link'
-                ? `связана с ячейкой ${d.cells.find((c) => c.moduleId === e.cell?.moduleId && c.requirementId === e.cell?.requirementId)?.key ?? ''}`
+                ? e.scaItem
+                  ? `связана с уязвимостью ${e.scaItem.vulnId} в ${e.scaItem.packageKey}`
+                  : `связана с ячейкой ${d.cells.find((c) => c.moduleId === e.cell?.moduleId && c.requirementId === e.cell?.requirementId)?.key ?? ''}`
                 : e.kind === 'merged'
                   ? 'объединена с другой находкой'
                   : `статус: ${FINDING_STATUS[e.status!]}`}
