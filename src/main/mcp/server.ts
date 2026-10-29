@@ -3,7 +3,20 @@ import type { AddressInfo } from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { ENTRY_POINT_KINDS, type Job, type QueueState, type Run } from '../../shared/types';
+import crypto from 'node:crypto';
+import {
+  ENTRY_POINT_KINDS,
+  SEVERITIES,
+  VERDICT_STATUSES,
+  type CellDetails,
+  type Evidence,
+  type Finding,
+  type Job,
+  type MatrixView,
+  type QueueState,
+  type Run,
+} from '../../shared/types';
+import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
 import type { ProjectStore } from '../store';
 import { authorize, type Action, type Grant, type TokenRegistry } from './tokens';
@@ -14,9 +27,20 @@ export interface McpServices {
   enqueueTask(projectId: string, t: { prompt: string; role: string; title: string }): Job;
   stopJob(projectId: string, jobId: string): void;
   queueState(): QueueState;
+  /** Extracted text of a document version (quote checks); null when claude reads the file itself (PDF). */
+  documentText(projectId: string, versionId: string): string | null;
+  matrixView(projectId: string, matrixId: string): Promise<MatrixView>;
+  cellDetails(projectId: string, cell: CellRef): Promise<CellDetails>;
+  /** Queues verdict re-checks of cells (management access). */
+  recheckCells(projectId: string, cells: CellRef[]): Promise<Job[]>;
+  /** Max candidates of find_similar. */
+  similarLimit(projectId: string): number;
   /** Called after an agent wrote something, so the UI can refresh. */
   onWrite(projectId: string): void;
 }
+
+/** find_similar calls of each run: create_finding must present one of their ids (SPEC §4, Q23). */
+export type SimilarChecks = Map<string, Set<string>>;
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
@@ -24,7 +48,7 @@ const ok = (data: unknown): ToolResult => ({ content: [{ type: 'text', text: JSO
 const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true });
 
 /** Builds an MCP server instance whose tools are bound to one grant. */
-export function buildServer(grant: Grant, svc: McpServices): McpServer {
+export function buildServer(grant: Grant, svc: McpServices, checks: SimilarChecks = new Map()): McpServer {
   const server = new McpServer({ name: 'aiegis', version: '0.1.0' });
   const pid = grant.projectId;
   const guard = async (action: Action, fn: () => ToolResult | Promise<ToolResult>): Promise<ToolResult> => {
@@ -250,6 +274,331 @@ export function buildServer(grant: Grant, svc: McpServices): McpServer {
       }),
   );
 
+  // --- documents and requirements ---
+
+  server.registerTool(
+    'list_documents',
+    { description: 'Imported documents (standards, guidelines) with their versions and review status.' },
+    async () => guard({ kind: 'read' }, () => ok(svc.store(pid).audit.listDocuments())),
+  );
+
+  server.registerTool(
+    'get_requirements',
+    {
+      description:
+        'Requirement items of a document version (default: accepted items of the current approved version of document_id).',
+      inputSchema: { document_id: z.string().optional(), version_id: z.string().optional() },
+    },
+    async ({ document_id, version_id }) =>
+      guard({ kind: 'read' }, () => {
+        const a = svc.store(pid).audit;
+        if (version_id) return ok(a.listItems(version_id));
+        if (document_id) return ok(a.currentItems([document_id]));
+        return fail('укажите document_id или version_id');
+      }),
+  );
+
+  server.registerTool(
+    'add_requirement',
+    {
+      description:
+        'Record one requirement extracted from your document version (same key replaces the item). The quote must be copied verbatim from the document. Requires doc_version:<version_id> in scope.',
+      inputSchema: {
+        version_id: z.string(),
+        key: z.string().optional().describe('Id used in the document; omit to let aiegis generate one'),
+        text: z.string().min(1).describe('The requirement, self-contained, one or two sentences'),
+        section: z.string().describe('Section or group heading of the document'),
+        quote: z.string().min(1).describe('Exact source sentence(s) from the document'),
+      },
+    },
+    async ({ version_id, key, text, section, quote }) =>
+      guard({ kind: 'write', entity: { type: DOC_VERSION_ENTITY, id: version_id } }, () => {
+        liveRun();
+        const a = svc.store(pid).audit;
+        const v = a.getVersion(version_id);
+        if (!v) return fail(`версия ${version_id} не найдена`);
+        if (v.status === 'approved') return fail('версия уже утверждена; изменения невозможны');
+        const doc = svc.documentText(pid, version_id);
+        if (doc !== null && !quoteFound(doc, quote)) return fail('цитата не найдена в тексте документа: скопируйте предложение дословно');
+        const item = a.upsertItem(version_id, { key, text, section, quote }, by);
+        svc.onWrite(pid);
+        return ok({ saved: item.key, requirement_id: item.requirementId, items_in_version: a.listItems(version_id).length });
+      }),
+  );
+
+  // --- matrix ---
+
+  const cellArgs = { module_id: z.string(), requirement_id: z.string() };
+  const cellOf = (a: { module_id: string; requirement_id: string }): CellRef => ({ moduleId: a.module_id, requirementId: a.requirement_id });
+  const cellEntity = (c: CellRef) => ({ type: CELL_ENTITY, id: cellId(c) });
+  const evidenceSchema = z.array(
+    z.object({ file: z.string().min(1).describe('Path relative to the repository root'), line: z.number().int().min(1).optional(), note: z.string().optional() }),
+  );
+  /** Current requirement item and module of a cell; throws if either is gone. */
+  const cellTarget = (c: CellRef) => {
+    const s = svc.store(pid);
+    const item = s.audit.currentItem(c.requirementId);
+    if (!item) throw new Error(`требование ${c.requirementId} не найдено среди утверждённых`);
+    const mod = s.getModule(c.moduleId);
+    if (!mod) throw new Error(`модуль ${c.moduleId} не найден`);
+    return { item, mod };
+  };
+  const checkFiles = (cwd: string, files: Evidence[]) => {
+    for (const f of files) {
+      const err = repoFileError(cwd, f.file);
+      if (err) throw new Error(err);
+    }
+  };
+
+  server.registerTool(
+    'list_matrices',
+    { description: 'Requirement matrices of the project (documents x modules).' },
+    async () => guard({ kind: 'read' }, () => ok(svc.store(pid).audit.listMatrices())),
+  );
+
+  server.registerTool(
+    'get_matrix',
+    {
+      description: 'Cells of a matrix: status (not_checked | n/a | pass | finding | needs_human), stale flag, finding count.',
+      inputSchema: { matrix_id: z.string() },
+    },
+    async ({ matrix_id }) =>
+      guard({ kind: 'read' }, async () => {
+        const v = await svc.matrixView(pid, matrix_id);
+        return ok({
+          matrix: v.matrix,
+          head: v.head,
+          modules: v.modules.map((m) => ({ id: m.id, name: m.name })),
+          requirements: v.requirements.map((r) => ({ requirement_id: r.requirementId, key: r.key, section: r.section, text: r.text })),
+          cells: v.cells.map((c) => ({
+            module_id: c.moduleId,
+            requirement_id: c.requirementId,
+            status: c.status,
+            stale: c.stale,
+            findings: c.findingCount,
+          })),
+        });
+      }),
+  );
+
+  server.registerTool(
+    'get_cell',
+    { description: 'One matrix cell: requirement, verdict history, triage, linked findings.', inputSchema: cellArgs },
+    async (a) =>
+      guard({ kind: 'read' }, async () => {
+        const { config: _c, ...d } = await svc.cellDetails(pid, cellOf(a));
+        return ok({ ...d, verdicts: d.verdicts.map(({ run: _r, ...v }) => v) });
+      }),
+  );
+
+  server.registerTool(
+    'triage_cell',
+    {
+      description:
+        'Applicability triage of a cell in your scope: applicable=false marks it n/a with the reason; applicable=true leaves it for the verdict stage.',
+      inputSchema: { ...cellArgs, applicable: z.boolean(), reason: z.string().min(1) },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
+        const run = liveRun();
+        const c = cellOf(a);
+        const { item, mod } = cellTarget(c);
+        const audit = svc.store(pid).audit;
+        const hash = reqHash(item.text);
+        audit.addTriage({ ...c, reqHash: hash, applicable: a.applicable, reason: a.reason }, by);
+        if (!a.applicable) {
+          audit.addVerdict(
+            { ...c, itemId: item.id, reqHash: hash, status: 'n/a', reason: a.reason, evidence: [], commitSha: run.commitSha, touchedFiles: [], moduleGlobs: mod.globs },
+            by,
+          );
+        }
+        svc.onWrite(pid);
+        return ok({ cell: cellId(c), status: a.applicable ? 'not_checked' : 'n/a' });
+      }),
+  );
+
+  server.registerTool(
+    'set_verdict',
+    {
+      description:
+        'Verdict for a cell in your scope. pass/finding need evidence (code references) and a reason; finding needs a linked finding (create_finding or link_finding first); n/a and needs_human need a reason.',
+      inputSchema: {
+        ...cellArgs,
+        status: z.enum(VERDICT_STATUSES),
+        reason: z.string().min(1).describe('Justification'),
+        evidence: evidenceSchema.optional(),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
+        const run = liveRun();
+        const c = cellOf(a);
+        const { item, mod } = cellTarget(c);
+        const s = svc.store(pid);
+        const evidence = a.evidence ?? [];
+        if ((a.status === 'pass' || a.status === 'finding') && !evidence.length) return fail('для pass/finding нужны ссылки на код (evidence)');
+        checkFiles(run.cwd, evidence);
+        const findings = s.audit.findingsOfCell(c);
+        if (a.status === 'finding' && !findings.length)
+          return fail('сначала запишите находку: find_similar, затем create_finding или link_finding для этой ячейки');
+        const touched = new Set([
+          ...evidence.map((e) => e.file),
+          ...(a.status === 'finding' ? findings.flatMap((f) => f.files.map((x) => x.file)) : []),
+          ...(s.latestSnapshot(mod.id)?.touchedFiles ?? []),
+        ]);
+        const v = s.audit.addVerdict(
+          {
+            ...c,
+            itemId: item.id,
+            reqHash: reqHash(item.text),
+            status: a.status,
+            reason: a.reason,
+            evidence,
+            commitSha: run.commitSha,
+            touchedFiles: [...touched].sort(),
+            moduleGlobs: mod.globs,
+          },
+          by,
+        );
+        svc.onWrite(pid);
+        return ok({ saved: v.id, cell: cellId(c), status: v.status });
+      }),
+  );
+
+  // --- findings ---
+
+  const findingView = (f: Finding) => ({
+    finding_id: f.id,
+    title: f.title,
+    status: f.status,
+    severity: f.severity,
+    cwe: f.cwe,
+    module_id: f.moduleId,
+    entry_point: f.entryPoint,
+    files: f.files,
+    cells: f.cells,
+    description: f.description,
+  });
+
+  server.registerTool(
+    'list_findings',
+    {
+      description: 'Findings of the project (merged ones are omitted).',
+      inputSchema: { status: z.string().optional(), module_id: z.string().optional() },
+    },
+    async ({ status, module_id }) =>
+      guard({ kind: 'read' }, () =>
+        ok(
+          svc
+            .store(pid)
+            .audit.listFindings()
+            .filter((f) => !f.mergedInto && (!status || f.status === status) && (!module_id || f.moduleId === module_id))
+            .map(findingView),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'find_similar',
+    {
+      description:
+        'Deduplication check, mandatory before create_finding: existing findings with the same entry point, CWE or files. Returns a check_id for create_finding.',
+      inputSchema: {
+        module_id: z.string().optional(),
+        entry_point: z.string().optional().describe('Entry point key as in the map, e.g. "http POST /login"'),
+        files: z.array(z.string()).describe('Files of the flaw, relative to the repository root'),
+        cwe: z.string().optional().describe('e.g. CWE-639'),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'read' }, () => {
+        const s = svc.store(pid);
+        const similar = rankSimilar(
+          { moduleId: a.module_id ?? null, entryPoint: a.entry_point ?? null, cwe: a.cwe ?? null, files: a.files.map((file) => ({ file })) },
+          s.audit.listFindings(),
+          svc.similarLimit(pid),
+        );
+        const checkId = crypto.randomUUID();
+        const set = checks.get(grant.runId) ?? new Set<string>();
+        set.add(checkId);
+        checks.set(grant.runId, set);
+        return ok({ check_id: checkId, candidates: similar.map((x) => ({ ...findingView(x.finding), score: x.score, reasons: x.reasons })) });
+      }),
+  );
+
+  server.registerTool(
+    'create_finding',
+    {
+      description:
+        'Create a finding (status suspected) linked to a cell in your scope. Call find_similar first and pass its check_id; if a candidate is the same flaw, use link_finding instead.',
+      inputSchema: {
+        ...cellArgs,
+        check_id: z.string().describe('check_id returned by find_similar in this run'),
+        title: z.string().min(1),
+        description: z.string().min(1).describe('What is wrong, how it can be exploited, impact'),
+        severity: z.enum(SEVERITIES),
+        cwe: z.string().optional(),
+        entry_point: z.string().optional().describe('Entry point key, if reachable through one'),
+        files: evidenceSchema.min(1),
+        recommendation: z.string().optional(),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
+        const run = liveRun();
+        if (!checks.get(grant.runId)?.has(a.check_id)) return fail('нет такого check_id: сначала вызовите find_similar в этом прогоне');
+        const c = cellOf(a);
+        cellTarget(c);
+        checkFiles(run.cwd, a.files);
+        const f = svc.store(pid).audit.createFinding(
+          {
+            title: a.title.trim(),
+            description: a.description,
+            severity: a.severity,
+            cwe: a.cwe?.trim() || null,
+            moduleId: c.moduleId,
+            entryPoint: a.entry_point?.trim() || null,
+            files: a.files,
+            recommendation: a.recommendation ?? null,
+          },
+          [c],
+          by,
+        );
+        svc.onWrite(pid);
+        return ok({ finding_id: f.id, status: f.status });
+      }),
+  );
+
+  server.registerTool(
+    'link_finding',
+    {
+      description: 'Link an existing finding (e.g. a find_similar candidate) to a cell in your scope.',
+      inputSchema: { ...cellArgs, finding_id: z.string() },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
+        liveRun();
+        const c = cellOf(a);
+        cellTarget(c);
+        const f = svc.store(pid).audit.linkFinding(a.finding_id, c, by);
+        svc.onWrite(pid);
+        return ok({ finding_id: f.id, cells: f.cells.length });
+      }),
+  );
+
+  server.registerTool(
+    'recheck_cells',
+    {
+      description: 'Queue verdict re-checks of matrix cells (requires management access); a dry-run estimate is not shown here.',
+      inputSchema: { cells: z.array(z.object(cellArgs)).min(1) },
+    },
+    async ({ cells }) =>
+      guard({ kind: 'manage' }, async () => {
+        const jobs = await svc.recheckCells(pid, cells.map(cellOf));
+        return ok(jobs.map((j) => ({ job_id: j.id, title: j.title, cells: (j.payload.cells as string[]).length })));
+      }),
+  );
+
   server.registerTool(
     'enqueue_task',
     {
@@ -299,12 +648,18 @@ function readBody(req: http.IncomingMessage): Promise<unknown> {
 /** HTTP MCP server on 127.0.0.1:<random>; each request is authenticated by its run token. */
 export class AiegisMcpServer {
   private server: http.Server | null = null;
+  private readonly checks: SimilarChecks = new Map();
   port = 0;
 
   constructor(
     private readonly tokens: TokenRegistry,
     private readonly svc: McpServices,
   ) {}
+
+  /** Drops per-run state once the run's token is revoked. */
+  forgetRun(runId: string): void {
+    this.checks.delete(runId);
+  }
 
   url(): string {
     return `http://127.0.0.1:${this.port}/mcp`;
@@ -342,7 +697,7 @@ export class AiegisMcpServer {
       return;
     }
     const body = await readBody(req);
-    const server = buildServer(grant, this.svc);
+    const server = buildServer(grant, this.svc, this.checks);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       void transport.close();

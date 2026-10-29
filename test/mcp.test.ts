@@ -12,6 +12,7 @@ import { tmpDir, write } from './helpers';
 const tokens = new TokenRegistry();
 const store = new ProjectStore('p1', openDb(':memory:'));
 const enqueued: string[] = [];
+let docText: string | null = null;
 const server = new AiegisMcpServer(tokens, {
   store: () => store,
   projectName: () => 'demo',
@@ -21,6 +22,11 @@ const server = new AiegisMcpServer(tokens, {
   },
   stopJob: () => undefined,
   queueState: () => ({ pausedUntil: null, parallelism: 2, running: 0 }),
+  documentText: () => docText,
+  matrixView: () => Promise.reject(new Error('n/a')),
+  cellDetails: () => Promise.reject(new Error('n/a')),
+  recheckCells: () => Promise.resolve([]),
+  similarLimit: () => 5,
   onWrite: () => undefined,
 });
 
@@ -144,6 +150,79 @@ describe('MCP module and entry point tools', () => {
     const read = JSON.parse(text(await c.callTool({ name: 'get_entry_points', arguments: { module_id: mod.id } })));
     expect(read.snapshot.id).toBe(snap.id);
     expect(read.entry_points).toHaveLength(1);
+    await c.close();
+  });
+});
+
+describe('MCP requirement, matrix and finding tools', () => {
+  const repo = tmpDir();
+  write(path.join(repo, 'svc/Api.java'), 'class Api {}');
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const a = store.audit;
+  const base = { kind: 'background' as const, author: 'ai', sessionId: 's', cwd: repo, commitSha: 'c1', configSnapshot: {} };
+
+  it('add_requirement: own version only, verbatim quotes, not after approval', async () => {
+    const doc = a.createDocument('Guide');
+    const v = a.addVersion(doc, { filename: 'g.md', format: 'md', sha256: 'x' });
+    const other = a.addVersion(a.createDocument('Other'), { filename: 'o.md', format: 'md', sha256: 'y' });
+    docText = '# Access\nEvery endpoint must check authorization.\n';
+    const run = store.startRun({ ...base, role: 'requirements' });
+    const g = tokens.issue({ projectId: 'p1', role: 'requirements', access: 'scoped', sessionId: 's', runId: run.id, scope: [{ type: 'doc_version', id: v.id }] });
+    const c = await connect(g.token);
+    const args = { version_id: v.id, key: 'A-1', text: 'Endpoints check authorization', section: 'Access', quote: 'every endpoint must check  authorization' };
+    expect(JSON.parse(text(await c.callTool({ name: 'add_requirement', arguments: args })))).toMatchObject({ saved: 'A-1', items_in_version: 1 });
+    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, quote: 'made up' } }))).toMatch(/цитата не найдена/);
+    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, version_id: other.id } }))).toMatch(/вне scope/);
+    expect(a.listItems(v.id)).toMatchObject([{ key: 'A-1', review: 'pending', author: 'ai:requirements', runId: run.id }]);
+    a.setVersionStatus(v.id, 'review');
+    a.reviewItems(v.id, a.listItems(v.id).map((i) => i.id), 'accepted');
+    a.approveVersion(v.id, 'human');
+    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, key: 'A-2' } }))).toMatch(/утверждена/);
+    docText = null;
+    await c.close();
+  });
+
+  it('verdicts: cells in scope only, evidence required and must exist, finding needs find_similar + a linked finding', async () => {
+    const mod = store.saveModule({ name: 'api', globs: ['svc/**'], description: '' }, { author: 'human', runId: null });
+    const doc = a.listDocuments().find((d) => d.title === 'Guide')!;
+    const item = a.currentItems([doc.id])[0];
+    const cell = { module_id: mod.id, requirement_id: item.requirementId };
+    const run = store.startRun({ ...base, role: 'matrix' });
+    const g = tokens.issue({ projectId: 'p1', role: 'matrix', access: 'scoped', sessionId: 's', runId: run.id, scope: [{ type: 'cell', id: `${mod.id}/${item.requirementId}` }] });
+    const c = await connect(g.token);
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const r = await c.callTool({ name, arguments: args });
+      return { err: Boolean(r.isError), text: text(r) };
+    };
+    const evidence = [{ file: 'svc/Api.java', line: 1, note: 'check' }];
+    expect((await call('set_verdict', { ...cell, status: 'pass', reason: 'ok' })).text).toMatch(/evidence/);
+    expect((await call('set_verdict', { ...cell, status: 'pass', reason: 'ok', evidence: [{ file: 'svc/Nope.java' }] })).text).toMatch(/не найден/);
+    expect((await call('set_verdict', { ...cell, status: 'finding', reason: 'bad', evidence })).text).toMatch(/find_similar/);
+    expect((await call('set_verdict', { module_id: mod.id, requirement_id: 'other', status: 'n/a', reason: 'x' })).text).toMatch(/вне scope/);
+    expect((await call('create_finding', { ...cell, check_id: 'nope', title: 't', description: 'd', severity: 'high', files: evidence })).text).toMatch(/find_similar/);
+
+    const sim = JSON.parse((await call('find_similar', { module_id: mod.id, files: ['svc/Api.java'], cwe: 'CWE-639' })).text);
+    expect(sim.candidates).toEqual([]);
+    const created = JSON.parse(
+      (await call('create_finding', { ...cell, check_id: sim.check_id, title: 'IDOR', description: 'd', severity: 'high', cwe: 'CWE-639', files: evidence })).text,
+    );
+    expect(created.status).toBe('suspected');
+    const v = await call('set_verdict', { ...cell, status: 'finding', reason: 'no owner check', evidence });
+    expect(v.err).toBe(false);
+    const verdict = a.latestVerdicts().get(`${mod.id}/${item.requirementId}`)!;
+    expect(verdict).toMatchObject({ status: 'finding', commitSha: 'c1', author: 'ai:matrix', runId: run.id, touchedFiles: ['svc/Api.java'], moduleGlobs: ['svc/**'] });
+
+    // A second agent finds the same flaw: the candidate is returned and linked instead of duplicated.
+    const again = JSON.parse((await call('find_similar', { module_id: mod.id, files: ['svc/Api.java'], cwe: 'cwe-639' })).text);
+    expect(again.candidates[0]).toMatchObject({ finding_id: created.finding_id, reasons: expect.arrayContaining(['тот же CWE-639']) });
+    expect((await call('link_finding', { ...cell, finding_id: created.finding_id })).err).toBe(false);
+    expect(a.listFindings()).toHaveLength(1);
+
+    const tri = await call('triage_cell', { ...cell, applicable: false, reason: 'no HTTP' });
+    expect(JSON.parse(tri.text).status).toBe('n/a');
+    expect(a.latestVerdicts().get(`${mod.id}/${item.requirementId}`)).toMatchObject({ status: 'n/a', reason: 'no HTTP' });
+    expect((await call('recheck_cells', { cells: [cell] })).text).toMatch(/прав управления/);
     await c.close();
   });
 });
