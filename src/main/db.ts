@@ -134,6 +134,167 @@ const MIGRATIONS: string[] = [
   WHEN (SELECT status FROM ep_snapshots WHERE id = OLD.snapshot_id) <> 'building'
   BEGIN SELECT RAISE(ABORT, 'snapshot is finalized and immutable'); END;
   `,
+  `
+  -- Scope of the run's token (JSON array of {type, id}); resumed sessions get the same scope.
+  ALTER TABLE runs ADD COLUMN scope TEXT;
+
+  -- Documents (SPEC §4, Q17): each import is a version; the latest approved version feeds matrices.
+  CREATE TABLE documents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE doc_versions (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(id),
+    n INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    format TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    approved_at TEXT,
+    approved_by TEXT,
+    UNIQUE (document_id, n)
+  );
+  CREATE TRIGGER doc_versions_frozen BEFORE UPDATE ON doc_versions WHEN OLD.status = 'approved'
+  BEGIN SELECT RAISE(ABORT, 'approved version is immutable'); END;
+  CREATE TRIGGER doc_versions_no_delete BEFORE DELETE ON doc_versions
+  BEGIN SELECT RAISE(ABORT, 'document versions are append-only'); END;
+
+  -- Stable identity of a requirement across versions: document + key.
+  CREATE TABLE requirements (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(id),
+    key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (document_id, key)
+  );
+  CREATE TABLE req_items (
+    id TEXT PRIMARY KEY,
+    version_id TEXT NOT NULL REFERENCES doc_versions(id),
+    requirement_id TEXT NOT NULL REFERENCES requirements(id),
+    key TEXT NOT NULL,
+    text TEXT NOT NULL,
+    section TEXT NOT NULL,
+    quote TEXT NOT NULL,
+    review TEXT NOT NULL,
+    author TEXT NOT NULL,
+    run_id TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE (version_id, key)
+  );
+  CREATE TRIGGER req_items_frozen_insert BEFORE INSERT ON req_items
+  WHEN (SELECT status FROM doc_versions WHERE id = NEW.version_id) = 'approved'
+  BEGIN SELECT RAISE(ABORT, 'approved version is immutable'); END;
+  CREATE TRIGGER req_items_frozen_update BEFORE UPDATE ON req_items
+  WHEN (SELECT status FROM doc_versions WHERE id = OLD.version_id) = 'approved'
+  BEGIN SELECT RAISE(ABORT, 'approved version is immutable'); END;
+  CREATE TRIGGER req_items_frozen_delete BEFORE DELETE ON req_items
+  WHEN (SELECT status FROM doc_versions WHERE id = OLD.version_id) = 'approved'
+  BEGIN SELECT RAISE(ABORT, 'approved version is immutable'); END;
+
+  CREATE TABLE matrices (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    documents TEXT NOT NULL,
+    modules TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- Cell verdicts (SPEC §4, Q8/Q9): append-only; the latest verdict of (module, requirement) is the cell status.
+  CREATE TABLE verdicts (
+    id TEXT PRIMARY KEY,
+    module_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL REFERENCES requirements(id),
+    item_id TEXT NOT NULL REFERENCES req_items(id),
+    req_hash TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    touched_files TEXT NOT NULL,
+    module_globs TEXT NOT NULL,
+    run_id TEXT,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX verdicts_cell ON verdicts(module_id, requirement_id);
+  CREATE INDEX verdicts_run ON verdicts(run_id);
+  CREATE TRIGGER verdicts_no_update BEFORE UPDATE ON verdicts
+  BEGIN SELECT RAISE(ABORT, 'verdicts are append-only'); END;
+  CREATE TRIGGER verdicts_no_delete BEFORE DELETE ON verdicts
+  BEGIN SELECT RAISE(ABORT, 'verdicts are append-only'); END;
+
+  -- Applicability triage (stage 1 of the matrix); n/a also writes a verdict.
+  CREATE TABLE triage (
+    id TEXT PRIMARY KEY,
+    module_id TEXT NOT NULL,
+    requirement_id TEXT NOT NULL,
+    req_hash TEXT NOT NULL,
+    applicable INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    run_id TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX triage_cell ON triage(module_id, requirement_id);
+  CREATE INDEX triage_run ON triage(run_id);
+  CREATE TRIGGER triage_no_update BEFORE UPDATE ON triage
+  BEGIN SELECT RAISE(ABORT, 'triage is append-only'); END;
+  CREATE TRIGGER triage_no_delete BEFORE DELETE ON triage
+  BEGIN SELECT RAISE(ABORT, 'triage is append-only'); END;
+
+  -- Findings (SPEC §4, Q9/Q23): immutable record + append-only events (status, merge, links).
+  CREATE TABLE findings (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    cwe TEXT,
+    module_id TEXT,
+    entry_point TEXT,
+    files TEXT NOT NULL,
+    recommendation TEXT,
+    run_id TEXT,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE TRIGGER findings_no_update BEFORE UPDATE ON findings
+  BEGIN SELECT RAISE(ABORT, 'findings are immutable'); END;
+  CREATE TRIGGER findings_no_delete BEFORE DELETE ON findings
+  BEGIN SELECT RAISE(ABORT, 'findings are append-only'); END;
+  CREATE TABLE finding_events (
+    id TEXT PRIMARY KEY,
+    finding_id TEXT NOT NULL REFERENCES findings(id),
+    kind TEXT NOT NULL,
+    status TEXT,
+    reason TEXT,
+    merged_into TEXT,
+    module_id TEXT,
+    requirement_id TEXT,
+    run_id TEXT,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX finding_events_finding ON finding_events(finding_id);
+  CREATE INDEX finding_events_cell ON finding_events(module_id, requirement_id);
+  CREATE TRIGGER finding_events_no_update BEFORE UPDATE ON finding_events
+  BEGIN SELECT RAISE(ABORT, 'finding events are append-only'); END;
+  CREATE TRIGGER finding_events_no_delete BEFORE DELETE ON finding_events
+  BEGIN SELECT RAISE(ABORT, 'finding events are append-only'); END;
+
+  -- Validity (SPEC §5): whether a verdict or snapshot still holds at a commit; computed without AI.
+  CREATE TABLE validity (
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    valid INTEGER NOT NULL,
+    changed_files TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY (entity_type, entity_id, commit_sha)
+  );
+  `,
 ];
 
 export function migrate(db: DB): void {

@@ -15,6 +15,7 @@ import type {
   SnapshotStatus,
   TokenUsage,
 } from '../shared/types';
+import { AuditStore } from './audit-store';
 import { entryPointKey, touchedFiles } from './modules';
 
 const now = () => new Date().toISOString();
@@ -50,6 +51,7 @@ function toRun(projectId: string, r: Row): Run {
     author: r.author as string,
     entityType: (r.entity_type as string) ?? null,
     entityId: (r.entity_id as string) ?? null,
+    scope: r.scope ? JSON.parse(r.scope as string) : r.entity_type ? [{ type: r.entity_type, id: r.entity_id }] : [],
     sessionId: r.session_id as string,
     cwd: r.cwd as string,
     commitSha: r.commit_sha as string,
@@ -155,6 +157,8 @@ export interface NewRun {
   author: string;
   entityType?: string | null;
   entityId?: string | null;
+  /** Entities the token may write; defaults to the entity. */
+  scope?: { type: string; id: string }[];
   sessionId: string;
   cwd: string;
   commitSha: string;
@@ -164,10 +168,15 @@ export interface NewRun {
 
 /** Per-project persistence on top of db.sqlite. */
 export class ProjectStore {
+  /** Documents, requirements, matrix cells and findings. */
+  readonly audit: AuditStore;
+
   constructor(
     readonly projectId: string,
     readonly db: DB,
-  ) {}
+  ) {
+    this.audit = new AuditStore(db);
+  }
 
   // --- jobs ---
 
@@ -203,6 +212,33 @@ export class ProjectStore {
     this.db.prepare('UPDATE jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?').run(status, error, now(), id);
   }
 
+  setJobPayload(id: string, payload: Record<string, unknown>): void {
+    this.db.prepare('UPDATE jobs SET payload = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(payload), now(), id);
+  }
+
+  /** Queued and running jobs (any entity). */
+  activeJobs(): Job[] {
+    return (this.db.prepare(`SELECT * FROM jobs WHERE status IN ('queued', 'running') ORDER BY created_at`).all() as Row[]).map((r) =>
+      toJob(this.projectId, r),
+    );
+  }
+
+  /** Runs started for a job, oldest first. */
+  jobRuns(jobId: string): Run[] {
+    return (this.db.prepare('SELECT * FROM runs WHERE job_id = ? ORDER BY started_at, rowid').all(jobId) as Row[]).map((r) =>
+      toRun(this.projectId, r),
+    );
+  }
+
+  /** Latest finished successful background runs of a role (dry-run estimates). */
+  recentRuns(role: string, limit: number): Run[] {
+    return (
+      this.db
+        .prepare(`SELECT * FROM runs WHERE role = ? AND kind = 'background' AND status = 'succeeded' ORDER BY started_at DESC LIMIT ?`)
+        .all(role, limit) as Row[]
+    ).map((r) => toRun(this.projectId, r));
+  }
+
   setJobRun(id: string, runId: string): void {
     this.db.prepare('UPDATE jobs SET last_run_id = ?, updated_at = ? WHERE id = ?').run(runId, now(), id);
   }
@@ -217,9 +253,9 @@ export class ProjectStore {
   startRun(r: NewRun, id: string = crypto.randomUUID()): Run {
     this.db
       .prepare(
-        `INSERT INTO runs (id, job_id, parent_run_id, kind, role, author, entity_type, entity_id, session_id, cwd,
+        `INSERT INTO runs (id, job_id, parent_run_id, kind, role, author, entity_type, entity_id, scope, session_id, cwd,
                            commit_sha, config_snapshot, log_path, status, started_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)`,
       )
       .run(
         id,
@@ -230,6 +266,7 @@ export class ProjectStore {
         r.author,
         r.entityType ?? null,
         r.entityId ?? null,
+        JSON.stringify(r.scope ?? (r.entityType && r.entityId ? [{ type: r.entityType, id: r.entityId }] : [])),
         r.sessionId,
         r.cwd,
         r.commitSha,
@@ -302,6 +339,21 @@ export class ProjectStore {
       .prepare(`SELECT * FROM jobs WHERE entity_type = ? AND entity_id = ? AND status IN ('queued', 'running') ORDER BY created_at LIMIT 1`)
       .get(entityType, entityId) as Row | undefined;
     return r && toJob(this.projectId, r);
+  }
+
+  /** Latest job of the entity in any status. */
+  latestJobFor(entityType: string, entityId: string): Job | undefined {
+    const r = this.db
+      .prepare(`SELECT * FROM jobs WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      .get(entityType, entityId) as Row | undefined;
+    return r && toJob(this.projectId, r);
+  }
+
+  /** Runs of an entity (newest first): e.g. fix sessions of a finding. */
+  entityRuns(entityType: string, entityId: string): Run[] {
+    return (
+      this.db.prepare('SELECT * FROM runs WHERE entity_type = ? AND entity_id = ? ORDER BY started_at DESC, rowid DESC').all(entityType, entityId) as Row[]
+    ).map((r) => toRun(this.projectId, r));
   }
 
   // --- modules ---
