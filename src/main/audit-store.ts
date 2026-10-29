@@ -13,12 +13,14 @@ import type {
   ItemChange,
   Matrix,
   RequirementItem,
+  ScaItemRef,
   ReviewState,
   TriageMark,
   Verdict,
   VerdictStatus,
 } from '../shared/types';
 import { cellId, reqHash, type CellRef } from './matrix';
+import { scaItemId } from './sca';
 import type { Authorship } from './store';
 
 const now = () => new Date().toISOString();
@@ -114,7 +116,8 @@ function toEvent(r: Row): FindingEvent {
     status: (r.status as FindingStatus) ?? null,
     reason: (r.reason as string) ?? null,
     mergedInto: (r.merged_into as string) ?? null,
-    cell: r.module_id ? { moduleId: r.module_id as string, requirementId: r.requirement_id as string } : null,
+    cell: r.module_id && r.requirement_id ? { moduleId: r.module_id as string, requirementId: r.requirement_id as string } : null,
+    scaItem: r.module_id && r.package_key ? { moduleId: r.module_id as string, packageKey: r.package_key as string, vulnId: r.vuln_id as string } : null,
     runId: (r.run_id as string) ?? null,
     author: r.author as string,
     createdAt: r.created_at as string,
@@ -126,11 +129,13 @@ function toFinding(r: Row, events: FindingEvent[]): Finding {
   let status: FindingStatus = 'suspected';
   let mergedInto: string | null = null;
   const cells = new Map<string, CellRef>();
+  const sca = new Map<string, ScaItemRef>();
   let updatedAt = r.created_at as string;
   for (const e of events) {
     if (e.kind === 'status' && e.status) status = e.status;
     if (e.kind === 'merged') mergedInto = e.mergedInto;
     if (e.kind === 'link' && e.cell) cells.set(cellId(e.cell), e.cell);
+    if (e.kind === 'link' && e.scaItem) sca.set(scaItemId(e.scaItem), e.scaItem);
     updatedAt = e.createdAt;
   }
   return {
@@ -146,6 +151,7 @@ function toFinding(r: Row, events: FindingEvent[]): Finding {
     status,
     mergedInto,
     cells: [...cells.values()],
+    scaItems: [...sca.values()],
     runId: (r.run_id as string) ?? null,
     author: r.author as string,
     createdAt: r.created_at as string,
@@ -463,13 +469,13 @@ export class AuditStore {
 
   private insertEvent(
     findingId: string,
-    e: { kind: FindingEvent['kind']; status?: FindingStatus; reason?: string | null; mergedInto?: string; cell?: CellRef },
+    e: { kind: FindingEvent['kind']; status?: FindingStatus; reason?: string | null; mergedInto?: string; cell?: CellRef; scaItem?: ScaItemRef },
     by: Authorship,
   ): void {
     this.db
       .prepare(
-        `INSERT INTO finding_events (id, finding_id, kind, status, reason, merged_into, module_id, requirement_id, run_id, author, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO finding_events (id, finding_id, kind, status, reason, merged_into, module_id, requirement_id, package_key, vuln_id, run_id, author, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         crypto.randomUUID(),
@@ -478,15 +484,17 @@ export class AuditStore {
         e.status ?? null,
         e.reason ?? null,
         e.mergedInto ?? null,
-        e.cell?.moduleId ?? null,
+        e.cell?.moduleId ?? e.scaItem?.moduleId ?? null,
         e.cell?.requirementId ?? null,
+        e.scaItem?.packageKey ?? null,
+        e.scaItem?.vulnId ?? null,
         by.runId,
         by.author,
         now(),
       );
   }
 
-  createFinding(f: FindingInput, cells: CellRef[], by: Authorship): Finding {
+  createFinding(f: FindingInput, cells: CellRef[], by: Authorship, scaItems: ScaItemRef[] = []): Finding {
     const id = crypto.randomUUID();
     this.db.transaction(() => {
       this.db
@@ -497,6 +505,7 @@ export class AuditStore {
         .run(id, f.title, f.description, f.severity, f.cwe, f.moduleId, f.entryPoint, JSON.stringify(f.files), f.recommendation, by.runId, by.author, now());
       this.insertEvent(id, { kind: 'created', status: 'suspected' }, by);
       for (const c of cells) this.insertEvent(id, { kind: 'link', cell: c }, by);
+      for (const x of scaItems) this.insertEvent(id, { kind: 'link', scaItem: x }, by);
     })();
     return this.getFinding(id)!;
   }
@@ -529,6 +538,25 @@ export class AuditStore {
     return ids.map((id) => this.getFinding(id)!).filter((f) => !f.mergedInto);
   }
 
+  /** Live (not merged) findings linked to an SCA item. */
+  findingsOfScaItem(x: ScaItemRef): Finding[] {
+    const ids = (
+      this.db
+        .prepare(`SELECT DISTINCT finding_id FROM finding_events WHERE kind = 'link' AND module_id = ? AND package_key = ? AND vuln_id = ?`)
+        .all(x.moduleId, x.packageKey, x.vulnId) as { finding_id: string }[]
+    ).map((r) => r.finding_id);
+    return ids.map((id) => this.getFinding(id)!).filter((f) => !f.mergedInto);
+  }
+
+  /** Links a finding to an SCA item; merged findings resolve to their target. */
+  linkScaFinding(id: string, x: ScaItemRef, by: Authorship): Finding {
+    let f = this.getFinding(id);
+    if (!f) throw new Error(`находка ${id} не найдена`);
+    while (f.mergedInto) f = this.getFinding(f.mergedInto)!;
+    if (!f.scaItems.some((y) => scaItemId(y) === scaItemId(x))) this.insertEvent(f.id, { kind: 'link', scaItem: x }, by);
+    return this.getFinding(f.id)!;
+  }
+
   setFindingStatus(id: string, status: FindingStatus, reason: string | null, by: Authorship): Finding {
     const f = this.getFinding(id);
     if (!f) throw new Error(`находка ${id} не найдена`);
@@ -556,8 +584,19 @@ export class AuditStore {
     this.db.transaction(() => {
       this.insertEvent(sourceId, { kind: 'merged', mergedInto: targetId }, by);
       for (const c of src.cells) if (!dst.cells.some((x) => cellId(x) === cellId(c))) this.insertEvent(targetId, { kind: 'link', cell: c }, by);
+      for (const x of src.scaItems) if (!dst.scaItems.some((y) => scaItemId(y) === scaItemId(x))) this.insertEvent(targetId, { kind: 'link', scaItem: x }, by);
     })();
     return this.getFinding(targetId)!;
+  }
+
+  /** Number of live findings per SCA item id. */
+  scaFindingCounts(): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const f of this.listFindings()) {
+      if (f.mergedInto) continue;
+      for (const x of f.scaItems) out.set(scaItemId(x), (out.get(scaItemId(x)) ?? 0) + 1);
+    }
+    return out;
   }
 
   /** Number of live findings per cell id. */

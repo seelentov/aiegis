@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { backgroundCommand, interactiveCommand, shellQuote } from '../src/main/claude/args';
 import { billableTokens, formatEvent, LineSplitter, StreamTracker } from '../src/main/claude/stream';
@@ -85,6 +87,12 @@ describe('claude command', () => {
     expect(a[a.indexOf('--disallowedTools') + 1]).toContain('Edit');
     expect(a[a.indexOf('--append-system-prompt') + 1]).toContain('submit_result');
     expect(a).toContain('--strict-mcp-config');
+    expect(a).not.toContain('--add-dir');
+  });
+
+  it('extra directories of a role become --add-dir, ~/ expanded', () => {
+    const a = backgroundCommand(resolveConfig({ globalDir: g }, { role: 'sca-inventory' }), { sessionId: 's', mcpConfigPath: '/m' }).args;
+    expect(a[a.indexOf('--add-dir') + 1]).toBe(path.join(os.homedir(), '.gradle/caches'));
   });
 
   it('interactive: resume vs new session', () => {

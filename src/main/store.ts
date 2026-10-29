@@ -17,6 +17,7 @@ import type {
 } from '../shared/types';
 import { AuditStore } from './audit-store';
 import { entryPointKey, touchedFiles } from './modules';
+import { ScaStore } from './sca-store';
 import { SignalStore } from './signal-store';
 
 const now = () => new Date().toISOString();
@@ -173,6 +174,8 @@ export class ProjectStore {
   readonly audit: AuditStore;
   /** Scans, raw scanner findings and suppressions. */
   readonly signals: SignalStore;
+  /** SCA inputs, dependency inventories and reachability verdicts. */
+  readonly sca: ScaStore;
 
   constructor(
     readonly projectId: string,
@@ -180,6 +183,7 @@ export class ProjectStore {
   ) {
     this.audit = new AuditStore(db);
     this.signals = new SignalStore(db);
+    this.sca = new ScaStore(db);
   }
 
   // --- jobs ---

@@ -385,6 +385,125 @@ const MIGRATIONS: string[] = [
   -- Non-fatal scanner problems (files the tool could not parse), JSON array; set when the scan is finalized.
   ALTER TABLE scans ADD COLUMN warnings TEXT NOT NULL DEFAULT '[]';
   `,
+  `
+  -- SCA inputs (SPEC §4, Q11): ready-made dependency files uploaded by a human (lock files, SBOMs, scanner reports)
+  -- for a module or the whole project; removal is recorded once.
+  CREATE TABLE sca_inputs (
+    id TEXT PRIMARY KEY,
+    module_id TEXT,
+    filename TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    note TEXT NOT NULL,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    removed_at TEXT,
+    removed_by TEXT
+  );
+  CREATE TRIGGER sca_inputs_remove_once BEFORE UPDATE ON sca_inputs
+  WHEN OLD.removed_at IS NOT NULL OR NEW.removed_at IS NULL OR NEW.id IS NOT OLD.id OR NEW.module_id IS NOT OLD.module_id
+    OR NEW.filename IS NOT OLD.filename OR NEW.sha256 IS NOT OLD.sha256 OR NEW.note IS NOT OLD.note OR NEW.author IS NOT OLD.author
+  BEGIN SELECT RAISE(ABORT, 'sca inputs are append-only; only a single removal is allowed'); END;
+  CREATE TRIGGER sca_inputs_no_delete BEFORE DELETE ON sca_inputs
+  BEGIN SELECT RAISE(ABORT, 'sca inputs are append-only'); END;
+
+  -- Dependency inventory of a module built by an AI run (one per run and module), immutable once finalized.
+  CREATE TABLE sca_inventories (
+    id TEXT PRIMARY KEY,
+    module_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    globs TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    UNIQUE (run_id, module_id)
+  );
+  CREATE INDEX sca_inventories_module ON sca_inventories(module_id);
+  CREATE TRIGGER sca_inventories_immutable BEFORE UPDATE ON sca_inventories WHEN OLD.status <> 'building'
+  BEGIN SELECT RAISE(ABORT, 'inventory is finalized and immutable'); END;
+  CREATE TRIGGER sca_inventories_no_delete BEFORE DELETE ON sca_inventories
+  BEGIN SELECT RAISE(ABORT, 'inventories are append-only'); END;
+
+  -- Tool reports the inventory agent produced; copied out of the worktree, vulnerabilities must be found in them.
+  CREATE TABLE sca_reports (
+    id TEXT PRIMARY KEY,
+    inventory_id TEXT NOT NULL REFERENCES sca_inventories(id),
+    path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (inventory_id, path, sha256)
+  );
+
+  -- Vulnerable packages of an inventory (package@version) and their vulnerabilities.
+  CREATE TABLE sca_packages (
+    id TEXT PRIMARY KEY,
+    inventory_id TEXT NOT NULL REFERENCES sca_inventories(id),
+    key TEXT NOT NULL,
+    ecosystem TEXT NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    data TEXT NOT NULL,
+    UNIQUE (inventory_id, key)
+  );
+  CREATE TABLE sca_vulns (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES sca_packages(id),
+    vuln_id TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    report_id TEXT NOT NULL REFERENCES sca_reports(id),
+    data TEXT NOT NULL,
+    UNIQUE (package_id, vuln_id)
+  );
+  CREATE TRIGGER sca_reports_frozen BEFORE INSERT ON sca_reports
+  WHEN (SELECT status FROM sca_inventories WHERE id = NEW.inventory_id) <> 'building'
+  BEGIN SELECT RAISE(ABORT, 'inventory is finalized and immutable'); END;
+  CREATE TRIGGER sca_packages_frozen_insert BEFORE INSERT ON sca_packages
+  WHEN (SELECT status FROM sca_inventories WHERE id = NEW.inventory_id) <> 'building'
+  BEGIN SELECT RAISE(ABORT, 'inventory is finalized and immutable'); END;
+  CREATE TRIGGER sca_packages_frozen_update BEFORE UPDATE ON sca_packages
+  WHEN (SELECT status FROM sca_inventories WHERE id = OLD.inventory_id) <> 'building'
+  BEGIN SELECT RAISE(ABORT, 'inventory is finalized and immutable'); END;
+  CREATE TRIGGER sca_packages_frozen_delete BEFORE DELETE ON sca_packages
+  WHEN (SELECT status FROM sca_inventories WHERE id = OLD.inventory_id) <> 'building'
+  BEGIN SELECT RAISE(ABORT, 'inventory is finalized and immutable'); END;
+  CREATE TRIGGER sca_vulns_frozen_insert BEFORE INSERT ON sca_vulns
+  WHEN (SELECT i.status FROM sca_packages p JOIN sca_inventories i ON i.id = p.inventory_id WHERE p.id = NEW.package_id) <> 'building'
+  BEGIN SELECT RAISE(ABORT, 'inventory is finalized and immutable'); END;
+  CREATE TRIGGER sca_vulns_frozen_delete BEFORE DELETE ON sca_vulns
+  WHEN (SELECT i.status FROM sca_packages p JOIN sca_inventories i ON i.id = p.inventory_id WHERE p.id = OLD.package_id) <> 'building'
+  BEGIN SELECT RAISE(ABORT, 'inventory is finalized and immutable'); END;
+  CREATE TRIGGER sca_vulns_no_update BEFORE UPDATE ON sca_vulns
+  BEGIN SELECT RAISE(ABORT, 'vulnerabilities are replaced, not updated'); END;
+
+  -- Reachability verdicts of SCA items (module x package@version x vulnerability): append-only, latest = status.
+  CREATE TABLE sca_verdicts (
+    id TEXT PRIMARY KEY,
+    module_id TEXT NOT NULL,
+    package_key TEXT NOT NULL,
+    vuln_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    touched_files TEXT NOT NULL,
+    module_globs TEXT NOT NULL,
+    run_id TEXT,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX sca_verdicts_item ON sca_verdicts(module_id, package_key, vuln_id);
+  CREATE INDEX sca_verdicts_run ON sca_verdicts(run_id);
+  CREATE TRIGGER sca_verdicts_no_update BEFORE UPDATE ON sca_verdicts
+  BEGIN SELECT RAISE(ABORT, 'sca verdicts are append-only'); END;
+  CREATE TRIGGER sca_verdicts_no_delete BEFORE DELETE ON sca_verdicts
+  BEGIN SELECT RAISE(ABORT, 'sca verdicts are append-only'); END;
+
+  -- Findings link to SCA items too (a reachable CVE gives a finding): link events with package and vulnerability.
+  ALTER TABLE finding_events ADD COLUMN package_key TEXT;
+  ALTER TABLE finding_events ADD COLUMN vuln_id TEXT;
+  `,
 ];
 
 export function migrate(db: DB): void {

@@ -115,6 +115,19 @@ suppressions:
   # to the agent with their reason until a human confirms them again.
   apply_stale: false
 
+sca:
+  # Dry-run estimate of a reachability run: average billable tokens per session (one module x package) over this many
+  # recent successful runs of the role...
+  estimate_history_runs: 20
+  # ...or this value when there is no history yet.
+  estimate_tokens_per_package: 25000
+  # Max dependency CVEs from scanner scans (trivy `vuln` signals) listed in the inventory prompt as hints.
+  scanner_hints_limit: 60
+  # Prefilter (no AI): module files larger than this are not searched for imports of a package.
+  prefilter_max_file_kb: 1024
+  # Tool reports larger than this are rejected (the inventory agent must narrow the scan).
+  report_max_mb: 50
+
 # Background tasks the app starts itself. `prompt` is a template file (relative to this config's directory);
 # {{placeholders}} are filled by the app, an unknown placeholder is a configuration error.
 tasks:
@@ -147,6 +160,21 @@ tasks:
     role: matrix
     title: "Вердикты: {{matrix}} × {{module_name}} / {{group}}"
     prompt: instructions/tasks/matrix-verdicts.md
+  # Dependency inventory of one module: the agent picks the tools to resolve dependencies and look up vulnerabilities.
+  # Runs in a separate worktree of the commit (build tools write there). Placeholders: project, module_id, module_name,
+  # module_globs, module_description, out_dir (the run's directory inside the checkout), inputs (files uploaded by
+  # humans, copied into out_dir), scanner_hints (dependency CVEs found by configured scanners).
+  sca_inventory:
+    role: sca-inventory
+    title: "SCA-инвентаризация: {{module_name}}"
+    prompt: instructions/tasks/sca-inventory.md
+  # Reachability of the vulnerabilities of one package in one module.
+  # Placeholders: project, module_id, module_name, module_globs, module_description, package_key, package, direct,
+  # manifest, import_names, import_hits (module files that refer to the package), vulnerabilities.
+  sca_reachability:
+    role: sca
+    title: "SCA: {{module_name}} × {{package}}"
+    prompt: instructions/tasks/sca-reachability.md
   # "Открыть сессию для фикса" (interactive, user's working directory).
   # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, cells.
   fix:
@@ -216,8 +244,9 @@ roles:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
+  # SCA reachability: is a vulnerable package version used by the module in a way the vulnerability needs.
   sca:
-    title: SCA
+    title: SCA — достижимость
     kind: background
     mcp_access: scoped
     model: haiku
@@ -227,6 +256,52 @@ roles:
     permissions:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  # SCA inventory: resolves dependencies and looks up their vulnerabilities with tools it picks itself.
+  # Build tools run the project's build scripts in a separate worktree (trust in the audited repository);
+  # files may be written only into the run's directory `.aiegis-sca/` of that worktree. Extend the allowlist per project.
+  sca-inventory:
+    title: SCA — инвентаризация
+    kind: background
+    mcp_access: scoped
+    model: haiku
+    effort: low
+    instructions:
+      file: instructions/roles/sca-inventory.md
+    permissions:
+      allow:
+        - Read
+        - Grep
+        - Glob
+        - mcp__aiegis
+        - Edit(./.aiegis-sca/**)
+        - Write(./.aiegis-sca/**)
+        - Bash(git log:*)
+        - Bash(git ls-files:*)
+        - Bash(ls:*)
+        - Bash(mkdir:*)
+        - Bash(which:*)
+        - Bash(./gradlew:*)
+        - Bash(gradle:*)
+        - Bash(./mvnw:*)
+        - Bash(mvn:*)
+        - Bash(npm ls:*)
+        - Bash(npm audit:*)
+        - Bash(yarn audit:*)
+        - Bash(pnpm audit:*)
+        - Bash(pip-audit:*)
+        - Bash(go list:*)
+        - Bash(govulncheck:*)
+        - Bash(cargo audit:*)
+        - Bash(trivy:*)
+        - Bash(osv-scanner:*)
+        - Bash(grype:*)
+        - Bash(syft:*)
+        - Bash(unzip -l:*)
+        - Bash(jar tf:*)
+      deny: ["NotebookEdit", "WebFetch", "WebSearch"]
+      # Package caches outside the worktree (jar listings for import names).
+      dirs: ["~/.gradle/caches", "~/.m2/repository"]
 
   modules:
     title: Разметка модулей

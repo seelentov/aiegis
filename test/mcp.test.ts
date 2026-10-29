@@ -14,6 +14,7 @@ const store = new ProjectStore('p1', openDb(':memory:'));
 const enqueued: string[] = [];
 let docText: string | null = null;
 const signalQueries: unknown[] = [];
+const reportDir = tmpDir();
 const server = new AiegisMcpServer(tokens, {
   store: () => store,
   projectName: () => 'demo',
@@ -32,6 +33,8 @@ const server = new AiegisMcpServer(tokens, {
     signalQueries.push(q);
     return Promise.resolve({ signals: [{ rule: 'r1' }] });
   },
+  scaSettings: () => ({ estimate_history_runs: 20, estimate_tokens_per_package: 1000, scanner_hints_limit: 10, prefilter_max_file_kb: 64, report_max_mb: 1 }),
+  scaReportFile: (_pid, r) => path.join(reportDir, `${r.id}${path.extname(r.path)}`),
   onWrite: () => undefined,
 });
 

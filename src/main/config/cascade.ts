@@ -28,6 +28,7 @@ export interface EffectiveLevel {
   permissions: {
     allow: Sourced<string>[];
     deny: Sourced<string>[];
+    dirs: Sourced<string>[];
   };
   env: Record<string, Sourced<string>>;
 }
@@ -46,7 +47,7 @@ function pushUnique(list: Sourced<string>[], value: string, source: string): voi
 
 /** Resolves cascade layers top-down (first layer = most general). Pure except for `readText`. */
 export function resolveLevels(layers: Layer[], readText: ReadText): EffectiveLevel {
-  const out: EffectiveLevel = { instructions: [], permissions: { allow: [], deny: [] }, env: {} };
+  const out: EffectiveLevel = { instructions: [], permissions: { allow: [], deny: [], dirs: [] }, env: {} };
   for (const { source, baseDir, level } of layers) {
     if (level.model !== undefined) out.model = { value: level.model, source };
     if (level.effort !== undefined) out.effort = { value: level.effort, source };
@@ -61,6 +62,7 @@ export function resolveLevels(layers: Layer[], readText: ReadText): EffectiveLev
     }
     for (const a of level.permissions?.allow ?? []) pushUnique(out.permissions.allow, a, source);
     for (const d of level.permissions?.deny ?? []) pushUnique(out.permissions.deny, d, source);
+    for (const d of level.permissions?.dirs ?? []) pushUnique(out.permissions.dirs, d, source);
     for (const [k, v] of Object.entries(level.env ?? {})) out.env[k] = { value: v, source };
   }
   return out;

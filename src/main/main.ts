@@ -96,6 +96,22 @@ function api(): ApiImpl {
     renewSuppression: (pid, id, exp) => core.renewSuppression(pid, id, exp),
     currentRequirements: (pid) => core.currentRequirements(pid),
 
+    scaView: (pid) => core.scaView(pid),
+    scaItemDetails: (pid, id) => core.scaItemDetails(pid, id),
+    pickScaInputFile: async () => {
+      const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], title: 'Файл с зависимостями (lock-файл, SBOM, отчёт сканера)' });
+      return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+    },
+    addScaInput: (pid, file, o) => core.addScaInput(pid, file, o),
+    removeScaInput: (pid, id) => core.removeScaInput(pid, id),
+    enqueueScaInventories: (pid, ids) => core.enqueueScaInventories(pid, ids),
+    estimateSca: (pid, o) => core.estimateSca(pid, o),
+    runSca: (pid, o) => core.runSca(pid, o),
+    setScaVerdict: (pid, id, v) => core.setScaVerdict(pid, id, v),
+    createScaFinding: (pid, id, input) => core.createScaFinding(pid, id, input),
+    linkScaFinding: (pid, fid, id) => core.linkScaFinding(pid, fid, id),
+    scaReportPath: (pid, id) => core.scaReportPath(pid, id),
+
     listTerminals: () => core.terminals.list(),
     terminalSnapshot: (id) => core.terminals.snapshot(id),
     terminalWrite: (id, data) => core.terminals.write(id, data),

@@ -37,7 +37,21 @@ import type {
   Run,
   RunStatus,
   Scan,
+  ScaEstimate,
+  ScaInput,
+  ScaInventory,
+  ScaItem,
+  ScaItemDetails,
+  ScaItemRef,
+  ScaModuleView,
   ScannerStatus,
+  ScaPackage,
+  ScaReport,
+  ScaScope,
+  ScaVerdict,
+  ScaVerdictStatus,
+  ScaView,
+  ScaVuln,
   Severity,
   SignalDetails,
   SignalRow,
@@ -50,7 +64,7 @@ import type {
   Verdict,
   VerdictStatus,
 } from '../shared/types';
-import { FINDING_STATUSES, SUPPRESSION_SCOPES, VERDICT_STATUSES } from '../shared/types';
+import { FINDING_STATUSES, SCA_STATUSES, SUPPRESSION_SCOPES, VERDICT_STATUSES } from '../shared/types';
 import { backgroundCommand, interactiveCommand, shellQuote, type ClaudeCommand } from './claude/args';
 import { billableTokens, formatEvent, LineSplitter, StreamTracker } from './claude/stream';
 import { effectiveAllow } from './config/cascade';
@@ -99,6 +113,18 @@ import { projectDataDir, type AppPaths } from './paths';
 import { ProjectRegistry, type Project } from './projects';
 import { diffEntryPoints, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, renderTemplate, repoFileError } from './modules';
 import { JobQueue, type JobOutcome } from './queue';
+import {
+  findImports,
+  parseScaItemId,
+  SCA_DIR,
+  SCA_INVENTORY_VALIDITY,
+  SCA_MODULE_ENTITY,
+  SCA_PACKAGE_ENTITY,
+  SCA_VERDICT_VALIDITY,
+  scaItemId,
+  scaPackageEntityId,
+  scaTouched,
+} from './sca';
 import { NORMALIZERS, type NormalizedFinding } from './scanners/normalize';
 import { buildInvocations, checkScanner, runProcess } from './scanners/run';
 import {
@@ -153,6 +179,15 @@ interface ScanPayload {
 
 const scanPayload = (job: Job): ScanPayload | null => (job.type === SCAN_JOB ? (job.payload as unknown as ScanPayload) : null);
 
+/** Payload of an SCA reachability job: one package of one module and the vulnerabilities it covers. */
+interface ScaPayload {
+  module_id: string;
+  package_key: string;
+  vulns: string[];
+}
+
+const scaPayload = (job: Job): ScaPayload | null => (job.entityType === SCA_PACKAGE_ENTITY ? (job.payload as unknown as ScaPayload) : null);
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 const uniq = <T,>(xs: T[]) => [...new Set(xs)];
@@ -168,6 +203,7 @@ function snapshot(cfg: EffectiveConfig): unknown {
     instructions: cfg.level.instructions,
     allow: effectiveAllow(cfg.level),
     deny: cfg.level.permissions.deny.map((d) => d.value),
+    dirs: cfg.level.permissions.dirs.map((d) => d.value),
     env_keys: Object.keys(cfg.level.env),
     settings: cfg.settings,
   };
@@ -208,10 +244,13 @@ export class Core extends EventEmitter {
       recheckCells: (pid, cells) => this.recheckCells(pid, cells.map(cellId)),
       similarLimit: (pid) => this.projectSettings(pid).findings.similar_limit,
       signals: (pid, q) => this.signalSlice(pid, q),
+      scaSettings: (pid) => this.projectSettings(pid).sca,
+      scaReportFile: (pid, r) => this.scaReportFile(pid, r),
       onWrite: (pid) => {
         this.send({ type: 'runs-changed', projectId: pid });
         this.send({ type: 'modules-changed', projectId: pid });
         this.send({ type: 'audit-changed', projectId: pid });
+        this.scaChanged(pid);
       },
     });
     this.queue = new JobQueue(
@@ -246,6 +285,7 @@ export class Core extends EventEmitter {
       s.recoverRuns();
       s.recoverSnapshots();
       s.signals.recoverScans();
+      s.sca.recoverInventories();
       s.recoverJobs();
     }
     this.queue.pump();
@@ -352,9 +392,10 @@ export class Core extends EventEmitter {
       const item = cells.length === 1 ? s.audit.currentItem(cells[0].requirementId) : undefined;
       return this.resolve(job.projectId, job.role, mod.name, { matrix: matrix?.name, item: item?.key });
     }
-    if (job.entityType !== MODULE_ENTITY) return this.resolve(job.projectId, job.role);
-    const mod = this.store(job.projectId).getModule(job.entityId);
-    if (!mod) throw new Error(`модуль ${job.entityId} удалён`);
+    const moduleId = job.entityType === MODULE_ENTITY || job.entityType === SCA_MODULE_ENTITY ? job.entityId : scaPayload(job)?.module_id;
+    if (!moduleId) return this.resolve(job.projectId, job.role);
+    const mod = this.store(job.projectId).getModule(moduleId);
+    if (!mod) throw new Error(`модуль ${moduleId} удалён`);
     return this.resolve(job.projectId, job.role, mod.name);
   }
 
@@ -387,6 +428,7 @@ export class Core extends EventEmitter {
       instructions: cfg.level.instructions,
       allow: cfg.level.permissions.allow.map((a) => ({ ...a, denied: denied.has(a.value) })),
       deny: cfg.level.permissions.deny,
+      dirs: cfg.level.permissions.dirs,
       env: Object.entries(cfg.level.env).map(([key, v]) => ({ key, value: v.value, source: v.source })),
       settings: flat,
     };
@@ -1186,6 +1228,7 @@ export class Core extends EventEmitter {
       finding,
       events,
       cells: finding.cells.map((c) => this.cellLabel(s, c)),
+      scaItems: finding.scaItems.map((x) => ({ ...x, moduleName: s.getModule(x.moduleId)?.name ?? null })),
       similar: rankSimilar(finding, a.listFindings().filter((f) => f.id !== id), limit),
       runs,
     };
@@ -1761,6 +1804,483 @@ export class Core extends EventEmitter {
     return a.currentItems(a.listDocuments().map((d) => d.id));
   }
 
+  // --- SCA (SPEC §4, Q11) ---
+
+  private scaChanged(projectId: string): void {
+    this.send({ type: 'sca-changed', projectId });
+  }
+
+  private scaInputFile(projectId: string, input: ScaInput): string {
+    return path.join(projectDataDir(this.paths, projectId), 'sca-inputs', input.id, input.filename);
+  }
+
+  /** Where a report of an inventory run is kept (copied out of the worktree). */
+  scaReportFile(projectId: string, report: Pick<ScaReport, 'id' | 'path'>): string {
+    return path.join(projectDataDir(this.paths, projectId), 'sca-reports', `${report.id}${path.extname(report.path)}`);
+  }
+
+  /** Separate worktrees for inventories: build tools write into the checkout, scans and verdicts must not see that. */
+  private scaWorktreeCache(p: Project): WorktreeCache {
+    const key = `sca:${p.id}`;
+    let w = this.worktrees.get(key);
+    if (!w) {
+      w = new WorktreeCache(p.root, path.join(projectDataDir(this.paths, p.id), 'sca-worktrees'));
+      this.worktrees.set(key, w);
+    }
+    return w;
+  }
+
+  /** Uploads a ready-made dependency file (lock file, SBOM, scanner report) for a module or the whole project. */
+  async addScaInput(projectId: string, file: string, o: { moduleId: string | null; note: string }): Promise<ScaInput> {
+    const s = this.store(projectId);
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) throw new Error(`файл ${file} не найден`);
+    if (o.moduleId && !s.getModule(o.moduleId)) throw new Error(`модуль ${o.moduleId} не найден`);
+    const id = crypto.randomUUID();
+    const filename = path.basename(file);
+    const input = { id, filename } as ScaInput;
+    const dst = this.scaInputFile(projectId, input);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.copyFileSync(file, dst);
+    const saved = s.sca.addInput({ moduleId: o.moduleId, filename, sha256: sha256File(dst), note: o.note.trim(), author: await this.authorName(projectId) }, id);
+    this.scaChanged(projectId);
+    return saved;
+  }
+
+  async removeScaInput(projectId: string, id: string): Promise<ScaInput> {
+    const x = this.store(projectId).sca.removeInput(id, await this.authorName(projectId));
+    this.scaChanged(projectId);
+    return x;
+  }
+
+  /** Dependency CVEs that configured scanners found in a module's files (hints for the inventory agent). */
+  private scannerHints(projectId: string, mod: Module, limit: number): string {
+    const s = this.store(projectId);
+    const scanned = s.signals.completeScans();
+    if (!scanned.length || !limit) return '(none)';
+    const { rows } = this.rowsAt(projectId, scanned[0].commitSha);
+    const byPkg = new Map<string, { file: string; ids: string[] }>();
+    for (const f of rows) {
+      if (f.kind !== 'vuln' || !matchesGlobs(f.file, mod.globs)) continue;
+      const k = `${f.data.package}@${f.data.version}`;
+      const e = byPkg.get(k) ?? { file: f.file, ids: [] };
+      e.ids.push(f.ruleId);
+      byPkg.set(k, e);
+    }
+    if (!byPkg.size) return `(none at commit ${scanned[0].commitSha.slice(0, 8)})`;
+    const lines = [...byPkg.entries()].slice(0, limit).map(([k, e]) => `- ${k} (${e.file}): ${uniq(e.ids).join(', ')}`);
+    if (byPkg.size > limit) lines.push(`- …and ${byPkg.size - limit} more packages`);
+    return lines.join('\n');
+  }
+
+  /** Queues the dependency inventory of a module on HEAD (the agent picks the tools). */
+  async enqueueScaInventory(projectId: string, moduleId: string, sha?: string): Promise<Job> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const mod = s.getModule(moduleId);
+    if (!mod) throw new Error(`модуль ${moduleId} не найден`);
+    const entity = { type: SCA_MODULE_ENTITY, id: mod.id };
+    this.assertNotQueued(projectId, entity);
+    const spec = this.taskSpec(projectId, 'sca_inventory');
+    const id = crypto.randomUUID();
+    const outDir = `${SCA_DIR}/${id}`;
+    const inputs = s.sca.inputsFor(mod.id);
+    const vars = {
+      project: p.name,
+      module_id: mod.id,
+      module_name: mod.name,
+      module_globs: mod.globs.map((g) => `- ${g}`).join('\n'),
+      module_description: mod.description || '(none)',
+      out_dir: outDir,
+      inputs: inputs.length
+        ? inputs.map((i) => `- ${outDir}/inputs/${i.id.slice(0, 8)}-${i.filename}${i.note ? ` — ${i.note}` : ''}`).join('\n')
+        : '(none)',
+      scanner_hints: this.scannerHints(projectId, mod, this.projectSettings(projectId).sca.scanner_hints_limit),
+    };
+    const job = this.addAgentJob(
+      projectId,
+      {
+        role: spec.role,
+        title: renderTemplate(spec.title, vars),
+        prompt: renderTemplate(spec.template, vars, spec.file),
+        entity,
+        payload: { out_dir: outDir, input_ids: inputs.map((i) => i.id) },
+      },
+      sha ?? (await headSha(p.root)),
+      id,
+    );
+    this.scaChanged(projectId);
+    return job;
+  }
+
+  /** Inventories of the given modules (default: all) that have no job in the queue. */
+  async enqueueScaInventories(projectId: string, moduleIds?: string[]): Promise<Job[]> {
+    const sha = await headSha(this.project(projectId).root);
+    const s = this.store(projectId);
+    const jobs: Job[] = [];
+    for (const m of s.listModules()) {
+      if (moduleIds && !moduleIds.includes(m.id)) continue;
+      if (!s.activeJobFor(SCA_MODULE_ENTITY, m.id)) jobs.push(await this.enqueueScaInventory(projectId, m.id, sha));
+    }
+    return jobs;
+  }
+
+  /** Copies the inputs of an inventory job into its run directory inside the worktree. */
+  private stageScaInputs(projectId: string, job: Job, cwd: string): void {
+    const s = this.store(projectId);
+    const out = path.join(cwd, String(job.payload.out_dir));
+    fs.mkdirSync(path.join(out, 'inputs'), { recursive: true });
+    for (const id of (job.payload.input_ids as string[] | undefined) ?? []) {
+      const i = s.sca.getInput(id);
+      if (!i) continue;
+      fs.copyFileSync(this.scaInputFile(projectId, i), path.join(out, 'inputs', `${i.id.slice(0, 8)}-${i.filename}`));
+    }
+  }
+
+  /** Queued or running reachability jobs by the SCA item ids they cover. */
+  private busyScaItems(projectId: string): Map<string, { id: string; status: Job['status'] }> {
+    const out = new Map<string, { id: string; status: Job['status'] }>();
+    for (const j of this.store(projectId).activeJobs()) {
+      const sp = scaPayload(j);
+      for (const v of sp?.vulns ?? []) out.set(scaItemId({ moduleId: sp!.module_id, packageKey: sp!.package_key, vulnId: v }), { id: j.id, status: j.status });
+    }
+    return out;
+  }
+
+  /** Items of the module's current inventory with their state at `head`. */
+  private async scaItems(projectId: string, mod: Module, inv: ScaInventory, head: string): Promise<{ items: ScaItem[]; changed: Map<string, string[]> }> {
+    const s = this.store(projectId);
+    const verdicts = s.sca.latestVerdicts();
+    const counts = s.audit.scaFindingCounts();
+    const busy = this.busyScaItems(projectId);
+    const items: ScaItem[] = [];
+    const changed = new Map<string, string[]>();
+    for (const p of s.sca.listPackages(inv.id)) {
+      for (const vuln of p.vulns) {
+        const ref = { moduleId: mod.id, packageKey: p.key, vulnId: vuln.vulnId };
+        const id = scaItemId(ref);
+        const v = verdicts.get(id) ?? null;
+        let stale = false;
+        if (v) {
+          const val = await this.validityOf(projectId, SCA_VERDICT_VALIDITY, v.id, v.commitSha, v.touchedFiles, v.moduleGlobs, head);
+          stale = !val.valid;
+          if (stale) changed.set(id, val.changedFiles);
+        }
+        items.push({
+          ...ref,
+          ecosystem: p.ecosystem,
+          name: p.name,
+          version: p.version,
+          direct: p.direct,
+          vuln,
+          status: v?.status ?? 'not_checked',
+          stale,
+          verdict: v,
+          findingCount: counts.get(id) ?? 0,
+          activeJob: busy.get(id) ?? null,
+        });
+      }
+    }
+    return { items, changed };
+  }
+
+  /** "SCA": per module the current inventory, its jobs and items. */
+  async scaView(projectId: string): Promise<ScaView> {
+    const s = this.store(projectId);
+    const head = await headSha(this.project(projectId).root);
+    const modules: ScaModuleView[] = [];
+    for (const mod of s.listModules()) {
+      const inv = s.sca.latestInventory(mod.id) ?? null;
+      const active = s.activeJobFor(SCA_MODULE_ENTITY, mod.id);
+      const last = s.latestJobFor(SCA_MODULE_ENTITY, mod.id);
+      let inventoryStale = false;
+      if (inv) inventoryStale = !(await this.validityOf(projectId, SCA_INVENTORY_VALIDITY, inv.id, inv.commitSha, inv.summary?.manifests ?? [], [], head)).valid;
+      modules.push({
+        module: mod,
+        inventory: inv,
+        inventoryStale,
+        inventoryJob: active ? { id: active.id, status: active.status, error: active.error, lastRunId: active.lastRunId } : null,
+        failedJob: !active && last?.status === 'failed' ? { id: last.id, error: last.error, lastRunId: last.lastRunId } : null,
+        items: inv ? (await this.scaItems(projectId, mod, inv, head)).items : [],
+      });
+    }
+    return { head, modules, inputs: s.sca.listInputs() };
+  }
+
+  /** Current package of an item's module inventory; throws if the item is gone. */
+  private scaTarget(s: ProjectStore, ref: ScaItemRef): { mod: Module; inv: ScaInventory; pkg: ScaPackage; vuln: ScaVuln } {
+    const mod = s.getModule(ref.moduleId);
+    if (!mod) throw new Error(`модуль ${ref.moduleId} не найден`);
+    const inv = s.sca.latestInventory(mod.id);
+    const pkg = inv && s.sca.listPackages(inv.id).find((p) => p.key === ref.packageKey);
+    const vuln = pkg?.vulns.find((v) => v.vulnId === ref.vulnId);
+    if (!inv || !pkg || !vuln) throw new Error(`уязвимости ${ref.vulnId} пакета ${ref.packageKey} нет в текущей инвентаризации модуля`);
+    return { mod, inv, pkg, vuln };
+  }
+
+  async scaItemDetails(projectId: string, id: string): Promise<ScaItemDetails> {
+    const ref = parseScaItemId(id);
+    const s = this.store(projectId);
+    const { mod, inv, pkg, vuln } = this.scaTarget(s, ref);
+    const head = await headSha(this.project(projectId).root);
+    const { items, changed } = await this.scaItems(projectId, mod, inv, head);
+    const item = items.find((x) => scaItemId(x) === id)!;
+    const findings = s.audit.findingsOfScaItem(ref);
+    let importHits: string[] | null = null;
+    try {
+      importHits = (await this.scaPrefilter(projectId, head, [{ moduleId: mod.id, packageKey: pkg.key }])).get(scaPackageEntityId(mod.id, pkg.key)) ?? null;
+    } catch {
+      importHits = null;
+    }
+    let config: EffectiveConfigView | null = null;
+    try {
+      config = this.effectiveView(projectId, this.taskRole(projectId, 'sca_reachability'), mod.name);
+    } catch {
+      config = null;
+    }
+    return {
+      item,
+      module: mod,
+      package: pkg,
+      inventory: inv,
+      report: s.sca.getReport(vuln.reportId) ?? null,
+      verdicts: s.sca.verdictHistory(ref).map((v) => ({ ...v, run: v.runId ? (s.getRun(v.runId) ?? null) : null })),
+      findings,
+      findingEvents: findings
+        .flatMap((f) => s.audit.findingEvents(f.id))
+        .filter((e) => e.kind !== 'link' || (e.scaItem && scaItemId(e.scaItem) === id))
+        .sort((x, y) => x.createdAt.localeCompare(y.createdAt)),
+      changedFiles: changed.get(id) ?? [],
+      importHits,
+      config,
+    };
+  }
+
+  /** Absolute path of a stored inventory report (to open it). */
+  scaReportPath(projectId: string, reportId: string): string {
+    const r = this.store(projectId).sca.getReport(reportId);
+    if (!r) throw new Error(`отчёт ${reportId} не найден`);
+    return this.scaReportFile(projectId, r);
+  }
+
+  private readonly prefilterCache = new Map<string, string[] | null>();
+
+  /**
+   * Prefilter without AI (SPEC §4, Q11): module files at `sha` that refer to a package by its import names.
+   * null = the package has no import names (only AI can tell). Keyed by `<module_id>/<package_key>`.
+   */
+  private async scaPrefilter(projectId: string, sha: string, packages: { moduleId: string; packageKey: string }[]): Promise<Map<string, string[] | null>> {
+    const s = this.store(projectId);
+    const maxBytes = this.projectSettings(projectId).sca.prefilter_max_file_kb * 1024;
+    const out = new Map<string, string[] | null>();
+    let cwd: string | null = null;
+    const files = new Map<string, string[]>();
+    for (const x of packages) {
+      const key = scaPackageEntityId(x.moduleId, x.packageKey);
+      if (out.has(key)) continue;
+      const mod = s.getModule(x.moduleId);
+      const inv = mod && s.sca.latestInventory(mod.id);
+      const pkg = inv && s.sca.listPackages(inv.id).find((p) => p.key === x.packageKey);
+      if (!mod || !pkg) continue;
+      const cacheKey = `${projectId}:${sha}:${JSON.stringify(mod.globs)}:${key}:${JSON.stringify(pkg.importNames)}`;
+      if (this.prefilterCache.has(cacheKey)) {
+        out.set(key, this.prefilterCache.get(cacheKey)!);
+        continue;
+      }
+      let hits: string[] | null = null;
+      if (pkg.importNames.length) {
+        cwd ??= await this.worktreeCache(this.project(projectId)).ensure(sha);
+        let list = files.get(mod.id);
+        if (!list) files.set(mod.id, (list = await matchFiles(cwd, mod.globs)));
+        hits = findImports(cwd, list, pkg.importNames, maxBytes);
+      }
+      this.prefilterCache.set(cacheKey, hits);
+      out.set(key, hits);
+    }
+    return out;
+  }
+
+  /** SCA items a reachability run would cover: never checked, stale, or the given ids; busy ones are counted apart. */
+  private async scaSelect(projectId: string, o: { scope?: ScaScope; moduleIds?: string[]; items?: string[] }): Promise<{ free: ScaItem[]; busy: number }> {
+    const view = await this.scaView(projectId);
+    const all = view.modules.filter((m) => !o.moduleIds || o.moduleIds.includes(m.module.id)).flatMap((m) => m.items);
+    const want = o.items
+      ? all.filter((x) => o.items!.includes(scaItemId(x)))
+      : all.filter((x) => (o.scope === 'stale' ? x.stale : x.status === 'not_checked'));
+    if (o.items && want.length !== uniq(o.items).length) throw new Error('часть SCA-пунктов не найдена в текущих инвентаризациях');
+    return { free: want.filter((x) => !x.activeJob), busy: want.filter((x) => x.activeJob).length };
+  }
+
+  /** Splits items into prefilter-closed ones and one session per module x package. */
+  private async scaPlan(projectId: string, sha: string, items: ScaItem[]) {
+    const hits = await this.scaPrefilter(projectId, sha, items);
+    const auto: ScaItem[] = [];
+    const sessions = new Map<string, { moduleId: string; packageKey: string; items: ScaItem[] }>();
+    for (const x of items) {
+      const key = scaPackageEntityId(x.moduleId, x.packageKey);
+      const h = hits.get(key);
+      if (h && h.length === 0) {
+        auto.push(x);
+        continue;
+      }
+      const g = sessions.get(key) ?? { moduleId: x.moduleId, packageKey: x.packageKey, items: [] };
+      g.items.push(x);
+      sessions.set(key, g);
+    }
+    return { auto, sessions: [...sessions.values()], hits };
+  }
+
+  /** Dry-run of a reachability run (SPEC §7): what the prefilter closes and how many AI sessions remain. */
+  async estimateSca(projectId: string, o: { scope?: ScaScope; moduleIds?: string[]; items?: string[] }): Promise<ScaEstimate> {
+    const s = this.store(projectId);
+    const settings = this.projectSettings(projectId);
+    const role = this.taskRole(projectId, 'sca_reachability');
+    const { free, busy } = await this.scaSelect(projectId, o);
+    const plan = await this.scaPlan(projectId, await headSha(this.project(projectId).root), free);
+    const runs = s.recentRuns(role, settings.sca.estimate_history_runs);
+    const hist = runs.length ? Math.round(runs.reduce((n, r) => n + billableTokens(r.usage), 0) / runs.length) : null;
+    const tps = hist ?? settings.sca.estimate_tokens_per_package;
+    return {
+      role,
+      items: free.length,
+      auto: plan.auto.length,
+      sessions: plan.sessions.length,
+      tokensPerSession: tps,
+      tokensPerSessionSource: hist === null ? 'config' : 'history',
+      tokens: plan.sessions.length * tps,
+      maxTokensPerRun: settings.limits.max_tokens_per_run,
+      packages: plan.sessions.map((g) => ({ moduleId: g.moduleId, moduleName: s.getModule(g.moduleId)?.name ?? g.moduleId, packageKey: g.packageKey, items: g.items.length })),
+      busy,
+    };
+  }
+
+  /**
+   * Reachability run: items whose package the module's files never refer to get `not_reachable` (auto) at HEAD
+   * without AI; the rest is queued as one session per module x package.
+   */
+  async runSca(projectId: string, o: { scope?: ScaScope; moduleIds?: string[]; items?: string[] }): Promise<{ auto: number; jobs: Job[] }> {
+    const s = this.store(projectId);
+    const sha = await headSha(this.project(projectId).root);
+    const { free, busy } = await this.scaSelect(projectId, o);
+    if (!free.length) throw new Error(busy ? 'эти SCA-пункты уже в очереди' : 'нет SCA-пунктов для проверки');
+    const plan = await this.scaPlan(projectId, sha, free);
+    for (const x of plan.auto) {
+      const { mod, pkg } = this.scaTarget(s, x);
+      s.sca.addVerdict(
+        {
+          moduleId: x.moduleId,
+          packageKey: x.packageKey,
+          vulnId: x.vulnId,
+          status: 'not_reachable',
+          reason: `Префильтр: файлы модуля не ссылаются на пакет (имена импорта: ${pkg.importNames.join(', ')}).`,
+          evidence: [],
+          commitSha: sha,
+          touchedFiles: [],
+          moduleGlobs: mod.globs,
+        },
+        { author: 'auto', runId: null },
+      );
+    }
+    const jobs: Job[] = [];
+    for (const g of plan.sessions) {
+      const vulns = g.items.map((x) => x.vulnId);
+      const t = this.renderScaTask(projectId, g.moduleId, g.packageKey, vulns, plan.hits.get(scaPackageEntityId(g.moduleId, g.packageKey)) ?? null);
+      const payload: ScaPayload = { module_id: g.moduleId, package_key: g.packageKey, vulns };
+      jobs.push(this.addAgentJob(projectId, { ...t, entity: { type: SCA_PACKAGE_ENTITY, id: scaPackageEntityId(g.moduleId, g.packageKey) }, payload: { ...payload } }, sha));
+    }
+    this.scaChanged(projectId);
+    this.auditChanged(projectId);
+    return { auto: plan.auto.length, jobs };
+  }
+
+  /** Title and prompt of a reachability job from `tasks.sca_reachability`. */
+  private renderScaTask(projectId: string, moduleId: string, key: string, vulnIds: string[], hits: string[] | null): { role: string; title: string; prompt: string } {
+    const s = this.store(projectId);
+    const spec = this.taskSpec(projectId, 'sca_reachability');
+    const { mod, pkg } = this.scaTarget(s, { moduleId, packageKey: key, vulnId: vulnIds[0] });
+    const vulns = pkg.vulns.filter((v) => vulnIds.includes(v.vulnId));
+    const vars = {
+      project: this.project(projectId).name,
+      module_id: mod.id,
+      module_name: mod.name,
+      module_globs: mod.globs.map((g) => `- ${g}`).join('\n'),
+      module_description: mod.description || '(none)',
+      package_key: pkg.key,
+      package: `${pkg.name}@${pkg.version} (${pkg.ecosystem})`,
+      direct: pkg.direct === null ? 'unknown' : pkg.direct ? 'yes' : 'no (transitive)',
+      manifest: pkg.manifest ?? 'unknown',
+      import_names: pkg.importNames.join(', ') || '(unknown)',
+      import_hits:
+        hits === null
+          ? '(not searched: import names are unknown)'
+          : hits.length
+            ? [...hits.slice(0, 40).map((f) => `- ${f}`), ...(hits.length > 40 ? [`- …and ${hits.length - 40} more`] : [])].join('\n')
+            : '(none)',
+      vulnerabilities: vulns
+        .map((v) => `- \`${v.vulnId}\` [${v.severity}]${v.aliases.length ? ` (${v.aliases.join(', ')})` : ''}: ${v.title ?? 'no title'}${v.fixedVersion ? `; fixed in ${v.fixedVersion}` : ''}`)
+        .join('\n'),
+    };
+    return { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file) };
+  }
+
+  /** Manual reachability verdict (SPEC §6): authored by human at the working copy's HEAD. */
+  async setScaVerdict(projectId: string, id: string, v: { status: ScaVerdictStatus; reason: string; evidence: Evidence[] }): Promise<ScaVerdict> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const ref = parseScaItemId(id);
+    if (!SCA_STATUSES.includes(v.status)) throw new Error(`неизвестный статус ${v.status}`);
+    const reason = v.reason.trim();
+    if (!reason) throw new Error('укажите обоснование');
+    const { mod, pkg } = this.scaTarget(s, ref);
+    const evidence = v.evidence.filter((e) => e.file.trim());
+    for (const e of evidence) {
+      const err = repoFileError(p.root, e.file);
+      if (err) throw new Error(err);
+    }
+    const findings = s.audit.findingsOfScaItem(ref);
+    if (v.status === 'reachable' && !findings.length) throw new Error('сначала создайте или свяжите находку для этой уязвимости');
+    const saved = s.sca.addVerdict(
+      {
+        ...ref,
+        status: v.status,
+        reason,
+        evidence,
+        commitSha: await headSha(p.root),
+        touchedFiles: scaTouched(evidence, pkg, v.status === 'reachable' ? findings : []),
+        moduleGlobs: mod.globs,
+      },
+      { author: 'human', runId: null },
+    );
+    this.scaChanged(projectId);
+    return saved;
+  }
+
+  /** Manual finding for an SCA item; file references must exist in the working copy. */
+  createScaFinding(projectId: string, id: string, input: Omit<FindingInput, 'moduleId'>): Finding {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const ref = parseScaItemId(id);
+    this.scaTarget(s, ref);
+    if (!input.title.trim()) throw new Error('укажите заголовок');
+    for (const e of input.files) {
+      const err = repoFileError(p.root, e.file);
+      if (err) throw new Error(err);
+    }
+    const f = s.audit.createFinding({ ...input, title: input.title.trim(), moduleId: ref.moduleId }, [], { author: 'human', runId: null }, [ref]);
+    this.scaChanged(projectId);
+    this.auditChanged(projectId);
+    return f;
+  }
+
+  linkScaFinding(projectId: string, findingId: string, id: string): Finding {
+    const s = this.store(projectId);
+    const ref = parseScaItemId(id);
+    this.scaTarget(s, ref);
+    const f = s.audit.linkScaFinding(findingId, ref, { author: 'human', runId: null });
+    this.scaChanged(projectId);
+    this.auditChanged(projectId);
+    return f;
+  }
+
   // --- background execution ---
 
   private async execute(job: Job, signal: AbortSignal): Promise<JobOutcome> {
@@ -1773,8 +2293,15 @@ export class Core extends EventEmitter {
     job = prep.job;
     const cfg = this.resolveForJob(job);
     const sha = String(job.payload.commit_sha);
-    // Requirement extraction reads the stored document; everything else runs in a worktree at the job's commit.
-    const cwd = job.entityType === DOC_VERSION_ENTITY ? this.docDir(p.id, job.entityId) : await this.worktreeCache(p).ensure(sha);
+    // Requirement extraction reads the stored document; inventories build in their own worktree (build tools write
+    // there); everything else runs in a worktree at the job's commit.
+    const cwd =
+      job.entityType === DOC_VERSION_ENTITY
+        ? this.docDir(p.id, job.entityId)
+        : job.entityType === SCA_MODULE_ENTITY
+          ? await this.scaWorktreeCache(p).ensure(sha)
+          : await this.worktreeCache(p).ensure(sha);
+    if (job.entityType === SCA_MODULE_ENTITY) this.stageScaInputs(p.id, job, cwd);
     if (signal.aborted) return { kind: signal.reason === 'taken_over' ? 'taken_over' : 'cancelled' };
 
     const runId = crypto.randomUUID();
@@ -1829,7 +2356,7 @@ export class Core extends EventEmitter {
       this.finishRun(p.id, runId, res.status, res.usage, res.error);
       switch (res.status) {
         case 'succeeded': {
-          const missing = this.missingOutputs(job);
+          const missing = this.missingOutputs(job, runId);
           return missing ? { kind: 'failed', error: missing } : { kind: 'done' };
         }
         case 'cancelled':
@@ -1860,6 +2387,8 @@ export class Core extends EventEmitter {
    * covers only the cells earlier runs of the job left without a result. Null when nothing is left to do.
    */
   private async prepareJob(job: Job): Promise<{ job: Job; scope: EntityRef[]; prompt: string } | null> {
+    const sp = scaPayload(job);
+    if (sp) return this.prepareScaJob(job, sp);
     const mp = matrixPayload(job);
     if (!mp) return { job, scope: [{ type: job.entityType, id: job.entityId }], prompt: String(job.payload.prompt) };
     const s = this.store(job.projectId);
@@ -1876,6 +2405,34 @@ export class Core extends EventEmitter {
     return { job, scope: remaining.map((id) => ({ type: CELL_ENTITY, id })), prompt: String(job.payload.prompt) };
   }
 
+  /** Reachability jobs are atomic per vulnerability, like matrix cells: a re-run covers what earlier runs left open. */
+  private async prepareScaJob(job: Job, sp: ScaPayload): Promise<{ job: Job; scope: EntityRef[]; prompt: string } | null> {
+    const s = this.store(job.projectId);
+    const remaining = this.openScaVulns(job, sp);
+    if (!remaining.length) return null;
+    if (remaining.length !== sp.vulns.length) {
+      const t = this.renderScaTask(job.projectId, sp.module_id, sp.package_key, remaining, (await this.scaPrefilter(job.projectId, String(job.payload.commit_sha), [{ moduleId: sp.module_id, packageKey: sp.package_key }])).get(job.entityId) ?? null);
+      s.setJobPayload(job.id, { ...job.payload, vulns: remaining, prompt: t.prompt });
+      job = s.getJob(job.id)!;
+    }
+    return { job, scope: [{ type: SCA_PACKAGE_ENTITY, id: job.entityId }], prompt: String(job.payload.prompt) };
+  }
+
+  /** Vulnerabilities of a reachability job that its runs gave no verdict yet and that are still in the inventory. */
+  private openScaVulns(job: Job, sp: ScaPayload): string[] {
+    const s = this.store(job.projectId);
+    const done = new Set(s.sca.verdictsOfRuns(s.jobRuns(job.id).map((r) => r.id)).map((v) => v.vulnId));
+    return sp.vulns.filter((v) => {
+      if (done.has(v)) return false;
+      try {
+        this.scaTarget(s, { moduleId: sp.module_id, packageKey: sp.package_key, vulnId: v });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  }
+
   /** Cells that runs of a matrix job already wrote a result for (verdict, or triage mark for the triage stage). */
   private coveredCells(job: Job, stage: MatrixStage): Set<string> {
     const s = this.store(job.projectId);
@@ -1889,7 +2446,15 @@ export class Core extends EventEmitter {
   }
 
   /** A successful matrix run that left cells without a result fails, so "retry" re-runs only those cells. */
-  private missingOutputs(job: Job): string | null {
+  private missingOutputs(job: Job, runId: string): string | null {
+    const s0 = this.store(job.projectId);
+    if (job.entityType === SCA_MODULE_ENTITY && s0.sca.inventoryOf(runId, job.entityId)?.status !== 'complete')
+      return 'прогон завершился, но инвентаризация не записана: агент не вызвал set_inventory_summary';
+    const sp = scaPayload(job);
+    if (sp) {
+      const left = this.openScaVulns(job, sp);
+      return left.length ? `прогон завершился, но без вердикта осталось уязвимостей: ${left.length}; «Повторить» перезапустит только их` : null;
+    }
     const mp = matrixPayload(job);
     if (!mp) return null;
     const covered = this.coveredCells(job, mp.stage);
@@ -1904,6 +2469,7 @@ export class Core extends EventEmitter {
     s.finishRun(runId, status, usage, error);
     const ok = status === 'succeeded' || status === 'exited';
     s.finalizeSnapshots(runId, ok);
+    s.sca.finalizeInventories(runId, ok);
     const run = s.getRun(runId);
     if (run?.entityType === DOC_VERSION_ENTITY && run.entityId) {
       const v = s.audit.getVersion(run.entityId);
@@ -1911,6 +2477,7 @@ export class Core extends EventEmitter {
     }
     this.send({ type: 'modules-changed', projectId });
     this.send({ type: 'audit-changed', projectId });
+    this.scaChanged(projectId);
   }
 
   private writeMcpConfig(projectId: string, name: string, token: string): string {
@@ -2054,8 +2621,7 @@ export class Core extends EventEmitter {
 
   private async ensureCwd(projectId: string, run: Run): Promise<string> {
     const p = this.project(projectId);
-    const wt = this.worktreeCache(p);
-    if (run.cwd === wt.pathFor(run.commitSha)) return wt.ensure(run.commitSha);
+    for (const wt of [this.worktreeCache(p), this.scaWorktreeCache(p)]) if (run.cwd === wt.pathFor(run.commitSha)) return wt.ensure(run.commitSha);
     return run.cwd;
   }
 

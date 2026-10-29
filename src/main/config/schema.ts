@@ -12,6 +12,8 @@ export const InstructionsSchema = z.union([
 export const PermissionsSchema = z.object({
   allow: z.array(z.string()).optional(),
   deny: z.array(z.string()).optional(),
+  /** Directories outside the working directory the agent may access (`claude --add-dir`); `~/` = home. */
+  dirs: z.array(z.string()).optional(),
 });
 
 /** Fields every cascade level may set (SPEC §3). */
@@ -102,6 +104,15 @@ export const ConfigFileSchema = z.looseObject({
   suppressions: z
     .looseObject({ few_shot_limit: z.number().int().min(0).optional(), apply_stale: z.boolean().optional() })
     .optional(),
+  sca: z
+    .looseObject({
+      estimate_history_runs: z.number().int().min(1).optional(),
+      estimate_tokens_per_package: z.number().int().min(1).optional(),
+      scanner_hints_limit: z.number().int().min(0).optional(),
+      prefilter_max_file_kb: z.number().int().min(1).optional(),
+      report_max_mb: z.number().int().min(1).optional(),
+    })
+    .optional(),
   tasks: z.record(z.string(), TaskSchema).optional(),
   roles: z.record(z.string(), RoleSchema).optional(),
   modules: z.record(z.string(), LevelSchema).optional(),
@@ -129,4 +140,5 @@ export const SETTINGS_KEYS = [
   'scanners',
   'signals',
   'suppressions',
+  'sca',
 ] as const;

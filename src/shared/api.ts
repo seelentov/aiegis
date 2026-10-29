@@ -27,7 +27,14 @@ import type {
   ReviewState,
   Run,
   Scan,
+  ScaEstimate,
+  ScaInput,
+  ScaItemDetails,
   ScannerStatus,
+  ScaScope,
+  ScaVerdict,
+  ScaVerdictStatus,
+  ScaView,
   SignalDetails,
   SignalsView,
   Suppression,
@@ -113,6 +120,23 @@ export interface AiegisApi {
   /** Re-confirms a suppression at HEAD (new record, the old one is revoked). */
   renewSuppression(projectId: string, id: string, expiresAt?: string | null): Suppression;
   currentRequirements(projectId: string): (RequirementItem & { documentTitle: string })[];
+
+  /** Modules with their current dependency inventory and SCA items. */
+  scaView(projectId: string): ScaView;
+  scaItemDetails(projectId: string, itemId: string): ScaItemDetails;
+  /** File dialog for a dependency file (lock file, SBOM, report); null if cancelled. */
+  pickScaInputFile(): string | null;
+  addScaInput(projectId: string, file: string, o: { moduleId: string | null; note: string }): ScaInput;
+  removeScaInput(projectId: string, id: string): ScaInput;
+  /** Queues inventories of modules (default: all) at HEAD. */
+  enqueueScaInventories(projectId: string, moduleIds?: string[]): Job[];
+  estimateSca(projectId: string, o: { scope?: ScaScope; moduleIds?: string[]; items?: string[] }): ScaEstimate;
+  runSca(projectId: string, o: { scope?: ScaScope; moduleIds?: string[]; items?: string[] }): { auto: number; jobs: Job[] };
+  setScaVerdict(projectId: string, itemId: string, v: { status: ScaVerdictStatus; reason: string; evidence: Evidence[] }): ScaVerdict;
+  createScaFinding(projectId: string, itemId: string, input: Omit<FindingInput, 'moduleId'>): Finding;
+  linkScaFinding(projectId: string, findingId: string, itemId: string): Finding;
+  /** Absolute path of a stored inventory report. */
+  scaReportPath(projectId: string, reportId: string): string;
 
   listTerminals(): TerminalInfo[];
   terminalSnapshot(terminalId: string): string;

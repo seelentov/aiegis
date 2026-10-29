@@ -1,4 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -6,6 +9,7 @@ import { z } from 'zod';
 import crypto from 'node:crypto';
 import {
   ENTRY_POINT_KINDS,
+  SCA_STATUSES,
   SEVERITIES,
   SIGNAL_KINDS,
   VERDICT_STATUSES,
@@ -16,9 +20,13 @@ import {
   type MatrixView,
   type QueueState,
   type Run,
+  type ScaReport,
 } from '../../shared/types';
+import type { Settings } from '../config/loader';
+import { sha256File } from '../documents';
 import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
+import { fileInside, missingInReport, SCA_MODULE_ENTITY, SCA_PACKAGE_ENTITY, scaItemId, scaPackageEntityId, scaTouched } from '../sca';
 import type { SignalQuery } from '../signals';
 import type { ProjectStore } from '../store';
 import { authorize, type Action, type Grant, type TokenRegistry } from './tokens';
@@ -39,6 +47,10 @@ export interface McpServices {
   similarLimit(projectId: string): number;
   /** Scanner signals of a module for get_signals (suppressed ones are filtered out). */
   signals(projectId: string, q: SignalQuery): Promise<Record<string, unknown>>;
+  /** SCA settings of the project (report size limit). */
+  scaSettings(projectId: string): Settings['sca'];
+  /** Where an inventory report is kept once copied out of the run's checkout. */
+  scaReportFile(projectId: string, report: Pick<ScaReport, 'id' | 'path'>): string;
   /** Called after an agent wrote something, so the UI can refresh. */
   onWrite(projectId: string): void;
 }
@@ -483,6 +495,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     entry_point: f.entryPoint,
     files: f.files,
     cells: f.cells,
+    sca_items: f.scaItems,
     description: f.description,
   });
 
@@ -624,6 +637,301 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           }),
         ),
       ),
+  );
+
+  // --- SCA ---
+
+  const scaVulnSchema = z.object({
+    id: z.string().min(1).describe('CVE, GHSA or OSV id exactly as in the report'),
+    aliases: z.array(z.string()).optional().describe('Other ids of the same vulnerability listed in the report'),
+    severity: z.enum(SEVERITIES).describe('Severity from the report (UNKNOWN -> info)'),
+    title: z.string().optional().describe('Short description from the report'),
+    fixed_version: z.string().optional(),
+  });
+  /** Package of the module's current inventory, or throws. */
+  const currentPackage = (moduleId: string, key: string) => {
+    const s = svc.store(pid);
+    const mod = s.getModule(moduleId);
+    if (!mod) throw new Error(`модуль ${moduleId} не найден`);
+    const inv = s.sca.latestInventory(moduleId);
+    const pkg = inv && s.sca.listPackages(inv.id).find((p) => p.key === key);
+    if (!pkg) throw new Error(`пакета ${key} нет в текущей инвентаризации модуля`);
+    return { mod, pkg };
+  };
+  const scaRef = (moduleId: string, key: string, vulnId: string) => ({ moduleId, packageKey: key, vulnId });
+  const checkVulns = (pkg: { key: string; vulns: { vulnId: string }[] }, ids: string[]) => {
+    const bad = ids.filter((v) => !pkg.vulns.some((x) => x.vulnId === v));
+    if (bad.length) throw new Error(`у пакета ${pkg.key} нет уязвимостей: ${bad.join(', ')}`);
+  };
+
+  server.registerTool(
+    'get_sca_inventory',
+    {
+      description: "Dependency inventory of a module: vulnerable packages and their vulnerabilities with reachability status. Default: the module's current inventory.",
+      inputSchema: { module_id: z.string() },
+    },
+    async ({ module_id }) =>
+      guard({ kind: 'read' }, () => {
+        const s = svc.store(pid);
+        const own = s.sca.inventoryOf(grant.runId, module_id);
+        const inv = own ?? s.sca.latestInventory(module_id);
+        if (!inv) return ok({ inventory: null, packages: [] });
+        const verdicts = s.sca.latestVerdicts();
+        return ok({
+          inventory: { id: inv.id, status: inv.status, commit_sha: inv.commitSha, summary: inv.summary },
+          packages: s.sca.listPackages(inv.id).map((p) => ({
+            package_key: p.key,
+            ecosystem: p.ecosystem,
+            name: p.name,
+            version: p.version,
+            direct: p.direct,
+            manifest: p.manifest,
+            import_names: p.importNames,
+            vulnerabilities: p.vulns.map((v) => ({
+              id: v.vulnId,
+              severity: v.severity,
+              title: v.title,
+              fixed_version: v.fixedVersion,
+              status: verdicts.get(scaItemId(scaRef(module_id, p.key, v.vulnId)))?.status ?? 'not_checked',
+            })),
+          })),
+        });
+      }),
+  );
+
+  server.registerTool(
+    'add_vulnerable_package',
+    {
+      description:
+        "Record a vulnerable package@version in this run's inventory of your module (same ecosystem+name+version replaces it). Every vulnerability must be listed in `report`, a tool report you wrote inside the run directory. Requires sca_module:<module_id> in scope.",
+      inputSchema: {
+        module_id: z.string(),
+        report: z.string().min(1).describe('Path of the tool report (JSON or text) relative to the current directory'),
+        ecosystem: z.string().min(1).describe('maven, npm, pypi, go, cargo, nuget, ...'),
+        name: z.string().min(1).describe('Package name as in the report, e.g. "com.fasterxml.jackson.core:jackson-databind"'),
+        version: z.string().min(1).describe('Resolved version'),
+        direct: z.boolean().optional().describe('Declared by the module itself (false = transitive)'),
+        manifest: z.string().optional().describe('Build/lock file that brings the package in, relative to the repository root'),
+        import_names: z
+          .array(z.string().min(1))
+          .describe('How code refers to the package: Java top-level packages of its classes, npm package name, Python module names. Empty if unknown.'),
+        purl: z.string().optional(),
+        vulnerabilities: z.array(scaVulnSchema).min(1),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: SCA_MODULE_ENTITY, id: a.module_id } }, () => {
+        const run = liveRun();
+        const s = svc.store(pid);
+        const mod = s.getModule(a.module_id);
+        if (!mod) return fail(`модуль ${a.module_id} не найден`);
+        const abs = fileInside(run.cwd, a.report);
+        if (!abs) return fail(`отчёт ${a.report} не найден: укажите путь файла внутри текущего каталога`);
+        const size = fs.statSync(abs).size;
+        if (size > svc.scaSettings(pid).report_max_mb * 1024 * 1024) return fail(`отчёт ${a.report} больше sca.report_max_mb: сузьте сканирование`);
+        if (a.manifest) {
+          const err = repoFileError(run.cwd, a.manifest);
+          if (err) return fail(err);
+        }
+        const text = fs.readFileSync(abs, 'utf8');
+        const miss = missingInReport(text, { name: a.name }, a.vulnerabilities);
+        if (miss.package || !text.includes(a.version)) return fail(`в отчёте ${a.report} нет пакета ${a.name} версии ${a.version}`);
+        if (miss.vulns.length) return fail(`в отчёте ${a.report} нет уязвимостей: ${miss.vulns.join(', ')}; записывайте только то, что нашёл инструмент`);
+        const inv = s.sca.ensureInventory(run, mod);
+        const rep = s.sca.addReport(inv.id, { path: a.report, sha256: sha256File(abs), size });
+        const dst = svc.scaReportFile(pid, rep);
+        if (!fs.existsSync(dst)) {
+          fs.mkdirSync(path.dirname(dst), { recursive: true });
+          fs.copyFileSync(abs, dst);
+        }
+        const p = s.sca.upsertPackage(
+          inv.id,
+          {
+            ecosystem: a.ecosystem,
+            name: a.name,
+            version: a.version,
+            direct: a.direct ?? null,
+            importNames: a.import_names.map((n) => n.trim()).filter(Boolean),
+            manifest: a.manifest?.trim() || null,
+            purl: a.purl?.trim() || null,
+            vulns: a.vulnerabilities.map((v) => ({
+              id: v.id.trim(),
+              aliases: v.aliases ?? [],
+              severity: v.severity,
+              title: v.title?.trim() || null,
+              fixedVersion: v.fixed_version?.trim() || null,
+            })),
+          },
+          () => rep.id,
+        );
+        svc.onWrite(pid);
+        return ok({ saved: p.key, vulnerabilities: p.vulns.length, packages_in_inventory: s.sca.listPackages(inv.id).length });
+      }),
+  );
+
+  server.registerTool(
+    'remove_vulnerable_package',
+    {
+      description: "Remove a package from this run's inventory of your module (e.g. recorded by mistake).",
+      inputSchema: { module_id: z.string(), package_key: z.string().describe('"<ecosystem>:<name>@<version>" as returned by add_vulnerable_package') },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: SCA_MODULE_ENTITY, id: a.module_id } }, () => {
+        const run = liveRun();
+        const s = svc.store(pid);
+        const mod = s.getModule(a.module_id);
+        if (!mod) return fail(`модуль ${a.module_id} не найден`);
+        const removed = s.sca.removePackage(s.sca.ensureInventory(run, mod).id, a.package_key);
+        svc.onWrite(pid);
+        return ok({ removed });
+      }),
+  );
+
+  server.registerTool(
+    'set_inventory_summary',
+    {
+      description:
+        "Finish this run's inventory of your module (mandatory, also when nothing vulnerable was found): ecosystems, tools used, number of resolved dependencies checked, manifests the result depends on.",
+      inputSchema: {
+        module_id: z.string(),
+        ecosystems: z.array(z.string().min(1)),
+        tools: z.array(z.string().min(1)).min(1).describe('Tools used to resolve dependencies and to look up vulnerabilities'),
+        dependencies_total: z.number().int().min(0).describe('Resolved dependencies checked, vulnerable or not'),
+        manifests: z.array(z.string().min(1)).describe('Build and lock files of the repository the inventory depends on, relative to the repository root'),
+        notes: z.string().optional().describe('What could not be resolved, assumptions'),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: SCA_MODULE_ENTITY, id: a.module_id } }, () => {
+        const run = liveRun();
+        const s = svc.store(pid);
+        const mod = s.getModule(a.module_id);
+        if (!mod) return fail(`модуль ${a.module_id} не найден`);
+        // Generated lock files are not tracked: only manifests of the commit make the inventory stale (SPEC §5).
+        const manifests = [...new Set(a.manifests.map((m) => m.trim()))];
+        const bad = manifests.filter((m) => repoFileError(run.cwd, m));
+        if (bad.length) return fail(`файлы не найдены: ${bad.join(', ')}`);
+        const tracked = new Set(execFileSync('git', ['ls-files', '--', ...manifests], { cwd: run.cwd, encoding: 'utf8' }).split('\n'));
+        const generated = manifests.filter((m) => !tracked.has(m));
+        if (generated.length) return fail(`не отслеживаются git (сгенерированы?): ${generated.join(', ')}; укажите только файлы репозитория`);
+        const inv = s.sca.ensureInventory(run, mod);
+        s.sca.setSummary(inv.id, { ecosystems: a.ecosystems, tools: a.tools, dependenciesTotal: a.dependencies_total, manifests, notes: a.notes?.trim() || null });
+        svc.onWrite(pid);
+        return ok({ inventory_id: inv.id, vulnerable_packages: s.sca.listPackages(inv.id).length });
+      }),
+  );
+
+  const scaPkgArgs = {
+    module_id: z.string(),
+    package_key: z.string().describe('"<ecosystem>:<name>@<version>"'),
+  };
+  const scaPkgEntity = (a: { module_id: string; package_key: string }) => ({ type: SCA_PACKAGE_ENTITY, id: scaPackageEntityId(a.module_id, a.package_key) });
+
+  server.registerTool(
+    'set_sca_verdict',
+    {
+      description:
+        'Reachability verdict for one vulnerability of the package in your scope. reachable needs evidence and a linked finding (create_sca_finding or link_sca_finding first); not_reachable needs evidence of how the package is used; needs_human needs a reason.',
+      inputSchema: {
+        ...scaPkgArgs,
+        vuln_id: z.string(),
+        status: z.enum(SCA_STATUSES),
+        reason: z.string().min(1).describe('Justification'),
+        evidence: evidenceSchema.optional(),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: scaPkgEntity(a) }, () => {
+        const run = liveRun();
+        const { mod, pkg } = currentPackage(a.module_id, a.package_key);
+        checkVulns(pkg, [a.vuln_id]);
+        const s = svc.store(pid);
+        const evidence = a.evidence ?? [];
+        if (a.status !== 'needs_human' && !evidence.length) return fail('для reachable/not_reachable нужны ссылки на код (evidence)');
+        checkFiles(run.cwd, evidence);
+        const ref = scaRef(a.module_id, pkg.key, a.vuln_id);
+        const findings = s.audit.findingsOfScaItem(ref);
+        if (a.status === 'reachable' && !findings.length)
+          return fail('сначала запишите находку: find_similar, затем create_sca_finding или link_sca_finding');
+        const v = s.sca.addVerdict(
+          {
+            ...ref,
+            status: a.status,
+            reason: a.reason,
+            evidence,
+            commitSha: run.commitSha,
+            touchedFiles: scaTouched(evidence, pkg, a.status === 'reachable' ? findings : []),
+            moduleGlobs: mod.globs,
+          },
+          by,
+        );
+        svc.onWrite(pid);
+        return ok({ saved: v.id, vuln_id: v.vulnId, status: v.status });
+      }),
+  );
+
+  server.registerTool(
+    'create_sca_finding',
+    {
+      description:
+        'Create a finding (status suspected) for reachable vulnerabilities of the package in your scope. Call find_similar first and pass its check_id; if a candidate is the same flaw, use link_sca_finding instead.',
+      inputSchema: {
+        ...scaPkgArgs,
+        vuln_ids: z.array(z.string()).min(1).describe('Vulnerabilities of the package this finding covers'),
+        check_id: z.string().describe('check_id returned by find_similar in this run'),
+        title: z.string().min(1),
+        description: z.string().min(1).describe('Which vulnerable part is used, how an attacker reaches it, impact'),
+        severity: z.enum(SEVERITIES),
+        cwe: z.string().optional(),
+        entry_point: z.string().optional().describe('Entry point key, if reachable through one'),
+        files: evidenceSchema.min(1),
+        recommendation: z.string().optional().describe('e.g. upgrade to the fixed version'),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: scaPkgEntity(a) }, () => {
+        const run = liveRun();
+        if (!checks.get(grant.runId)?.has(a.check_id)) return fail('нет такого check_id: сначала вызовите find_similar в этом прогоне');
+        const { pkg } = currentPackage(a.module_id, a.package_key);
+        checkVulns(pkg, a.vuln_ids);
+        checkFiles(run.cwd, a.files);
+        const f = svc.store(pid).audit.createFinding(
+          {
+            title: a.title.trim(),
+            description: a.description,
+            severity: a.severity,
+            cwe: a.cwe?.trim() || null,
+            moduleId: a.module_id,
+            entryPoint: a.entry_point?.trim() || null,
+            files: a.files,
+            recommendation: a.recommendation ?? null,
+          },
+          [],
+          by,
+          a.vuln_ids.map((v) => scaRef(a.module_id, pkg.key, v)),
+        );
+        svc.onWrite(pid);
+        return ok({ finding_id: f.id, status: f.status });
+      }),
+  );
+
+  server.registerTool(
+    'link_sca_finding',
+    {
+      description: 'Link an existing finding (e.g. a find_similar candidate) to vulnerabilities of the package in your scope.',
+      inputSchema: { ...scaPkgArgs, vuln_ids: z.array(z.string()).min(1), finding_id: z.string() },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: scaPkgEntity(a) }, () => {
+        liveRun();
+        const { pkg } = currentPackage(a.module_id, a.package_key);
+        checkVulns(pkg, a.vuln_ids);
+        const audit = svc.store(pid).audit;
+        let f = audit.getFinding(a.finding_id);
+        for (const v of a.vuln_ids) f = audit.linkScaFinding(a.finding_id, scaRef(a.module_id, pkg.key, v), by);
+        svc.onWrite(pid);
+        return ok({ finding_id: f!.id, sca_items: f!.scaItems.length });
+      }),
   );
 
   server.registerTool(

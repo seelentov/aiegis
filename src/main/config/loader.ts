@@ -87,6 +87,13 @@ export interface Settings {
     requirements: Record<string, { kinds?: string[]; cwe?: string[]; rules?: string[] }>;
   };
   suppressions: { few_shot_limit: number; apply_stale: boolean };
+  sca: {
+    estimate_history_runs: number;
+    estimate_tokens_per_package: number;
+    scanner_hints_limit: number;
+    prefilter_max_file_kb: number;
+    report_max_mb: number;
+  };
 }
 
 export interface ScannerSettings {
@@ -111,7 +118,7 @@ export function scannerSettings(settings: Settings, name: string): ScannerSettin
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
@@ -160,6 +167,11 @@ const REQUIRED_SETTINGS: string[] = [
   'signals.requirements',
   'suppressions.few_shot_limit',
   'suppressions.apply_stale',
+  'sca.estimate_history_runs',
+  'sca.estimate_tokens_per_package',
+  'sca.scanner_hints_limit',
+  'sca.prefilter_max_file_kb',
+  'sca.report_max_mb',
   ...TASK_KINDS.flatMap((t) => ['role', 'title', 'prompt'].map((k) => `tasks.${t}.${k}`)),
 ];
 

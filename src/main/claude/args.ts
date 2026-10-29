@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { effectiveAllow, joinInstructions } from '../config/cascade';
 import type { EffectiveConfig } from '../config/loader';
 
@@ -18,6 +20,7 @@ function levelArgs(cfg: EffectiveConfig): string[] {
   if (allow.length) args.push('--allowedTools', allow.join(','));
   const deny = level.permissions.deny.map((d) => d.value);
   if (deny.length) args.push('--disallowedTools', deny.join(','));
+  for (const d of level.permissions.dirs) args.push('--add-dir', d.value.startsWith('~/') ? path.join(os.homedir(), d.value.slice(2)) : d.value);
   return args;
 }
 

@@ -342,6 +342,8 @@ export interface Finding extends FindingInput {
   /** Set when merged into another finding. */
   mergedInto: string | null;
   cells: { moduleId: string; requirementId: string }[];
+  /** SCA items (reachable vulnerabilities) the finding is linked to. */
+  scaItems: ScaItemRef[];
   runId: string | null;
   author: string;
   createdAt: string;
@@ -356,6 +358,8 @@ export interface FindingEvent {
   reason: string | null;
   mergedInto: string | null;
   cell: { moduleId: string; requirementId: string } | null;
+  /** Link to an SCA item instead of a matrix cell. */
+  scaItem: ScaItemRef | null;
   runId: string | null;
   author: string;
   createdAt: string;
@@ -379,6 +383,7 @@ export interface FindingDetails {
   finding: Finding;
   events: FindingEvent[];
   cells: CellLabel[];
+  scaItems: (ScaItemRef & { moduleName: string | null })[];
   similar: SimilarFinding[];
   /** Matrix cells and fix sessions that ran for this finding. */
   runs: Run[];
@@ -551,6 +556,184 @@ export interface SignalDetails {
   suppressions: SuppressionView[];
 }
 
+/** Ready-made dependency file uploaded by a human for SCA (lock file, SBOM, scanner report). */
+export interface ScaInput {
+  id: string;
+  /** null = whole project. */
+  moduleId: string | null;
+  filename: string;
+  sha256: string;
+  note: string;
+  author: string;
+  createdAt: string;
+  removedAt: string | null;
+  removedBy: string | null;
+}
+
+export type InventoryStatus = 'building' | 'complete' | 'failed';
+
+/** What the inventory agent reported about how it resolved and checked dependencies. */
+export interface InventorySummary {
+  ecosystems: string[];
+  tools: string[];
+  /** Resolved dependencies checked (vulnerable or not). */
+  dependenciesTotal: number;
+  /** Build/lock files the inventory depends on (SPEC §5: a change makes it stale). */
+  manifests: string[];
+  notes: string | null;
+}
+
+/** Dependency inventory of a module built by one AI run (SPEC §4, Q11); immutable once finalized. */
+export interface ScaInventory {
+  id: string;
+  moduleId: string;
+  runId: string;
+  commitSha: string;
+  globs: string[];
+  status: InventoryStatus;
+  summary: InventorySummary | null;
+  packageCount: number;
+  vulnCount: number;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface ScaReport {
+  id: string;
+  inventoryId: string;
+  /** Path the agent wrote the report to (relative to the run's checkout). */
+  path: string;
+  sha256: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface ScaVuln {
+  id: string;
+  packageId: string;
+  /** CVE/GHSA/OSV id. */
+  vulnId: string;
+  aliases: string[];
+  severity: Severity;
+  title: string | null;
+  fixedVersion: string | null;
+  reportId: string;
+}
+
+/** A vulnerable package@version of an inventory. */
+export interface ScaPackage {
+  id: string;
+  inventoryId: string;
+  /** Identity across inventories: `<ecosystem>:<name>@<version>`. */
+  key: string;
+  ecosystem: string;
+  name: string;
+  version: string;
+  /** Declared by the module itself (vs. transitive); null if unknown. */
+  direct: boolean | null;
+  /** How code refers to the package (Java packages, npm module, Python module...); empty = unknown. */
+  importNames: string[];
+  /** Build file that brings the package in, relative to the repository root. */
+  manifest: string | null;
+  purl: string | null;
+  vulns: ScaVuln[];
+}
+
+export const SCA_STATUSES = ['reachable', 'not_reachable', 'needs_human'] as const;
+export type ScaVerdictStatus = (typeof SCA_STATUSES)[number];
+export type ScaItemStatus = 'not_checked' | ScaVerdictStatus;
+
+/** Reachability verdict of an SCA item (module x package@version x vulnerability); append-only. */
+export interface ScaVerdict {
+  id: string;
+  moduleId: string;
+  packageKey: string;
+  vulnId: string;
+  status: ScaVerdictStatus;
+  reason: string;
+  evidence: Evidence[];
+  commitSha: string;
+  touchedFiles: string[];
+  moduleGlobs: string[];
+  runId: string | null;
+  /** `auto` = prefilter without AI, `ai:<role>` or `human`. */
+  author: string;
+  createdAt: string;
+}
+
+export interface ScaItemRef {
+  moduleId: string;
+  packageKey: string;
+  vulnId: string;
+}
+
+/** SCA item of the module's current inventory with its state. */
+export interface ScaItem extends ScaItemRef {
+  ecosystem: string;
+  name: string;
+  version: string;
+  direct: boolean | null;
+  vuln: ScaVuln;
+  status: ScaItemStatus;
+  stale: boolean;
+  verdict: ScaVerdict | null;
+  findingCount: number;
+  activeJob: { id: string; status: JobStatus } | null;
+}
+
+export interface ScaModuleView {
+  module: Module;
+  inventory: ScaInventory | null;
+  /** Code or build files the inventory depends on changed since its commit. */
+  inventoryStale: boolean;
+  /** Queued or running inventory job. */
+  inventoryJob: { id: string; status: JobStatus; error: string | null; lastRunId: string | null } | null;
+  /** Latest inventory job if it failed (shown with its error). */
+  failedJob: { id: string; error: string | null; lastRunId: string | null } | null;
+  items: ScaItem[];
+}
+
+export interface ScaView {
+  head: string;
+  modules: ScaModuleView[];
+  inputs: ScaInput[];
+}
+
+export interface ScaItemDetails {
+  item: ScaItem;
+  module: Module | null;
+  package: ScaPackage;
+  inventory: ScaInventory;
+  report: ScaReport | null;
+  /** Newest first. */
+  verdicts: (ScaVerdict & { run: Run | null })[];
+  findings: Finding[];
+  findingEvents: FindingEvent[];
+  changedFiles: string[];
+  /** Module files that refer to the package (prefilter at HEAD); null when the package has no import names. */
+  importHits: string[] | null;
+  config: EffectiveConfigView | null;
+}
+
+/** Which SCA items a run covers: never checked, stale ones, or the given ones. */
+export type ScaScope = 'pending' | 'stale';
+
+/** Dry-run of a reachability run (SPEC §7): prefilter without AI, then one session per module x package. */
+export interface ScaEstimate {
+  role: string;
+  items: number;
+  /** Items the prefilter closes as not_reachable (auto) without AI. */
+  auto: number;
+  sessions: number;
+  tokensPerSession: number;
+  tokensPerSessionSource: 'history' | 'config';
+  tokens: number;
+  maxTokensPerRun: number;
+  packages: { moduleId: string; moduleName: string; packageKey: string; items: number }[];
+  /** Items skipped because a queued or running job already covers them. */
+  busy: number;
+}
+
 export interface ProjectInfo {
   id: string;
   name: string;
@@ -588,6 +771,7 @@ export interface EffectiveConfigView {
   instructions: { source: string; file?: string; text: string }[];
   allow: { value: string; source: string; denied: boolean }[];
   deny: { value: string; source: string }[];
+  dirs: { value: string; source: string }[];
   env: { key: string; value: string; source: string }[];
   settings: { key: string; value: string; source: string }[];
 }
@@ -598,6 +782,7 @@ export type AppEvent =
   | { type: 'modules-changed'; projectId: string }
   | { type: 'audit-changed'; projectId: string }
   | { type: 'signals-changed'; projectId: string }
+  | { type: 'sca-changed'; projectId: string }
   | { type: 'queue-changed'; state: QueueState }
   | { type: 'terminals-changed' }
   | { type: 'terminal-data'; terminalId: string; data: string }

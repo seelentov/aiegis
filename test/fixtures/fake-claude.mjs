@@ -78,6 +78,71 @@ if (!args.includes('-p')) {
       }
       return done('triaged');
     }
+    if (prompt.includes('Build the dependency inventory')) {
+      const module_id = moduleOf();
+      const out = /Your run directory[^`]*`([^`]+)`/.exec(prompt)[1];
+      const inputs = fs.readdirSync(`${out}/inputs`);
+      const report = `${out}/report.json`;
+      fs.writeFileSync(
+        report,
+        JSON.stringify({
+          Results: [
+            { Target: 'svc/gradle.lockfile', Vulnerabilities: [
+              { VulnerabilityID: 'CVE-1', PkgName: 'com.acme:json', InstalledVersion: '1.0' },
+              { VulnerabilityID: 'CVE-2', PkgName: 'com.acme:json', InstalledVersion: '1.0' },
+              { VulnerabilityID: 'CVE-3', PkgName: 'org.unused:lib', InstalledVersion: '2.0' },
+              { VulnerabilityID: 'CVE-4', PkgName: 'net.mystery:x', InstalledVersion: '3.0' },
+            ] },
+          ],
+        }),
+      );
+      const add = async (name, version, import_names, ids, extra = {}) =>
+        (await mcp('add_vulnerable_package', {
+          module_id, report, ecosystem: 'Maven', name, version, import_names, manifest: 'svc/build.gradle',
+          vulnerabilities: ids.map((id) => ({ id, severity: 'high', title: `bug ${id}`, fixed_version: '9.9' })), ...extra,
+        })).content[0].text;
+      const res = [
+        await add('com.acme:json', '1.0', ['com.acme.json'], ['CVE-1', 'CVE-2'], { direct: true }),
+        await add('org.unused:lib', '2.0', ['org.unused'], ['CVE-3']),
+        await add('net.mystery:x', '3.0', [], ['CVE-4']),
+        await add('com.acme:json', '1.0', ['com.acme.json'], ['CVE-1', 'CVE-404']),
+        await add('com.acme:json', '1.0', ['com.acme.json'], ['CVE-1'], { report: '../outside.json' }),
+      ];
+      fs.writeFileSync('svc/gradle.lockfile', 'com.acme:json:1.0=runtimeClasspath\n');
+      const untracked = await mcp('set_inventory_summary', { module_id, ecosystems: ['maven'], tools: ['x'], dependencies_total: 1, manifests: ['svc/gradle.lockfile'] });
+      res.push(`untracked manifest: ${untracked.content[0].text}`);
+      if (!prompt.includes('NO_SUMMARY')) {
+        await mcp('set_inventory_summary', { module_id, ecosystems: ['maven'], tools: ['fake-gradle', 'fake-trivy'], dependencies_total: 12, manifests: ['svc/build.gradle'] });
+      }
+      return done(`inputs: ${inputs.join(',')}\n${res.join('\n')}`);
+    }
+    if (prompt.includes('Decide whether the vulnerabilities')) {
+      const module_id = moduleOf();
+      const package_key = /package_key `([^`]+)`/.exec(prompt)[1];
+      const vulns = [...prompt.matchAll(/^- `([^`]+)` \[/gm)].map((m) => m[1]);
+      const evidence = [{ file: 'svc/Api.java', line: 1, note: 'uses the parser' }];
+      const out = [];
+      for (const vuln_id of vulns) {
+        const v = { module_id, package_key, vuln_id };
+        if (vuln_id === 'CVE-1') {
+          const early = await mcp('set_sca_verdict', { ...v, status: 'reachable', reason: 'parses request body', evidence });
+          const sim = JSON.parse((await mcp('find_similar', { module_id, files: ['svc/Api.java'], cwe: 'CWE-502' })).content[0].text);
+          await mcp('create_sca_finding', {
+            module_id, package_key, vuln_ids: [vuln_id], check_id: sim.check_id, title: 'Vulnerable JSON parser reachable',
+            description: 'request body goes to Parser.parse', severity: 'high', cwe: 'CWE-502', files: evidence,
+          });
+          out.push(`early: ${early.isError ? 'rejected' : 'accepted'}`);
+          out.push((await mcp('set_sca_verdict', { ...v, status: 'reachable', reason: 'parses request body', evidence })).content[0].text);
+        } else if (vuln_id === 'CVE-4') {
+          out.push((await mcp('set_sca_verdict', { ...v, status: 'needs_human', reason: 'description too vague' })).content[0].text);
+        } else {
+          const noEvidence = await mcp('set_sca_verdict', { ...v, status: 'not_reachable', reason: 'other API used' });
+          out.push(`no evidence: ${noEvidence.isError ? 'rejected' : 'accepted'}`);
+          out.push((await mcp('set_sca_verdict', { ...v, status: 'not_reachable', reason: 'only Parser.format is used', evidence })).content[0].text);
+        }
+      }
+      return done(out.join('\n'));
+    }
     if (prompt.includes('Check module')) {
       const module_id = moduleOf();
       let signals = '';
