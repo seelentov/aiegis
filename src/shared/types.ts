@@ -406,6 +406,150 @@ export interface RecheckOffer {
   reason: string;
 }
 
+/** Normalized kind of a scanner result: code pattern, leaked secret, misconfiguration, dependency CVE (for SCA). */
+export const SIGNAL_KINDS = ['sast', 'secret', 'misconfig', 'vuln'] as const;
+export type SignalKind = (typeof SIGNAL_KINDS)[number];
+
+/** Result of the startup availability check of a configured scanner. */
+export interface ScannerStatus {
+  name: string;
+  binary: string;
+  format: string;
+  enabled: boolean;
+  available: boolean;
+  version: string | null;
+  /** Why it is unavailable or misconfigured. */
+  error: string | null;
+}
+
+export type ScanStatus = 'running' | 'complete' | 'failed';
+
+/** One scanner run at a commit over a set of paths (SPEC §4, Q10); immutable once finalized. */
+export interface Scan {
+  id: string;
+  scanner: string;
+  format: string;
+  commitSha: string;
+  /** Scanned paths relative to the repository root ("." = whole repository). */
+  targets: string[];
+  status: ScanStatus;
+  toolVersion: string | null;
+  /** Command lines actually run. */
+  commands: string[][];
+  error: string | null;
+  /** Non-fatal problems reported by the tool (e.g. files it could not parse). */
+  warnings: string[];
+  findingCount: number;
+  jobId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+/** Normalized scanner result (`raw_findings`). */
+export interface RawFinding {
+  id: string;
+  scanId: string;
+  scanner: string;
+  kind: SignalKind;
+  ruleId: string;
+  severity: Severity;
+  title: string;
+  message: string;
+  /** Path relative to the repository root. */
+  file: string;
+  line: number | null;
+  endLine: number | null;
+  cwe: string[];
+  tags: string[];
+  /** Stable identity across scans and commits (suppression scope "finding"). */
+  fingerprint: string;
+  /** Code excerpt; secrets are redacted. */
+  snippet: string | null;
+  /** Tool-specific extras; for `vuln`: package, version, vulnerability_id, fixed_version, purl, pkg_type, target. */
+  data: Record<string, unknown>;
+}
+
+export const SUPPRESSION_SCOPES = ['finding', 'rule_glob', 'requirement_module'] as const;
+export type SuppressionScope = (typeof SUPPRESSION_SCOPES)[number];
+
+export interface SuppressionInput {
+  scope: SuppressionScope;
+  /** "finding" and "rule_glob": the signal the suppression is made from (gives scanner, rule, fingerprint, commit). */
+  signalId?: string;
+  /** "rule_glob": git pathspec globs the rule is suppressed in. */
+  globs?: string[];
+  /** "requirement_module". */
+  requirementId?: string;
+  moduleId?: string;
+  reason: string;
+  /** Optional expiry, ISO date (YYYY-MM-DD). */
+  expiresAt?: string | null;
+}
+
+/** Human decision to drop scanner signals before AI (SPEC §4, Q18); append-only, revocation is recorded once. */
+export interface Suppression {
+  id: string;
+  scope: SuppressionScope;
+  scanner: string | null;
+  ruleId: string | null;
+  fingerprint: string | null;
+  globs: string[];
+  /** File and line of the suppressed signal ("finding" scope), for display. */
+  file: string | null;
+  line: number | null;
+  requirementId: string | null;
+  moduleId: string | null;
+  reason: string;
+  author: string;
+  commitSha: string;
+  /** Files the decision depends on (SPEC §5): a change of them makes it stale. */
+  touchedFiles: string[];
+  moduleGlobs: string[];
+  expiresAt: string | null;
+  /** Suppression this one re-confirmed. */
+  replaces: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+  revokedBy: string | null;
+  revokeReason: string | null;
+}
+
+export type SuppressionState = 'active' | 'stale' | 'expired' | 'revoked';
+
+export interface SuppressionView extends Suppression {
+  /** State at the commit it was evaluated at. */
+  state: SuppressionState;
+  /** Files changed since the suppression's commit that made it stale. */
+  changedFiles: string[];
+  /** Human-readable scope. */
+  label: string;
+}
+
+/** A signal as shown in the UI: which modules it belongs to and whether a suppression drops it. */
+export interface SignalRow extends RawFinding {
+  commitSha: string;
+  moduleIds: string[];
+  suppression: { id: string; state: SuppressionState; reason: string } | null;
+}
+
+export interface SignalsView {
+  head: string;
+  /** Commits with complete scans, newest first. */
+  commits: { sha: string; scans: number; finishedAt: string }[];
+  /** Commit shown (default: HEAD if scanned, else the newest scanned commit). */
+  commit: string | null;
+  /** Latest complete scan per scanner at the commit, plus running/failed ones. */
+  scans: Scan[];
+  signals: SignalRow[];
+}
+
+export interface SignalDetails {
+  signal: SignalRow;
+  scan: Scan;
+  /** Suppressions that match the signal (any state). */
+  suppressions: SuppressionView[];
+}
+
 export interface ProjectInfo {
   id: string;
   name: string;
@@ -452,6 +596,7 @@ export type AppEvent =
   | { type: 'runs-changed'; projectId: string }
   | { type: 'modules-changed'; projectId: string }
   | { type: 'audit-changed'; projectId: string }
+  | { type: 'signals-changed'; projectId: string }
   | { type: 'queue-changed'; state: QueueState }
   | { type: 'terminals-changed' }
   | { type: 'terminal-data'; terminalId: string; data: string }

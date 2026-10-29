@@ -1,0 +1,214 @@
+{
+ "SchemaVersion": 2,
+ "Trivy": {
+  "Version": "0.76.0"
+ },
+ "ArtifactName": "app",
+ "ArtifactType": "filesystem",
+ "Results": [
+  {
+   "Target": "Dockerfile",
+   "Class": "config",
+   "Type": "dockerfile",
+   "MisconfSummary": {
+    "Successes": 24,
+    "Failures": 3
+   },
+   "Misconfigurations": [
+    {
+     "Type": "Dockerfile Security Check",
+     "ID": "DS-0002",
+     "Title": "Image user should not be 'root'",
+     "Description": "Running containers with 'root' user can lead to a container escape situation. It is a best practice to run containers as non-root users, which can be done by adding a 'USER' statement to the Dockerfile.",
+     "Message": "Specify at least 1 USER command in Dockerfile with non-root user as argument",
+     "Namespace": "builtin.dockerfile.DS002",
+     "Query": "data.builtin.dockerfile.DS002.deny",
+     "Resolution": "Add 'USER <non root user name>' line to the Dockerfile",
+     "Severity": "HIGH",
+     "PrimaryURL": "https://avd.aquasec.com/misconfig/ds-0002",
+     "References": [
+      "https://docs.docker.com/develop/develop-images/dockerfile_best-practices/"
+     ],
+     "Status": "FAIL",
+     "CauseMetadata": {
+      "Provider": "Dockerfile",
+      "Service": "general"
+     }
+    },
+    {
+     "Type": "Dockerfile Security Check",
+     "ID": "DS-0017",
+     "Title": "'RUN <package-manager> update' instruction alone",
+     "Description": "The instruction 'RUN <package-manager> update' should always be followed by '<package-manager> install' in the same RUN statement.",
+     "Message": "The instruction 'RUN <package-manager> update' should always be followed by '<package-manager> install' in the same RUN statement.",
+     "Namespace": "builtin.dockerfile.DS017",
+     "Query": "data.builtin.dockerfile.DS017.deny",
+     "Resolution": "Combine '<package-manager> update' and '<package-manager> install' instructions to single one",
+     "Severity": "HIGH",
+     "PrimaryURL": "https://avd.aquasec.com/misconfig/ds-0017",
+     "References": [
+      "https://docs.docker.com/develop/develop-images/instructions/#run"
+     ],
+     "Status": "FAIL",
+     "CauseMetadata": {
+      "Provider": "Dockerfile",
+      "Service": "general",
+      "StartLine": 2,
+      "EndLine": 2,
+      "Code": {
+       "Lines": [
+        {
+         "Number": 2,
+         "Content": "RUN apt-get update",
+         "IsCause": true,
+         "Annotation": "",
+         "Truncated": false,
+         "Highlighted": "\u001b[38;5;64mRUN\u001b[0m apt-get update",
+         "FirstCause": true,
+         "LastCause": true
+        }
+       ]
+      }
+     }
+    },
+    {
+     "Type": "Dockerfile Security Check",
+     "ID": "DS-0001",
+     "Title": "Image user should not be 'root'",
+     "Description": "Running containers with 'root' user can lead to a container escape situation. It is a best practice to run containers as non-root users, which can be done by adding a 'USER' statement to the Dockerfile.",
+     "Message": "Specify at least 1 USER command in Dockerfile with non-root user as argument",
+     "Namespace": "builtin.dockerfile.DS002",
+     "Query": "data.builtin.dockerfile.DS002.deny",
+     "Resolution": "Add 'USER <non root user name>' line to the Dockerfile",
+     "Severity": "HIGH",
+     "PrimaryURL": "https://avd.aquasec.com/misconfig/ds-0002",
+     "References": [
+      "https://docs.docker.com/develop/develop-images/dockerfile_best-practices/"
+     ],
+     "Status": "PASS",
+     "CauseMetadata": {
+      "Provider": "Dockerfile",
+      "Service": "general"
+     }
+    }
+   ]
+  },
+  {
+   "Target": "config.properties",
+   "Class": "secret",
+   "Secrets": [
+    {
+     "RuleID": "github-pat",
+     "Category": "GitHub",
+     "Severity": "CRITICAL",
+     "Title": "GitHub Personal Access Token",
+     "StartLine": 1,
+     "EndLine": 1,
+     "Code": {
+      "Lines": [
+       {
+        "Number": 1,
+        "Content": "github.token=****************************************",
+        "IsCause": true,
+        "Annotation": "",
+        "Truncated": false,
+        "Highlighted": "github.token=****************************************",
+        "FirstCause": true,
+        "LastCause": true
+       },
+       {
+        "Number": 2,
+        "Content": "",
+        "IsCause": false,
+        "Annotation": "",
+        "Truncated": false,
+        "FirstCause": false,
+        "LastCause": false
+       }
+      ]
+     },
+     "Match": "github.token=****************************************",
+     "Offset": 13
+    }
+   ]
+  },
+  {
+   "Target": "package-lock.json",
+   "Class": "lang-pkgs",
+   "Type": "npm",
+   "Vulnerabilities": [
+    {
+     "VulnerabilityID": "CVE-2020-8203",
+     "VendorIDs": [
+      "GHSA-p6mc-m468-83gw"
+     ],
+     "PkgID": "lodash@4.17.15",
+     "PkgName": "lodash",
+     "PkgIdentifier": {
+      "PURL": "pkg:npm/lodash@4.17.15",
+      "UID": "31fb22725ab8ce15"
+     },
+     "InstalledVersion": "4.17.15",
+     "FixedVersion": "4.17.19",
+     "Status": "fixed",
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2020-8203",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory npm",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+     },
+     "Fingerprint": "sha256:bb865a5fdbb12d768bbf5a01d827492c8f017416b13460d8d1b19d5a7e5ea986",
+     "Title": "nodejs-lodash: prototype pollution in zipObjectDeep function",
+     "Description": "Prototype pollution attack when using _.zipObjectDeep in lodash before 4.17.20.",
+     "Severity": "HIGH",
+     "CweIDs": [
+      "CWE-770",
+      "CWE-1321"
+     ],
+     "References": [
+      "https://access.redhat.com/security/cve/CVE-2020-8203",
+      "https://github.com/advisories/GHSA-p6mc-m468-83gw"
+     ],
+     "PublishedDate": "2020-07-15T17:15:11.797Z",
+     "LastModifiedDate": "2026-06-17T03:26:02.917Z"
+    },
+    {
+     "VulnerabilityID": "CVE-2021-23337",
+     "VendorIDs": [
+      "GHSA-35jh-r3h4-6jhm"
+     ],
+     "PkgID": "lodash@4.17.15",
+     "PkgName": "lodash",
+     "PkgIdentifier": {
+      "PURL": "pkg:npm/lodash@4.17.15",
+      "UID": "31fb22725ab8ce15"
+     },
+     "InstalledVersion": "4.17.15",
+     "FixedVersion": "4.17.21",
+     "Status": "fixed",
+     "SeveritySource": "ghsa",
+     "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2021-23337",
+     "DataSource": {
+      "ID": "ghsa",
+      "Name": "GitHub Security Advisory npm",
+      "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+     },
+     "Fingerprint": "sha256:7788dc6db1a71f6bc51e0dce7289d7226bff9a7a327d7be54ef0fe18f2ade670",
+     "Title": "nodejs-lodash: command injection via template",
+     "Description": "Lodash versions prior to 4.17.21 are vulnerable to Command Injection via the template function.",
+     "Severity": "HIGH",
+     "CweIDs": [
+      "CWE-94"
+     ],
+     "References": [
+      "https://access.redhat.com/security/cve/CVE-2021-23337",
+      "https://cert-portal.siemens.com/productcert/pdf/ssa-637483.pdf"
+     ],
+     "PublishedDate": "2021-02-15T13:15:12.56Z",
+     "LastModifiedDate": "2026-10-08T22:17:07.363Z"
+    }
+   ]
+  }
+ ]
+}

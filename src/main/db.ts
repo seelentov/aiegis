@@ -295,6 +295,96 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (entity_type, entity_id, commit_sha)
   );
   `,
+  `
+  -- Scanner runs (SPEC §4, Q10): one scanner at a commit over a set of paths; immutable once finalized.
+  CREATE TABLE scans (
+    id TEXT PRIMARY KEY,
+    scanner TEXT NOT NULL,
+    format TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    targets TEXT NOT NULL,
+    status TEXT NOT NULL,
+    tool_version TEXT,
+    commands TEXT NOT NULL,
+    error TEXT,
+    job_id TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+  );
+  CREATE INDEX scans_commit ON scans(commit_sha, scanner);
+  CREATE TRIGGER scans_immutable BEFORE UPDATE ON scans WHEN OLD.status <> 'running'
+  BEGIN SELECT RAISE(ABORT, 'scan is finalized and immutable'); END;
+  CREATE TRIGGER scans_no_delete BEFORE DELETE ON scans
+  BEGIN SELECT RAISE(ABORT, 'scans are append-only'); END;
+
+  -- Normalized scanner results; written only while their scan is running.
+  -- Dependency CVEs (kind 'vuln') keep package data in "data" for SCA.
+  CREATE TABLE raw_findings (
+    id TEXT PRIMARY KEY,
+    scan_id TEXT NOT NULL REFERENCES scans(id),
+    scanner TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    file TEXT NOT NULL,
+    line INTEGER,
+    end_line INTEGER,
+    cwe TEXT NOT NULL,
+    tags TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    snippet TEXT,
+    data TEXT NOT NULL
+  );
+  CREATE INDEX raw_findings_scan ON raw_findings(scan_id);
+  CREATE INDEX raw_findings_fingerprint ON raw_findings(scanner, fingerprint);
+  CREATE TRIGGER raw_findings_frozen_insert BEFORE INSERT ON raw_findings
+  WHEN (SELECT status FROM scans WHERE id = NEW.scan_id) <> 'running'
+  BEGIN SELECT RAISE(ABORT, 'scan is finalized and immutable'); END;
+  CREATE TRIGGER raw_findings_no_update BEFORE UPDATE ON raw_findings
+  BEGIN SELECT RAISE(ABORT, 'raw findings are immutable'); END;
+  CREATE TRIGGER raw_findings_no_delete BEFORE DELETE ON raw_findings
+  BEGIN SELECT RAISE(ABORT, 'raw findings are append-only'); END;
+
+  -- Suppressions (SPEC §4, Q18): append-only; revocation is recorded once.
+  CREATE TABLE suppressions (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    scanner TEXT,
+    rule_id TEXT,
+    fingerprint TEXT,
+    globs TEXT NOT NULL,
+    file TEXT,
+    line INTEGER,
+    requirement_id TEXT,
+    module_id TEXT,
+    reason TEXT NOT NULL,
+    author TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    touched_files TEXT NOT NULL,
+    module_globs TEXT NOT NULL,
+    expires_at TEXT,
+    replaces TEXT,
+    created_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revoked_by TEXT,
+    revoke_reason TEXT
+  );
+  CREATE TRIGGER suppressions_revoke_once BEFORE UPDATE ON suppressions
+  WHEN OLD.revoked_at IS NOT NULL OR NEW.revoked_at IS NULL
+    OR NEW.id IS NOT OLD.id OR NEW.scope IS NOT OLD.scope OR NEW.scanner IS NOT OLD.scanner OR NEW.rule_id IS NOT OLD.rule_id
+    OR NEW.fingerprint IS NOT OLD.fingerprint OR NEW.globs IS NOT OLD.globs OR NEW.requirement_id IS NOT OLD.requirement_id
+    OR NEW.module_id IS NOT OLD.module_id OR NEW.reason IS NOT OLD.reason OR NEW.author IS NOT OLD.author
+    OR NEW.commit_sha IS NOT OLD.commit_sha OR NEW.touched_files IS NOT OLD.touched_files OR NEW.expires_at IS NOT OLD.expires_at
+  BEGIN SELECT RAISE(ABORT, 'suppressions are append-only; only a single revocation is allowed'); END;
+  CREATE TRIGGER suppressions_no_delete BEFORE DELETE ON suppressions
+  BEGIN SELECT RAISE(ABORT, 'suppressions are append-only'); END;
+  `,
+  `
+  -- Non-fatal scanner problems (files the tool could not parse), JSON array; set when the scan is finalized.
+  ALTER TABLE scans ADD COLUMN warnings TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 export function migrate(db: DB): void {

@@ -17,6 +17,7 @@ import type {
 } from '../shared/types';
 import { AuditStore } from './audit-store';
 import { entryPointKey, touchedFiles } from './modules';
+import { SignalStore } from './signal-store';
 
 const now = () => new Date().toISOString();
 
@@ -170,12 +171,15 @@ export interface NewRun {
 export class ProjectStore {
   /** Documents, requirements, matrix cells and findings. */
   readonly audit: AuditStore;
+  /** Scans, raw scanner findings and suppressions. */
+  readonly signals: SignalStore;
 
   constructor(
     readonly projectId: string,
     readonly db: DB,
   ) {
     this.audit = new AuditStore(db);
+    this.signals = new SignalStore(db);
   }
 
   // --- jobs ---
