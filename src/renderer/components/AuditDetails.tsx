@@ -3,7 +3,7 @@ import type { CellDetails, Evidence, Finding, FindingDetails, FindingStatus, Pro
 import { FINDING_STATUSES, SEVERITIES, VERDICT_STATUSES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
-import { CELL_STATUS, FINDING_STATUS, kTokens, SEVERITY, STALE_REASON, time } from '../format';
+import { CELL_STATUS, FINDING_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
 import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 
@@ -406,6 +406,48 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
             </button>
           </div>
         </>
+      )}
+
+      <h4>PoC-тестировщик</h4>
+      {!f.mergedInto && (
+        <div className="actions">
+          <button
+            disabled={!d.poc.available || f.status !== 'suspected' || Boolean(d.poc.job)}
+            title={!d.poc.available ? (d.poc.reason ?? '') : f.status !== 'suspected' ? 'только для находок в статусе «подозрение»' : ''}
+            onClick={() => void run(api.enqueuePoc(project.id, f.id))}
+          >
+            Запустить PoC
+          </button>
+          {d.poc.job && <span className="muted small">задача в очереди: {d.poc.job.status}</span>}
+          {d.poc.baseUrl && <span className="muted small mono">{d.poc.baseUrl}</span>}
+        </div>
+      )}
+      {!d.poc.available && <div className="muted small">{d.poc.reason}</div>}
+      {d.poc.results.map((r) => (
+        <div key={r.id} className="result">
+          <div className="muted small">
+            {time(r.createdAt)} · {r.author} · {r.commitSha.slice(0, 8)}
+            {r.runId && (
+              <>
+                {' '}
+                · <a onClick={() => onSelect({ kind: 'run', id: r.runId! })}>прогон</a>
+              </>
+            )}
+          </div>
+          <div>
+            <span className={`status poc-${r.outcome}`}>{POC_OUTCOME[r.outcome]}</span> {r.summary}
+          </div>
+          {r.steps.map((st, i) => (
+            <details key={i}>
+              <summary className="mono small">{st.action}</summary>
+              <pre className="small prewrap">{st.result}</pre>
+              {st.note && <div className="muted small">{st.note}</div>}
+            </details>
+          ))}
+        </div>
+      ))}
+      {d.poc.results[0]?.outcome === 'reproduced' && f.status === 'suspected' && (
+        <div className="muted small">PoC воспроизвёл находку — статус «подтверждена» ставит человек (выше).</div>
       )}
 
       <h4>Ячейки матрицы</h4>

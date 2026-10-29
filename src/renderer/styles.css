@@ -168,6 +168,9 @@ a { color: var(--accent); cursor: pointer; }
 .ss-reachable { color: var(--err); border-color: var(--err); }
 .ss-not_reachable { color: var(--ok); border-color: var(--ok); }
 .ss-needs_human { color: var(--warn); border-color: var(--warn); }
+.poc-reproduced { color: var(--err); border-color: var(--err); }
+.poc-not_reproduced { color: var(--ok); border-color: var(--ok); }
+.poc-inconclusive { color: var(--warn); border-color: var(--warn); }
 .ss-not_checked { color: var(--muted); border-style: dashed; }
 .v-approved { color: var(--ok); border-color: var(--ok); }
 .v-review, .v-extracting { color: var(--accent); border-color: var(--accent); }

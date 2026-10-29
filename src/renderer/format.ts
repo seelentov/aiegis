@@ -4,6 +4,7 @@ import type {
   FindingStatus,
   InventoryStatus,
   JobStatus,
+  PocOutcome,
   ReviewState,
   RunStatus,
   ScaItemStatus,
@@ -68,6 +69,12 @@ export const FINDING_STATUS: Record<FindingStatus, string> = {
   false_positive: 'ложное срабатывание',
   accepted_risk: 'риск принят',
   fixed: 'исправлена',
+};
+
+export const POC_OUTCOME: Record<PocOutcome, string> = {
+  reproduced: 'воспроизведена',
+  not_reproduced: 'не воспроизведена',
+  inconclusive: 'не удалось проверить',
 };
 
 export const SEVERITY: Record<Severity, string> = { critical: 'critical', high: 'high', medium: 'medium', low: 'low', info: 'info' };
