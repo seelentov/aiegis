@@ -50,10 +50,10 @@ matrix:
   triage_batch_size: 40
   # Dry-run estimate: average billable tokens per cell over this many recent successful runs of the role...
   estimate_history_runs: 20
-  # ...or these values when there is no history yet.
+  # ...or these values when there is no history yet (measured: a session's fixed overhead spread over its cells).
   estimate_tokens_per_cell:
-    triage: 2000
-    verdicts: 30000
+    triage: 4500
+    verdicts: 17000
 
 findings:
   # Max candidates returned by find_similar.
@@ -74,6 +74,8 @@ scanners:
     binary: semgrep
     format: semgrep
     version_args: ["--version"]
+    # Semgrep skips tests, vendored and minified files by default (and honours the repository's .semgrepignore);
+    # add "--x-ignore-semgrepignore-files" to scan everything git tracks.
     args: ["scan", "--config", "p/default", "--json", "--quiet", "--metrics", "off", "--disable-version-check", "{{targets}}"]
     ok_exit_codes: [0, 1]
     timeout_sec: 1800

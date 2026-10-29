@@ -112,7 +112,7 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     expect(view.cells.every((c) => c.status === 'not_checked' && !c.stale)).toBe(true);
 
     const est = await core.estimateMatrix(pid, matrixId, 'triage', 'pending');
-    expect(est).toMatchObject({ stage: 'triage', role: 'matrix-triage', sessions: 1, cells: 5, tokensPerCell: 2000, tokensPerCellSource: 'config', tokens: 10000 });
+    expect(est).toMatchObject({ stage: 'triage', role: 'matrix-triage', sessions: 1, cells: 5, tokensPerCell: 4500, tokensPerCellSource: 'config', tokens: 22500 });
     const [tj] = await core.runMatrix(pid, matrixId, 'triage', 'pending');
     expect(tj.title).toBe('Отсев n/a: mini × svc');
     expect((await core.matrixView(pid, matrixId)).cells.every((c) => c.activeJob?.id === tj.id)).toBe(true);
