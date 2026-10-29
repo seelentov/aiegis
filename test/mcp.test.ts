@@ -202,6 +202,20 @@ describe('MCP requirement, matrix and finding tools', () => {
     a.reviewItems(v.id, a.listItems(v.id).map((i) => i.id), 'accepted');
     a.approveVersion(v.id, 'human');
     expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, key: 'A-2' } }))).toMatch(/утверждена/);
+
+    // Re-import: the unchanged item is carried over; re-extracting its key or sentence is rejected.
+    docText = '# Access\nEvery endpoint must check authorization.\nTokens must expire.\n';
+    const v2 = a.addVersion(doc, { filename: 'g2.md', format: 'md', sha256: 'z' });
+    expect(a.carryOverItems(v2, docText).map((i) => [i.key, i.author, i.review])).toEqual([['A-1', 'auto', 'accepted']]);
+    const g2 = tokens.issue({ projectId: 'p1', role: 'requirements', access: 'scoped', sessionId: 's', runId: run.id, scope: [{ type: 'doc_version', id: v2.id }] });
+    const c2 = await connect(g2.token);
+    const args2 = { ...args, version_id: v2.id };
+    expect(text(await c2.callTool({ name: 'add_requirement', arguments: args2 }))).toMatch(/A-1 перенесён/);
+    expect(text(await c2.callTool({ name: 'add_requirement', arguments: { ...args2, key: 'A-1a', quote: 'every endpoint must check authorization. tokens must expire.' } }))).toMatch(
+      /A-1 перенесён/,
+    );
+    expect(JSON.parse(text(await c2.callTool({ name: 'add_requirement', arguments: { ...args2, key: 'A-2', quote: 'Tokens must expire.' } })))).toMatchObject({ saved: 'A-2' });
+    await c2.close();
     docText = null;
     await c.close();
   });

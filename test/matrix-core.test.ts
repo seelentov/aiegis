@@ -188,9 +188,18 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     const file = path.join(tmpDir(), 'guide2.md');
     write(file, GUIDE.replace('verify ownership', 'verify ownership and tenant'));
     const nv = await core.importDocument(pid, file, { documentId: docId });
+    // Items whose quote is unchanged are carried over without AI; the agent re-extracts only AUTH-2.
+    const prompt = String(job(nv.job!.id).payload.prompt);
+    expect(prompt).toContain('- OUT-1 [Output]: HTML output must be encoded against XSS.');
+    expect(prompt).toMatch(/whose quoted text changed or is gone[^\n]*\n[^\n]*\n- AUTH-2 /);
     await settled(job(nv.job!.id));
     const view2 = core.docVersion(pid, nv.version.id);
-    expect(view2.items.map((i) => i.change)).toEqual(['same', 'changed', 'same', 'same']);
+    expect(view2.items.map((i) => [i.key, i.change, i.author, i.review])).toEqual([
+      ['AUTH-1', 'same', 'auto', 'accepted'],
+      ['OUT-1', 'same', 'auto', 'accepted'],
+      ['OUT-2', 'same', 'auto', 'accepted'],
+      ['AUTH-2', 'changed', 'ai:requirements', 'pending'],
+    ]);
     expect(view2.removed.map((i) => i.key)).toEqual(['SEC-1']);
     core.reviewItems(pid, nv.version.id, view2.items.map((i) => i.id), 'accepted');
     core.approveVersion(pid, nv.version.id);

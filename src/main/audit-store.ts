@@ -20,11 +20,14 @@ import type {
   Verdict,
   VerdictStatus,
 } from '../shared/types';
-import { cellId, reqHash, type CellRef } from './matrix';
+import { cellId, quoteFound, reqHash, type CellRef } from './matrix';
 import { scaItemId } from './sca';
 import type { Authorship } from './store';
 
 const now = () => new Date().toISOString();
+
+/** Author of items carried over unchanged from the previous approved version. */
+export const CARRIED_AUTHOR = 'auto';
 
 type Row = Record<string, unknown>;
 
@@ -298,6 +301,21 @@ export class AuditStore {
         .run(crypto.randomUUID(), versionId, requirementId, key, text, it.section.trim(), it.quote.trim(), review, by.author, by.runId, now());
       return toItem(this.db.prepare('SELECT * FROM req_items WHERE version_id = ? AND key = ?').get(versionId, key) as Row);
     })();
+  }
+
+  /**
+   * Copies accepted items of the previous approved version whose quote is still verbatim in the new `text`:
+   * unchanged wording keeps its key, text and split without AI (extraction of compound items is unstable).
+   */
+  carryOverItems(version: DocVersion, text: string): RequirementItem[] {
+    const base = this.previousApproved(version);
+    if (!base) return [];
+    const by = { author: CARRIED_AUTHOR, runId: null };
+    return this.db.transaction(() =>
+      this.listItems(base.id)
+        .filter((i) => i.review === 'accepted' && quoteFound(text, i.quote))
+        .map((i) => this.upsertItem(version.id, i, by, 'accepted')),
+    )();
   }
 
   reviewItems(versionId: string, itemIds: string[], review: ReviewState): number {

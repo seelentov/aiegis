@@ -26,6 +26,7 @@ import {
 import type { Settings } from '../config/loader';
 import { sha256File } from '../documents';
 import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
+import { CARRIED_AUTHOR } from '../audit-store';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
 import { fileInside, missingInReport, SCA_MODULE_ENTITY, SCA_PACKAGE_ENTITY, scaItemId, scaPackageEntityId, scaTouched } from '../sca';
 import { hookDecision, POC_ENTITY } from '../poc';
@@ -340,6 +341,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         if (v.status === 'approved') return fail('версия уже утверждена; изменения невозможны');
         const doc = svc.documentText(pid, version_id);
         if (doc !== null && !quoteFound(doc, quote)) return fail('цитата не найдена в тексте документа: скопируйте предложение дословно');
+        // Unchanged wording is carried over from the previous version; re-extracting it would re-split or duplicate it.
+        const carried = a
+          .listItems(version_id)
+          .find((i) => i.author === CARRIED_AUTHOR && (i.key === key?.trim() || quoteFound(i.quote, quote) || quoteFound(quote, i.quote)));
+        if (carried) return fail(`пункт ${carried.key} перенесён из прошлой версии без изменений: не извлекайте этот текст заново`);
         const item = a.upsertItem(version_id, { key, text, section, quote }, by);
         svc.onWrite(pid);
         return ok({ saved: item.key, requirement_id: item.requirementId, items_in_version: a.listItems(version_id).length });

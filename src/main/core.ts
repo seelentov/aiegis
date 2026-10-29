@@ -88,6 +88,7 @@ import {
 } from './config/loader';
 import { openDb } from './db';
 import { agentFile, detectFormat, documentText, sha256File, sourceFile, stageDocument } from './documents';
+import { CARRIED_AUTHOR } from './audit-store';
 import { changedFiles, headSha } from './git';
 import {
   affectingChanges,
@@ -765,7 +766,9 @@ export class Core extends EventEmitter {
     const versionId = crypto.randomUUID();
     await stageDocument(file, this.docDir(projectId, versionId), format);
     const documentId = o.documentId ?? a.createDocument(o.title?.trim() || path.basename(file, path.extname(file)));
-    a.addVersion(documentId, { filename: path.basename(file), format, sha256: sha }, versionId);
+    const version = a.addVersion(documentId, { filename: path.basename(file), format, sha256: sha }, versionId);
+    const text = documentText(this.docDir(projectId, versionId));
+    if (text !== null) a.carryOverItems(version, text);
     try {
       await this.enqueueExtraction(projectId, versionId);
     } catch (e) {
@@ -785,7 +788,9 @@ export class Core extends EventEmitter {
     this.assertNotQueued(projectId, entity);
     const spec = this.taskSpec(projectId, 'requirements');
     const prev = a.previousApproved(v);
-    const prevItems = prev ? a.listItems(prev.id).filter((i) => i.review === 'accepted') : [];
+    const carried = a.listItems(v.id).filter((i) => i.author === CARRIED_AUTHOR);
+    const carriedKeys = new Set(carried.map((i) => i.key));
+    const prevItems = prev ? a.listItems(prev.id).filter((i) => i.review === 'accepted' && !carriedKeys.has(i.key)) : [];
     const vars = {
       project: p.name,
       document_title: a.getDocumentTitle(v.documentId) ?? '',
@@ -794,6 +799,7 @@ export class Core extends EventEmitter {
       file: agentFile(this.docDir(projectId, versionId)),
       format: v.format,
       previous: prevItems.length ? prevItems.map((i) => `- ${i.key} [${i.section}]: ${i.text}`).join('\n') : '(none)',
+      carried: carried.length ? carried.map((i) => `- ${i.key} [${i.section}]: ${i.quote}`).join('\n') : '(none)',
     };
     return this.addAgentJob(
       projectId,
