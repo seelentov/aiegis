@@ -1,4 +1,18 @@
-import type { CellStatus, DocVersionStatus, FindingStatus, JobStatus, ReviewState, RunStatus, Severity, StaleReason, TokenUsage } from '../shared/types';
+import type {
+  CellStatus,
+  DocVersionStatus,
+  FindingStatus,
+  JobStatus,
+  ReviewState,
+  RunStatus,
+  ScanStatus,
+  Severity,
+  SignalKind,
+  StaleReason,
+  SuppressionScope,
+  SuppressionState,
+  TokenUsage,
+} from '../shared/types';
 
 export const JOB_STATUS: Record<JobStatus, string> = {
   queued: 'в очереди',
@@ -69,3 +83,15 @@ export const REVIEW: Record<ReviewState, string> = { pending: 'не просмо
 export function kTokens(n: number): string {
   return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 }
+
+export const SIGNAL_KIND: Record<SignalKind, string> = { sast: 'код (SAST)', secret: 'секрет', misconfig: 'конфигурация', vuln: 'уязвимая зависимость' };
+
+export const SCAN_STATUS: Record<ScanStatus, string> = { running: 'идёт', complete: 'готово', failed: 'ошибка' };
+
+export const SUPPRESSION_SCOPE: Record<SuppressionScope, string> = {
+  finding: 'эта находка',
+  rule_glob: 'правило × glob',
+  requirement_module: 'пункт × модуль',
+};
+
+export const SUPPRESSION_STATE: Record<SuppressionState, string> = { active: 'действует', stale: 'устарело', expired: 'истёк срок', revoked: 'отозвано' };

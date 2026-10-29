@@ -10,6 +10,7 @@ import { MatrixTab } from './components/MatrixTab';
 import { ModulesTab } from './components/ModulesTab';
 import { QueueTab } from './components/QueueTab';
 import { SettingsTab } from './components/SettingsTab';
+import { SignalsTab } from './components/SignalsTab';
 import { TerminalPanel } from './components/TerminalPanel';
 
 const TABS = [
@@ -173,6 +174,8 @@ export function App() {
               <MatrixTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
             ) : tab === 'findings' ? (
               <FindingsTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
+            ) : tab === 'signals' ? (
+              <SignalsTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} notify={notify} />
             ) : tab === 'entry-points' ? (
               <EntryPointsTab
                 project={project}

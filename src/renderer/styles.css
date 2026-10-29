@@ -192,3 +192,20 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: 6px;
 .compare td { word-break: break-word; white-space: pre-wrap; }
 .compare tr.diff td { background: var(--selected); }
 .notice .row { margin-top: 6px; }
+
+/* Stage 4: scanners, signals, suppressions */
+.subtabs { display: flex; gap: 2px; margin: 4px 0 8px; border-bottom: 1px solid var(--border); }
+.clip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signal-grid { table-layout: fixed; }
+.signal-grid th:nth-child(1) { width: 78px; }
+.signal-grid th:nth-child(3) { width: 30%; }
+.signal-grid th:nth-child(4) { width: 110px; }
+.signal-grid th:nth-child(5) { width: 22%; }
+.signal-grid td { overflow-wrap: anywhere; }
+.sev-low { color: var(--accent); border-color: var(--accent); }
+.sup-active, .scan-complete { color: var(--ok); border-color: var(--ok); }
+.sup-stale, .sup-expired { color: var(--warn); border-color: var(--warn); }
+.sup-revoked { color: var(--muted); }
+.scan-running, .s-queued { color: var(--accent); border-color: var(--accent); }
+.scan-failed { color: var(--err); border-color: var(--err); }
+.signals-tab tr.removed td { color: var(--muted); }

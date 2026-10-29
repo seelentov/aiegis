@@ -26,6 +26,13 @@ import type {
   ResultRecord,
   ReviewState,
   Run,
+  Scan,
+  ScannerStatus,
+  SignalDetails,
+  SignalsView,
+  Suppression,
+  SuppressionInput,
+  SuppressionView,
   TerminalInfo,
   Verdict,
   VerdictStatus,
@@ -92,6 +99,20 @@ export interface AiegisApi {
   createFinding(projectId: string, cellId: string, input: Omit<FindingInput, 'moduleId'>): Finding;
   linkFinding(projectId: string, findingId: string, cellId: string): Finding;
   openFixSession(projectId: string, findingId: string): string;
+
+  /** Configured scanners and their availability (checked at startup; `refresh` re-checks). */
+  scannerStatus(projectId: string, refresh?: boolean): ScannerStatus[];
+  /** Queues scans at HEAD of modules (empty list = all modules) or of the whole repository (null). */
+  runScanners(projectId: string, o: { moduleIds: string[] | null }): { jobs: Job[]; cached: string[]; unavailable: string[] };
+  listScans(projectId: string): Scan[];
+  signalsView(projectId: string, commit?: string | null): SignalsView;
+  signalDetails(projectId: string, signalId: string): SignalDetails;
+  listSuppressions(projectId: string): SuppressionView[];
+  createSuppression(projectId: string, input: SuppressionInput): Suppression;
+  revokeSuppression(projectId: string, id: string, reason: string): Suppression;
+  /** Re-confirms a suppression at HEAD (new record, the old one is revoked). */
+  renewSuppression(projectId: string, id: string, expiresAt?: string | null): Suppression;
+  currentRequirements(projectId: string): (RequirementItem & { documentTitle: string })[];
 
   listTerminals(): TerminalInfo[];
   terminalSnapshot(terminalId: string): string;

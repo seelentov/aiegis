@@ -6,9 +6,10 @@ import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
 import { CellDetailsView, FindingDetailsView } from './AuditDetails';
 import { ConfigView } from './ConfigView';
 import { ModuleForm } from './ModulesTab';
+import { SignalDetailsView, SuppressionDetailsView } from './SignalDetails';
 
 export interface Selection {
-  kind: 'job' | 'run' | 'module' | 'cell' | 'finding';
+  kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression';
   id: string;
   /** Matrix the cell was opened from (its cascade level). */
   matrixId?: string;
@@ -154,6 +155,15 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
         <ModuleDetails project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} onOpenMap={onOpenMap} />
       </aside>
     );
+
+  if (selection.kind === 'signal' || selection.kind === 'suppression') {
+    const common = { project, revision, run, onSelect };
+    return (
+      <aside className="details">
+        {selection.kind === 'signal' ? <SignalDetailsView {...common} id={selection.id} /> : <SuppressionDetailsView {...common} id={selection.id} />}
+      </aside>
+    );
+  }
 
   if (selection.kind === 'cell' || selection.kind === 'finding') {
     const common = { project, revision, run, onSelect, onTerminal };

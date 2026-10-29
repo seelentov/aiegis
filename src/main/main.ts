@@ -84,6 +84,17 @@ function api(): ApiImpl {
     linkFinding: (pid, id, cell) => core.linkFinding(pid, id, cell),
     openFixSession: (pid, id) => core.openFixSession(pid, id),
 
+    scannerStatus: (pid, refresh) => core.scannerStatus(pid, refresh),
+    runScanners: (pid, o) => core.runScanners(pid, o),
+    listScans: (pid) => core.listScans(pid),
+    signalsView: (pid, commit) => core.signalsView(pid, commit),
+    signalDetails: (pid, id) => core.signalDetails(pid, id),
+    listSuppressions: (pid) => core.listSuppressions(pid),
+    createSuppression: (pid, input) => core.createSuppression(pid, input),
+    revokeSuppression: (pid, id, reason) => core.revokeSuppression(pid, id, reason),
+    renewSuppression: (pid, id, exp) => core.renewSuppression(pid, id, exp),
+    currentRequirements: (pid) => core.currentRequirements(pid),
+
     listTerminals: () => core.terminals.list(),
     terminalSnapshot: (id) => core.terminals.snapshot(id),
     terminalWrite: (id, data) => core.terminals.write(id, data),
