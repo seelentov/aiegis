@@ -12,18 +12,21 @@ import { QueueTab } from './components/QueueTab';
 import { ScaTab } from './components/ScaTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SignalsTab } from './components/SignalsTab';
+import { Icon, IconButton } from './components/Icon';
+import { Splitter, usePersisted } from './components/Splitter';
 import { TerminalPanel } from './components/TerminalPanel';
 
+// Groups read left to right: the audit itself, what it is built from, the machinery.
 const TABS = [
-  { id: 'matrix', title: 'Матрица', stage: 3 },
-  { id: 'findings', title: 'Находки', stage: 3 },
-  { id: 'sca', title: 'SCA', stage: 5 },
-  { id: 'entry-points', title: 'Точки входа', stage: 2 },
-  { id: 'signals', title: 'Сигналы', stage: 4 },
-  { id: 'documents', title: 'Документы', stage: 3 },
-  { id: 'modules', title: 'Модули', stage: 2 },
-  { id: 'queue', title: 'Очередь/Сессии', stage: 1 },
-  { id: 'settings', title: 'Настройки', stage: 1 },
+  { id: 'matrix', title: 'Матрица', stage: 3, group: 'audit' },
+  { id: 'findings', title: 'Находки', stage: 3, group: 'audit' },
+  { id: 'sca', title: 'SCA', stage: 5, group: 'audit' },
+  { id: 'signals', title: 'Сигналы', stage: 4, group: 'audit' },
+  { id: 'entry-points', title: 'Точки входа', stage: 2, group: 'audit' },
+  { id: 'modules', title: 'Модули', stage: 2, group: 'sources' },
+  { id: 'documents', title: 'Документы', stage: 3, group: 'sources' },
+  { id: 'queue', title: 'Очередь', stage: 1, group: 'system' },
+  { id: 'settings', title: 'Настройки', stage: 1, group: 'system' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -41,7 +44,12 @@ let noticeSeq = 0;
 export function App() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabId>('queue');
+  const [tab, setTab] = usePersisted<TabId>('tab', 'matrix');
+  const [sidebarW, setSidebarW] = usePersisted('sidebarWidth', 232);
+  const [sidebarOpen, setSidebarOpen] = usePersisted('sidebarOpen', true);
+  const [detailsW, setDetailsW] = usePersisted('detailsWidth', 420);
+  const [termH, setTermH] = usePersisted('terminalHeight', 320);
+  const [running, setRunning] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   const [activeTerminal, setActiveTerminal] = useState<string | null>(null);
@@ -67,6 +75,19 @@ export function App() {
     },
     [notify],
   );
+
+  useEffect(() => {
+    void api.queueState().then((q) => setRunning(q.running));
+  }, [revision]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.key === 'Escape' && !t.closest('input, textarea, select, .terminal-panel')) setSelection(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const refreshTerminals = useCallback(async () => setTerminals(await api.listTerminals()), []);
 
@@ -99,7 +120,7 @@ export function App() {
   };
 
   const removeProject = async (p: ProjectInfo) => {
-    if (!confirm(`Убрать проект «${p.name}» из списка? Данные аудита останутся на диске.`)) return;
+    if (!confirm(`Удалить проект «${p.name}» из списка? Данные аудита останутся на диске.`)) return;
     await run(api.removeProject(p.id));
     const ps = await api.listProjects();
     setProjects(ps);
@@ -112,10 +133,13 @@ export function App() {
   }, []);
 
   const project = projects.find((p) => p.id === projectId) ?? null;
-  const current = TABS.find((t) => t.id === tab)!;
+  const current = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const details = tab !== 'settings' && selection !== null;
 
   return (
-    <div className="app">
+    <div className="app" style={{ gridTemplateColumns: sidebarOpen ? `${sidebarW}px auto minmax(0, 1fr)` : 'minmax(0, 1fr)' }}>
+      {sidebarOpen && (
+        <>
       <aside className="sidebar">
         <div className="brand">aiegis</div>
         <div className="section-title">Проекты</div>
@@ -125,31 +149,47 @@ export function App() {
               <span className="project-name" title={p.root}>
                 {p.name}
               </span>
-              <button className="icon" title="Убрать из списка" onClick={(e) => (e.stopPropagation(), void removeProject(p))}>
-                ×
-              </button>
+              <IconButton icon="trash" className="ghost" title="Удалить из списка" onClick={(e) => (e.stopPropagation(), void removeProject(p))} />
             </li>
           ))}
         </ul>
-        <button className="add-project" onClick={() => void addProject()}>
-          + Добавить проект
-        </button>
+        <IconButton icon="folderPlus" className="add-project" title="Добавить git-репозиторий" label="Добавить проект" onClick={() => void addProject()} />
       </aside>
+      <Splitter axis="x" value={sidebarW} onChange={setSidebarW} min={180} max={480} reset={232} label="Ширина списка проектов" />
+        </>
+      )}
 
       <main className="main">
         <nav className="tabs">
-          {TABS.map((t) => (
-            <button key={t.id} className={t.id === tab ? 'tab active' : 'tab'} onClick={() => setTab(t.id)}>
+          <IconButton
+            icon="panelLeft"
+            className={sidebarOpen ? 'ghost' : 'ghost off'}
+            title={sidebarOpen ? 'Скрыть проекты' : 'Показать проекты'}
+            aria-pressed={sidebarOpen}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          />
+          {!sidebarOpen && project && <span className="tabs-project">{project.name}</span>}
+          {TABS.map((t, i) => (
+            <button
+              key={t.id}
+              className={`tab ${t.id === tab ? 'active' : ''} ${i > 0 && TABS[i - 1].group !== t.group ? 'group-start' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
               {t.title}
+              {t.id === 'queue' && running > 0 && (
+                <span className="tab-count" title={`выполняется: ${running}`}>
+                  {running}
+                </span>
+              )}
             </button>
           ))}
         </nav>
-        <div className={tab === 'settings' ? 'workspace no-details' : 'workspace'}>
+        <div className="workspace" style={{ gridTemplateColumns: details ? `minmax(0, 1fr) auto ${detailsW}px` : 'minmax(0, 1fr)' }}>
           <section className="content">
             {tab === 'settings' ? (
               <SettingsTab project={project} run={run} notify={notify} />
             ) : !project ? (
-              <div className="empty">Добавьте git-репозиторий, чтобы начать.</div>
+              <div className="empty">Нет проектов. Добавьте git-репозиторий.</div>
             ) : tab === 'queue' ? (
               <QueueTab
                 project={project}
@@ -192,7 +232,12 @@ export function App() {
               <div className="empty">Раздел «{current.title}» появится на этапе {current.stage}.</div>
             )}
           </section>
-          {tab !== 'settings' && (
+          {details && (
+            <Splitter axis="x" invert value={detailsW} onChange={setDetailsW} min={300} max={900} reset={420} label="Ширина панели деталей" />
+          )}
+          {details && (
+            <div className="details-wrap">
+              <IconButton icon="close" className="ghost details-close" title="Закрыть детали (Esc)" onClick={() => setSelection(null)} />
             <DetailsPanel
               project={project}
               selection={selection}
@@ -202,9 +247,10 @@ export function App() {
               onSelect={setSelection}
               onOpenMap={openMap}
             />
+            </div>
           )}
         </div>
-        <TerminalPanel terminals={terminals} active={activeTerminal} onActivate={setActiveTerminal} run={run} />
+        <TerminalPanel terminals={terminals} active={activeTerminal} onActivate={setActiveTerminal} run={run} height={termH} onHeight={setTermH} />
       </main>
 
       <div className="notices">
@@ -214,7 +260,7 @@ export function App() {
             {n.recheck && (
               <div className="row">
                 <button
-                  className="primary"
+                  className="primary btn-icon-label"
                   onClick={(e) => {
                     e.stopPropagation();
                     const offer = n.recheck!;
@@ -223,9 +269,10 @@ export function App() {
                     if (p) void confirmRecheck(p, run, offer.cells);
                   }}
                 >
-                  Перепроверить ({n.recheck.cells.length})
+                  <Icon name="recheck" />
+                  <span>Перепроверить ({n.recheck.cells.length})</span>
                 </button>
-                <button>Позже</button>
+                <button>Закрыть</button>
               </div>
             )}
           </div>

@@ -3,6 +3,8 @@ import type { DocumentSummary, DocVersionView, ItemChange, ProjectInfo, Requirem
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { JOB_STATUS, REVIEW, time, VERSION_STATUS } from '../format';
+import { EmptyRow, useGrid } from './Grid';
+import { IconButton } from './Icon';
 
 interface Props {
   project: ProjectInfo;
@@ -58,7 +60,17 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
     const ok = await run(api.saveItem(project.id, v.id, { key: d.key.trim() || null, text: d.text, section: d.section, quote: d.quote }));
     if (ok) setEditing(null);
   };
-  const shown = view.items.filter((i) => filter === 'all' || (filter === 'pending' ? i.review === 'pending' : i.change !== 'same'));
+  const g = useGrid(
+    'documents.items',
+    view.items.filter((i) => filter === 'all' || (filter === 'pending' ? i.review === 'pending' : i.change !== 'same')),
+    [
+      { key: 'key', title: 'Id', text: (i) => `${i.key} ${CHANGE[i.change]}`, sort: (i) => i.key },
+      { key: 'section', title: 'Раздел', text: (i) => i.section, filter: 'enum' },
+      { key: 'text', title: 'Требование / цитата', text: (i) => `${i.text} ${i.quote ?? ''}`, sort: (i) => i.text },
+      { key: 'review', title: 'Ревью', text: (i) => REVIEW[i.review], filter: 'enum' },
+      { key: 'actions', title: '', className: 'actions' },
+    ],
+  );
 
   return (
     <div>
@@ -72,8 +84,10 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
           {v.pendingCount ? `, не просмотрено ${v.pendingCount}` : ''}
           {view.baseline ? ` · сравнение с v${view.baseline.n}` : ''}
         </span>
-        {view.sourceFile && <button onClick={() => void run(api.openInEditor(view.sourceFile!))}>Файл</button>}
-        {view.job?.lastRunId && <button onClick={() => void run(api.openRun(project.id, view.job!.lastRunId!)).then(onTerminal)}>Сессия</button>}
+        {view.sourceFile && <IconButton icon="file" title="Открыть исходный файл" onClick={() => void run(api.openInEditor(view.sourceFile!))} />}
+        {view.job?.lastRunId && (
+          <IconButton icon="terminal" title="Открыть сессию извлечения" onClick={() => void run(api.openRun(project.id, view.job!.lastRunId!)).then(onTerminal)} />
+        )}
       </div>
       {view.job && (active || view.job.error) && (
         <div className="muted">
@@ -85,31 +99,46 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
       <div className="toolbar">
         {editable && (
           <>
-            <button disabled={!v.pendingCount} onClick={() => review(view.items.filter((i) => i.review === 'pending').map((i) => i.id), 'accepted')}>
-              Принять все непросмотренные
-            </button>
-            <button onClick={() => setEditing('new')}>+ Пункт вручную</button>
-            <button className="primary" disabled={v.status !== 'review' || v.pendingCount > 0} onClick={() => void run(api.approveVersion(project.id, v.id))}>
-              Утвердить версию
-            </button>
+            <IconButton
+              icon="checkAll"
+              title="Принять все непросмотренные пункты"
+              label={`Принять все ${v.pendingCount || ''}`}
+              disabled={!v.pendingCount}
+              onClick={() => review(view.items.filter((i) => i.review === 'pending').map((i) => i.id), 'accepted')}
+            />
+            <IconButton icon="plus" title="Добавить пункт вручную" label="Пункт" onClick={() => setEditing('new')} />
+            <IconButton
+              icon="approve"
+              className="primary"
+              title={v.pendingCount > 0 ? 'Сначала просмотрите все пункты' : 'Утвердить версию: её пункты попадут в матрицы'}
+              label="Утвердить"
+              disabled={v.status !== 'review' || v.pendingCount > 0}
+              onClick={() => void run(api.approveVersion(project.id, v.id))}
+            />
           </>
         )}
         {(v.status === 'failed' || (v.status === 'extracting' && !active)) && (
           <>
-            <button onClick={() => void run(api.retryExtraction(project.id, v.id))}>Повторить извлечение</button>
-            {v.itemCount > 0 && <button onClick={() => void run(api.setVersionState(project.id, v.id, 'review'))}>Перейти к ревью</button>}
+            <IconButton icon="retry" title="Повторить извлечение требований" label="Извлечь заново" onClick={() => void run(api.retryExtraction(project.id, v.id))} />
+            {v.itemCount > 0 && (
+              <IconButton icon="checkAll" title="Перейти к ревью извлечённых пунктов" label="К ревью" onClick={() => void run(api.setVersionState(project.id, v.id, 'review'))} />
+            )}
           </>
         )}
         {v.status !== 'approved' && v.status !== 'discarded' && !active && (
-          <button onClick={() => confirm('Отбросить версию? Её пункты не попадут в матрицы.') && void run(api.setVersionState(project.id, v.id, 'discarded'))}>
-            Отбросить
-          </button>
+          <IconButton
+            icon="reject"
+            className="danger"
+            title="Аннулировать версию"
+            onClick={() => confirm('Аннулировать версию? Её пункты не попадут в матрицы.') && void run(api.setVersionState(project.id, v.id, 'discarded'))}
+          />
         )}
-        <select value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+        <select aria-label="Пункты" value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
           <option value="all">все пункты</option>
           <option value="pending">не просмотренные</option>
           <option value="changed">новые и изменённые</option>
         </select>
+        {g.count}
       </div>
       {editing === 'new' && (
         <div className="card">
@@ -117,24 +146,14 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
         </div>
       )}
       <table className="grid req-grid">
-        <thead>
-          <tr>
-            <th>Id</th>
-            <th>Раздел</th>
-            <th>Требование / цитата</th>
-            <th>Ревью</th>
-            <th />
-          </tr>
-        </thead>
+        {g.head}
         <tbody>
-          {shown.length === 0 && (
-            <tr>
-              <td colSpan={5} className="muted">
-                {active ? 'Пункты появятся по мере извлечения…' : 'Пунктов нет'}
-              </td>
-            </tr>
+          {g.rows.length === 0 && (
+            <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
+              {active ? 'Пункты появятся по мере извлечения…' : 'Пунктов нет'}
+            </EmptyRow>
           )}
-          {shown.map((i) =>
+          {g.rows.map((i) =>
             editing === i.id ? (
               <tr key={i.id} className="expanded">
                 <td colSpan={5}>
@@ -157,13 +176,9 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
                 <td className="actions">
                   {editable && (
                     <>
-                      <button disabled={i.review === 'accepted'} onClick={() => review([i.id], 'accepted')}>
-                        Принять
-                      </button>
-                      <button disabled={i.review === 'rejected'} onClick={() => review([i.id], 'rejected')}>
-                        Отклонить
-                      </button>
-                      <button onClick={() => setEditing(i.id)}>Изменить</button>
+                      <IconButton icon="check" className="ok" title="Принять" aria-pressed={i.review === 'accepted'} disabled={i.review === 'accepted'} onClick={() => review([i.id], 'accepted')} />
+                      <IconButton icon="reject" className="danger" title="Отклонить" aria-pressed={i.review === 'rejected'} disabled={i.review === 'rejected'} onClick={() => review([i.id], 'rejected')} />
+                      <IconButton icon="edit" title="Изменить" onClick={() => setEditing(i.id)} />
                     </>
                   )}
                 </td>
@@ -204,6 +219,13 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
     void run(api.docVersion(project.id, versionId)).then((v) => setView(v ?? null));
   }, [project.id, versionId, revision, run]);
 
+  const g = useGrid('documents', docs, [
+    { key: 'title', title: 'Документ', text: (d) => d.title },
+    { key: 'current', title: 'Текущая версия', text: (d) => (d.current ? `v${d.current.n}` : 'не утверждена'), filter: 'enum' },
+    { key: 'versions', title: 'Версии' },
+    { key: 'actions', title: '', className: 'actions' },
+  ]);
+
   const importFile = async (documentId?: string) => {
     const file = await run(api.pickDocumentFile());
     if (!file) return;
@@ -218,28 +240,18 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
     <div className="documents-tab">
       <div className="toolbar">
         <input placeholder="название документа (по умолчанию — имя файла)" value={title} onChange={(e) => setTitle(e.target.value)} size={40} />
-        <button className="primary" onClick={() => void importFile()}>
-          Загрузить документ (MD, PDF, DOCX)
-        </button>
+        <IconButton icon="upload" className="primary" title="Загрузить документ: MD, PDF или DOCX" label="Загрузить документ" onClick={() => void importFile()} />
+        {g.count}
       </div>
       <table className="grid compact">
-        <thead>
-          <tr>
-            <th>Документ</th>
-            <th>Текущая версия</th>
-            <th>Версии</th>
-            <th />
-          </tr>
-        </thead>
+        {g.head}
         <tbody>
-          {docs.length === 0 && (
-            <tr>
-              <td colSpan={4} className="muted">
-                Документов нет — загрузите стандарт или внутренний гайдлайн
-              </td>
-            </tr>
+          {g.rows.length === 0 && (
+            <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
+              Документов нет — загрузите стандарт или внутренний гайдлайн
+            </EmptyRow>
           )}
-          {docs.map((d) => (
+          {g.rows.map((d) => (
             <tr key={d.id}>
               <td>
                 <strong>{d.title}</strong>
@@ -253,7 +265,7 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
                 ))}
               </td>
               <td className="actions">
-                <button onClick={() => void importFile(d.id)}>Новая версия</button>
+                <IconButton icon="filePlus" title="Загрузить новую версию" onClick={() => void importFile(d.id)} />
               </td>
             </tr>
           ))}

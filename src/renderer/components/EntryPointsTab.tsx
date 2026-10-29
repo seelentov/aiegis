@@ -4,6 +4,8 @@ import { api } from '../api';
 import type { RunFn } from '../App';
 import { time } from '../format';
 import type { Selection } from './DetailsPanel';
+import { EmptyRow, useGrid } from './Grid';
+import { Icon, IconButton } from './Icon';
 
 interface Props {
   project: ProjectInfo;
@@ -127,10 +129,27 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
     changed: map.entries.filter((e) => e.change === 'changed').length,
   };
 
+  type Row = { e: EntryPoint; change: EntryPointChange | 'removed' };
+  const g = useGrid<Row>(
+    'entry-points',
+    [...(map?.entries ?? []).map((e) => ({ e, change: e.change })), ...(map?.removed ?? []).map((e) => ({ e, change: 'removed' as const }))].filter((r) => match(r.e)),
+    [
+      { key: 'toggle', title: '' },
+      { key: 'kind', title: 'Тип', text: (r) => r.e.kind, filter: 'enum' },
+      { key: 'method', title: 'Метод', text: (r) => r.e.method ?? '', filter: 'enum' },
+      { key: 'name', title: 'Маршрут / имя', text: (r) => r.e.name },
+      { key: 'handler', title: 'Хэндлер', text: (r) => `${r.e.handler.file}:${r.e.handler.line}` },
+      { key: 'auth', title: 'Авторизация', text: (r) => r.e.auth, filter: 'enum' },
+      { key: 'change', title: 'Изменение', text: (r) => CHANGE[r.change] || 'без изменений', filter: 'enum' },
+    ],
+  );
+
   const row = (e: EntryPoint, change: EntryPointChange | 'removed') => (
     <Fragment key={e.id}>
       <tr className={change === 'removed' ? 'removed' : ''} onClick={() => toggle(e.id)}>
-        <td>{expanded.has(e.id) ? '▾' : '▸'}</td>
+        <td>
+          <Icon name={expanded.has(e.id) ? 'chevronDown' : 'chevronRight'} size={14} />
+        </td>
         <td>{e.kind}</td>
         <td className="mono">{e.method ?? ''}</td>
         <td className="mono">{e.name}</td>
@@ -179,10 +198,11 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
             </select>
           </label>
         )}
-        <input placeholder="фильтр" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <input type="search" aria-label="Поиск по всем столбцам" placeholder="поиск по всем столбцам" value={filter} onChange={(e) => setFilter(e.target.value)} />
         {moduleId && (
-          <button onClick={() => void run(api.enqueueEntryPoints(project.id, moduleId))}>Построить заново</button>
+          <IconButton icon={snap ? 'recheck' : 'route'} title={snap ? 'Перестроить карту модуля' : 'Построить карту модуля'} label={snap ? 'Перестроить' : 'Построить'} onClick={() => void run(api.enqueueEntryPoints(project.id, moduleId))} />
         )}
+        {g.count}
       </div>
 
       {!modules.length ? (
@@ -206,20 +226,14 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
             {snap.status !== 'complete' && <span className="warn"> · версия {SNAPSHOT_STATUS[snap.status]}</span>}
           </div>
           <table className="grid entry-grid">
-            <thead>
-              <tr>
-                <th />
-                <th>Тип</th>
-                <th>Метод</th>
-                <th>Маршрут / имя</th>
-                <th>Хэндлер</th>
-                <th>Авторизация</th>
-                <th />
-              </tr>
-            </thead>
+            {g.head}
             <tbody>
-              {map.entries.filter(match).map((e) => row(e, e.change))}
-              {map.removed.filter(match).map((e) => row(e, 'removed'))}
+              {g.rows.length === 0 && (
+                <EmptyRow colSpan={g.colSpan} filtered>
+                  —
+                </EmptyRow>
+              )}
+              {g.rows.map((r) => row(r.e, r.change))}
             </tbody>
           </table>
         </>

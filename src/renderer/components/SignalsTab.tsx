@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { Job, ModuleSummary, ProjectInfo, RequirementItem, Scan, ScannerStatus, Severity, SignalKind, SignalsView, SuppressionView } from '../../shared/types';
-import { SEVERITIES, SIGNAL_KINDS } from '../../shared/types';
+import type { Job, ModuleSummary, ProjectInfo, RequirementItem, Scan, ScannerStatus, Severity, SignalsView, SuppressionView } from '../../shared/types';
+import { SEVERITIES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { JOB_STATUS, SCAN_STATUS, SEVERITY, SIGNAL_KIND, SUPPRESSION_SCOPE, SUPPRESSION_STATE, time } from '../format';
 import type { Selection } from './DetailsPanel';
+import { EmptyRow, useGrid } from './Grid';
+import { IconButton } from './Icon';
 
 interface Props {
   project: ProjectInfo;
@@ -46,11 +48,11 @@ function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 
           {s.name} {s.available ? (s.version ?? '') : s.enabled ? 'недоступен' : 'выключен'}
         </span>
       ))}
-      <button onClick={() => void run(api.scannerStatus(project.id, true)).then((s) => s && setStatus(s))}>Проверить снова</button>
-      <button className="primary" onClick={() => void scan([])}>
-        Сканировать модули
-      </button>
-      <button onClick={() => void scan(null)}>Сканировать репозиторий</button>
+      <IconButton icon="recheck" title="Проверить доступность сканеров снова" onClick={() => void run(api.scannerStatus(project.id, true)).then((s) => s && setStatus(s))} />
+      <span className="toolbar-group">
+        <IconButton icon="scan" className="primary" title="Сканировать файлы всех модулей" label="Модули" onClick={() => void scan([])} />
+        <IconButton icon="scan" title="Сканировать весь репозиторий" label="Репозиторий" onClick={() => void scan(null)} />
+      </span>
       {jobs.map((j) => (
         <span key={j.id} className={`status s-${j.status}`} title={j.title}>
           {j.role}: {JOB_STATUS[j.status]}
@@ -63,30 +65,28 @@ function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 
 function SignalsList({ project, revision, run, selection, onSelect, modules }: Props & { modules: ModuleSummary[] }) {
   const [view, setView] = useState<SignalsView | null>(null);
   const [commit, setCommit] = useState<string | null>(null);
-  const [scanner, setScanner] = useState('');
-  const [kind, setKind] = useState<SignalKind | ''>('');
-  const [moduleId, setModuleId] = useState('');
-  const [minSev, setMinSev] = useState<Severity | ''>('');
-  const [file, setFile] = useState('');
   const [suppressed, setSuppressed] = useState(false);
 
   useEffect(() => {
     void run(api.signalsView(project.id, commit)).then((v) => v && setView(v));
   }, [project.id, commit, revision, run]);
 
+  const moduleName = (id: string) => modules.find((m) => m.id === id)?.name ?? id.slice(0, 8);
+  const g = useGrid(
+    'signals',
+    (view?.signals ?? []).filter((s) => suppressed || s.suppression?.state !== 'active'),
+    [
+      { key: 'severity', title: 'Severity', text: (s) => SEVERITY[s.severity], sort: (s) => -SEV_RANK[s.severity], filter: 'enum' },
+      { key: 'signal', title: 'Сигнал', text: (s) => `${s.title} ${s.message}`, sort: (s) => s.title },
+      { key: 'kind', title: 'Вид', text: (s) => SIGNAL_KIND[s.kind], filter: 'enum' },
+      { key: 'file', title: 'Файл', text: (s) => `${s.file}${s.line ? `:${s.line}` : ''}`, sort: (s) => s.file },
+      { key: 'module', title: 'Модуль', text: (s) => s.moduleIds.map(moduleName).join(', ') || 'вне модулей', filter: 'enum' },
+      { key: 'scanner', title: 'Сканер', text: (s) => s.scanner, filter: 'enum' },
+    ],
+  );
+
   if (!view) return null;
   if (!view.commit) return <div className="empty">Сканов ещё нет. Запустите сканеры кнопкой выше или вердикты матрицы (сканы ставятся автоматически).</div>;
-  const scanners = [...new Set(view.signals.map((s) => s.scanner))];
-  const shown = view.signals.filter(
-    (s) =>
-      (suppressed || s.suppression?.state !== 'active') &&
-      (!scanner || s.scanner === scanner) &&
-      (!kind || s.kind === kind) &&
-      (!moduleId || (moduleId === '-' ? !s.moduleIds.length : s.moduleIds.includes(moduleId))) &&
-      (!minSev || SEV_RANK[s.severity] >= SEV_RANK[minSev]) &&
-      (!file || s.file.includes(file)),
-  );
-  const moduleName = (id: string) => modules.find((m) => m.id === id)?.name ?? id.slice(0, 8);
 
   return (
     <>
@@ -103,66 +103,23 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
           </select>
         </label>
         {view.commit !== view.head && <span className="warn">не HEAD: строки в редакторе могут не совпадать</span>}
-        <select value={scanner} onChange={(e) => setScanner(e.target.value)}>
-          <option value="">все сканеры</option>
-          {scanners.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select value={kind} onChange={(e) => setKind(e.target.value as SignalKind | '')}>
-          <option value="">все виды</option>
-          {SIGNAL_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {SIGNAL_KIND[k]}
-            </option>
-          ))}
-        </select>
-        <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
-          <option value="">все модули</option>
-          {modules.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-          <option value="-">вне модулей</option>
-        </select>
-        <select value={minSev} onChange={(e) => setMinSev(e.target.value as Severity | '')}>
-          <option value="">любая severity</option>
-          {SEVERITIES.map((s) => (
-            <option key={s} value={s}>
-              ≥ {SEVERITY[s]}
-            </option>
-          ))}
-        </select>
-        <input placeholder="файл содержит…" value={file} onChange={(e) => setFile(e.target.value)} />
         <label className="check">
           <input type="checkbox" checked={suppressed} onChange={(e) => setSuppressed(e.target.checked)} /> подавленные
         </label>
         <span className="muted">
-          {shown.length} из {view.signals.length}
+          {g.rows.length} из {view.signals.length}
         </span>
+        {g.count}
       </div>
       <table className="grid signal-grid">
-        <thead>
-          <tr>
-            <th>Severity</th>
-            <th>Сигнал</th>
-            <th>Файл</th>
-            <th>Модуль</th>
-            <th>Сканер</th>
-          </tr>
-        </thead>
+        {g.head}
         <tbody>
-          {shown.length === 0 && (
-            <tr>
-              <td colSpan={5} className="muted">
-                Сигналов нет
-              </td>
-            </tr>
+          {g.rows.length === 0 && (
+            <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
+              Сигналов нет
+            </EmptyRow>
           )}
-          {shown.map((s) => (
+          {g.rows.map((s) => (
             <tr
               key={s.id}
               className={selection?.kind === 'signal' && selection.id === s.id ? 'selected' : s.suppression?.state === 'active' ? 'removed' : ''}
@@ -172,7 +129,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
                 <span className={`status sev-${s.severity}`}>{SEVERITY[s.severity]}</span>
               </td>
               <td>
-                <strong>{s.title}</strong> <span className="muted small">{SIGNAL_KIND[s.kind]}</span>
+                <strong>{s.title}</strong>
                 <div className="small muted clip">{s.message}</div>
                 {s.suppression && (
                   <span className={`status sup-${s.suppression.state}`} title={s.suppression.reason}>
@@ -180,6 +137,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
                   </span>
                 )}
               </td>
+              <td className="small">{SIGNAL_KIND[s.kind]}</td>
               <td onClick={(e) => e.stopPropagation()}>
                 <a className="mono small" onClick={() => void run(api.openInEditor(s.file, s.line ?? undefined, project.id))}>
                   {s.file}
@@ -189,7 +147,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
               <td>{s.moduleIds.map(moduleName).join(', ') || <span className="muted">—</span>}</td>
               <td className="mono small">
                 {s.scanner}
-                <div className="muted">{s.ruleId}</div>
+                <div className="muted" title={s.ruleId}>{s.ruleId}</div>
               </td>
             </tr>
           ))}
@@ -245,9 +203,7 @@ function RequirementModuleForm({ project, run, modules, onDone }: { project: Pro
         <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
       </label>
       <div className="row">
-        <button className="primary" disabled={!requirementId || !moduleId || !reason.trim()} onClick={() => void save()}>
-          Подавить
-        </button>
+        <IconButton icon="suppress" className="primary" title="Подавить сигналы пункта в модуле" label="Подавить" disabled={!requirementId || !moduleId || !reason.trim()} onClick={() => void save()} />
         <button onClick={onDone}>Отмена</button>
       </div>
     </div>
@@ -261,15 +217,26 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
   useEffect(() => {
     void run(api.listSuppressions(project.id)).then((l) => l && setList(l));
   }, [project.id, revision, run]);
-  const shown = list.filter((s) => revoked || s.state !== 'revoked');
+  const g = useGrid(
+    'suppressions',
+    list.filter((s) => revoked || s.state !== 'revoked'),
+    [
+      { key: 'state', title: 'Состояние', text: (s) => SUPPRESSION_STATE[s.state], filter: 'enum' },
+      { key: 'scope', title: 'Scope', text: (s) => `${SUPPRESSION_SCOPE[s.scope]} ${s.label}`, sort: (s) => s.label },
+      { key: 'reason', title: 'Причина', text: (s) => s.reason },
+      { key: 'author', title: 'Автор, коммит', text: (s) => `${s.author} ${s.commitSha.slice(0, 8)}`, sort: (s) => s.createdAt },
+      { key: 'expires', title: 'Срок', text: (s) => s.expiresAt ?? '—' },
+    ],
+  );
   return (
     <>
       <div className="toolbar">
-        <button onClick={() => setForm(!form)}>+ Пункт × модуль</button>
+        <IconButton icon="plus" title="Подавить пункт требований в модуле" label="Пункт × модуль" aria-pressed={form} onClick={() => setForm(!form)} />
         <label className="check">
           <input type="checkbox" checked={revoked} onChange={(e) => setRevoked(e.target.checked)} /> отозванные
         </label>
         <span className="muted">Подавления находки и правила × glob создаются из сигнала (панель справа). Состояние — на HEAD.</span>
+        {g.count}
       </div>
       {form && (
         <div className="card">
@@ -277,24 +244,14 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
         </div>
       )}
       <table className="grid">
-        <thead>
-          <tr>
-            <th>Состояние</th>
-            <th>Scope</th>
-            <th>Причина</th>
-            <th>Автор, коммит</th>
-            <th>Срок</th>
-          </tr>
-        </thead>
+        {g.head}
         <tbody>
-          {shown.length === 0 && (
-            <tr>
-              <td colSpan={5} className="muted">
-                Подавлений нет
-              </td>
-            </tr>
+          {g.rows.length === 0 && (
+            <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
+              Подавлений нет
+            </EmptyRow>
           )}
-          {shown.map((s) => (
+          {g.rows.map((s) => (
             <tr key={s.id} className={selection?.kind === 'suppression' && selection.id === s.id ? 'selected' : s.state === 'revoked' ? 'removed' : ''} onClick={() => onSelect({ kind: 'suppression', id: s.id })}>
               <td>
                 <span className={`status sup-${s.state}`}>{SUPPRESSION_STATE[s.state]}</span>
@@ -324,27 +281,26 @@ function ScansList({ project, revision, run }: Pick<Props, 'project' | 'revision
   useEffect(() => {
     void run(api.listScans(project.id)).then((s) => s && setScans(s));
   }, [project.id, revision, run]);
+  const g = useGrid('scans', scans, [
+    { key: 'status', title: 'Статус', text: (s) => SCAN_STATUS[s.status], filter: 'enum' },
+    { key: 'scanner', title: 'Сканер', text: (s) => s.scanner, filter: 'enum' },
+    { key: 'commit', title: 'Коммит', text: (s) => s.commitSha.slice(0, 8) },
+    { key: 'targets', title: 'Пути', text: (s) => s.targets.join(' ') },
+    { key: 'count', title: 'Результатов', text: (s) => String(s.findingCount), sort: (s) => s.findingCount },
+    { key: 'time', title: 'Время', text: (s) => time(s.startedAt), sort: (s) => s.startedAt },
+  ]);
   return (
+    <>
+    {g.count && <div className="toolbar">{g.count}</div>}
     <table className="grid">
-      <thead>
-        <tr>
-          <th>Статус</th>
-          <th>Сканер</th>
-          <th>Коммит</th>
-          <th>Пути</th>
-          <th>Результатов</th>
-          <th>Время</th>
-        </tr>
-      </thead>
+      {g.head}
       <tbody>
-        {scans.length === 0 && (
-          <tr>
-            <td colSpan={6} className="muted">
-              Запусков нет
-            </td>
-          </tr>
+        {g.rows.length === 0 && (
+          <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
+            Запусков нет
+          </EmptyRow>
         )}
-        {scans.map((s) => (
+        {g.rows.map((s) => (
           <tr key={s.id} title={s.commands.map((c) => c.join(' ')).join('\n')}>
             <td>
               <span className={`status scan-${s.status}`}>{SCAN_STATUS[s.status]}</span>
@@ -375,6 +331,7 @@ function ScansList({ project, revision, run }: Pick<Props, 'project' | 'revision
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 

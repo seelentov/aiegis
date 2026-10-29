@@ -11,7 +11,8 @@
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "e2e": "npm run build && ELECTRON_RUN_AS_NODE=1 electron dist/e2e.js",
     "rebuild": "electron-rebuild -f -w better-sqlite3,node-pty",
-    "postinstall": "electron-rebuild -f -w better-sqlite3,node-pty"
+    "postinstall": "electron-rebuild -f -w better-sqlite3,node-pty",
+    "icons": "electron scripts/icons.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

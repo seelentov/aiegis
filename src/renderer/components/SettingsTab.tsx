@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ConfigFileInfo, EffectiveConfigView, ProjectInfo } from '../../shared/types';
 import { api, errorText } from '../api';
 import type { RunFn } from '../App';
+import { IconButton } from './Icon';
 
 interface Props {
   project: ProjectInfo | null;
@@ -112,7 +113,7 @@ export function SettingsTab({ project, run, notify }: Props) {
           <button className="primary" disabled={!dirty} onClick={() => void save()}>
             Сохранить
           </button>
-          {file && <button onClick={() => void run(api.openInEditor(file))}>В редакторе</button>}
+          {file && <IconButton icon="external" title="Открыть файл во внешнем редакторе" onClick={() => void run(api.openInEditor(file))} />}
         </div>
         <textarea className="code" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} />
         {error && <div className="error-text">{error}</div>}

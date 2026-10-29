@@ -151,7 +151,7 @@ export class ScaStore {
   removeInput(id: string, by: string): ScaInput {
     const i = this.getInput(id);
     if (!i) throw new Error(`файл ${id} не найден`);
-    if (i.removedAt) throw new Error('файл уже убран');
+    if (i.removedAt) throw new Error('файл уже исключён');
     this.db.prepare('UPDATE sca_inputs SET removed_at = ?, removed_by = ? WHERE id = ?').run(now(), by, id);
     return this.getInput(id)!;
   }

@@ -84,7 +84,7 @@ export const VERSION_STATUS: Record<DocVersionStatus, string> = {
   review: 'на ревью',
   approved: 'утверждена',
   failed: 'ошибка извлечения',
-  discarded: 'отброшена',
+  discarded: 'аннулирована',
 };
 
 export const REVIEW: Record<ReviewState, string> = { pending: 'не просмотрен', accepted: 'принят', rejected: 'отклонён' };

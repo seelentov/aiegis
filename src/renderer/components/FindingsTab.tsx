@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { Finding, FindingStatus, ModuleSummary, ProjectInfo } from '../../shared/types';
-import { FINDING_STATUSES } from '../../shared/types';
+import type { Finding, ModuleSummary, ProjectInfo } from '../../shared/types';
+import { SEVERITIES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { FINDING_STATUS, SEVERITY, time } from '../format';
 import type { Selection } from './DetailsPanel';
+import { EmptyRow, useGrid } from './Grid';
 
 interface Props {
   project: ProjectInfo;
@@ -17,7 +18,6 @@ interface Props {
 export function FindingsTab({ project, revision, run, selection, onSelect }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [modules, setModules] = useState<ModuleSummary[]>([]);
-  const [status, setStatus] = useState<FindingStatus | ''>('');
   const [merged, setMerged] = useState(false);
 
   useEffect(() => {
@@ -25,45 +25,38 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
     void api.listModules(project.id).then(setModules);
   }, [project.id, revision, run]);
 
-  const shown = findings.filter((f) => (merged || !f.mergedInto) && (!status || f.status === status));
   const moduleName = (id: string | null) => modules.find((m) => m.id === id)?.name ?? '—';
+  const g = useGrid(
+    'findings',
+    findings.filter((f) => merged || !f.mergedInto),
+    [
+      { key: 'title', title: 'Находка', text: (f) => `${f.title} ${f.entryPoint ?? ''}` , sort: (f) => f.title },
+      { key: 'severity', title: 'Severity', text: (f) => SEVERITY[f.severity], sort: (f) => SEVERITIES.indexOf(f.severity), filter: 'enum' },
+      { key: 'status', title: 'Статус', text: (f) => FINDING_STATUS[f.status], filter: 'enum' },
+      { key: 'cwe', title: 'CWE', text: (f) => f.cwe ?? '' },
+      { key: 'module', title: 'Модуль', text: (f) => moduleName(f.moduleId), filter: 'enum' },
+      { key: 'links', title: 'Связи' },
+      { key: 'created', title: 'Создана', text: (f) => `${time(f.createdAt)} ${f.author}`, sort: (f) => f.createdAt },
+    ],
+  );
 
   return (
     <div className="findings-tab">
       <div className="toolbar">
-        <select value={status} onChange={(e) => setStatus(e.target.value as FindingStatus | '')}>
-          <option value="">все статусы</option>
-          {FINDING_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {FINDING_STATUS[s]} ({findings.filter((f) => !f.mergedInto && f.status === s).length})
-            </option>
-          ))}
-        </select>
         <label className="check">
           <input type="checkbox" checked={merged} onChange={(e) => setMerged(e.target.checked)} /> показывать объединённые
         </label>
+        {g.count}
       </div>
       <table className="grid">
-        <thead>
-          <tr>
-            <th>Находка</th>
-            <th>Severity</th>
-            <th>Статус</th>
-            <th>CWE</th>
-            <th>Модуль</th>
-            <th>Связи</th>
-            <th>Создана</th>
-          </tr>
-        </thead>
+        {g.head}
         <tbody>
-          {shown.length === 0 && (
-            <tr>
-              <td colSpan={7} className="muted">
-                Находок нет
-              </td>
-            </tr>
+          {g.rows.length === 0 && (
+            <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
+              Находок нет: они появляются из вердиктов матрицы, SCA и ручного ввода
+            </EmptyRow>
           )}
-          {shown.map((f) => (
+          {g.rows.map((f) => (
             <tr key={f.id} className={selection?.kind === 'finding' && selection.id === f.id ? 'selected' : f.mergedInto ? 'removed' : ''} onClick={() => onSelect({ kind: 'finding', id: f.id })}>
               <td>
                 <strong>{f.title}</strong>

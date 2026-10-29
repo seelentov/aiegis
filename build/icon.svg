@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#23272c"/>
+      <stop offset="1" stop-color="#121417"/>
+    </linearGradient>
+  </defs>
+  <!-- macOS icon grid: 824px body inset 100px -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#3a3f45" stroke-width="2"/>
+  <g fill="none" stroke="#efb84a" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M512 236 L736 312 V516 C736 654 640 750 512 800 C384 750 288 654 288 516 V312 Z" stroke-width="44"/>
+    <polyline points="420,440 500,508 420,576" stroke-width="42"/>
+    <line x1="530" y1="590" x2="618" y2="590" stroke-width="42"/>
+  </g>
+</svg>

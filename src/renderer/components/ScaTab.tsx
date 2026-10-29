@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { ProjectInfo, ScaItem, ScaItemStatus, ScaModuleView, ScaScope, ScaView, Severity } from '../../shared/types';
+import type { ProjectInfo, ScaItem, ScaModuleView, ScaScope, ScaView, Severity } from '../../shared/types';
 import { SEVERITIES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { INVENTORY_STATUS, JOB_STATUS, kTokens, SCA_STATUS, SEVERITY, time } from '../format';
 import type { Selection } from './DetailsPanel';
+import { EmptyRow, useGrid } from './Grid';
+import { IconButton } from './Icon';
 
 interface Props {
   project: ProjectInfo;
@@ -90,9 +92,12 @@ function InventoryRow({ m, project, run, onSelect }: { m: ScaModuleView } & Pick
         )}
       </td>
       <td className="actions">
-        <button disabled={Boolean(job)} onClick={() => void run(api.enqueueScaInventories(project.id, [m.module.id]))}>
-          Инвентаризация
-        </button>
+        <IconButton
+          icon={inv ? 'recheck' : 'package'}
+          title={inv ? 'Повторить инвентаризацию модуля' : 'Инвентаризация модуля'}
+          disabled={Boolean(job)}
+          onClick={() => void run(api.enqueueScaInventories(project.id, [m.module.id]))}
+        />
       </td>
     </tr>
   );
@@ -125,9 +130,9 @@ function Inputs({ project, run, view }: Pick<Props, 'project' | 'run'> & { view:
           ))}
         </select>
         <input placeholder="комментарий (что это за файл)" value={note} onChange={(e) => setNote(e.target.value)} />
-        <button onClick={() => void upload()}>Загрузить файл…</button>
+        <IconButton icon="upload" title="Загрузить lock-файл, SBOM или отчёт" label="Загрузить" onClick={() => void upload()} />
         <label className="check">
-          <input type="checkbox" checked={removed} onChange={(e) => setRemoved(e.target.checked)} /> показывать убранные
+          <input type="checkbox" checked={removed} onChange={(e) => setRemoved(e.target.checked)} /> показывать исключённые
         </label>
       </div>
       {shown.length > 0 && (
@@ -140,10 +145,10 @@ function Inputs({ project, run, view }: Pick<Props, 'project' | 'run'> & { view:
                 <td className="small">{i.note || '—'}</td>
                 <td className="small muted">
                   {i.author} · {time(i.createdAt)}
-                  {i.removedAt && <div>убран: {i.removedBy}</div>}
+                  {i.removedAt && <div>исключён: {i.removedBy}</div>}
                 </td>
                 <td className="actions">
-                  {!i.removedAt && <button onClick={() => void run(api.removeScaInput(project.id, i.id))}>Убрать</button>}
+                  {!i.removedAt && <IconButton icon="trash" title="Исключить файл" onClick={() => void run(api.removeScaInput(project.id, i.id))} />}
                 </td>
               </tr>
             ))}
@@ -157,37 +162,47 @@ function Inputs({ project, run, view }: Pick<Props, 'project' | 'run'> & { view:
 export function ScaTab({ project, revision, run, selection, onSelect, notify }: Props) {
   const [view, setView] = useState<ScaView | null>(null);
   const [moduleId, setModuleId] = useState('');
-  const [status, setStatus] = useState<ScaItemStatus | 'stale' | ''>('');
-  const [minSev, setMinSev] = useState<Severity | ''>('');
+  const [stale, setStale] = useState(false);
   const [direct, setDirect] = useState(false);
-  const [text, setText] = useState('');
 
   useEffect(() => {
     void run(api.scaView(project.id)).then((v) => v && setView(v));
   }, [project.id, revision, run]);
 
-  if (!view) return null;
-  if (!view.modules.length) return <div className="empty">Сначала разметьте модули: SCA строится по модулям.</div>;
-  const mods = view.modules.filter((m) => !moduleId || m.module.id === moduleId);
+  const mods = (view?.modules ?? []).filter((m) => !moduleId || m.module.id === moduleId);
   const moduleIds = moduleId ? [moduleId] : undefined;
-  const items = mods
-    .flatMap((m) => m.items)
-    .filter(
-      (x) =>
-        (!status || (status === 'stale' ? x.stale : x.status === status)) &&
-        (!minSev || SEV_RANK[x.vuln.severity] >= SEV_RANK[minSev]) &&
-        (!direct || x.direct) &&
-        (!text || `${x.name}@${x.version} ${x.vulnId}`.toLowerCase().includes(text.toLowerCase())),
-    )
-    .sort((a, b) => SEV_RANK[b.vuln.severity] - SEV_RANK[a.vuln.severity] || a.name.localeCompare(b.name) || a.vulnId.localeCompare(b.vulnId));
   const all = mods.flatMap((m) => m.items);
   const count = (f: (x: ScaItem) => boolean) => all.filter(f).length;
-  const moduleName = (id: string) => view.modules.find((m) => m.module.id === id)?.module.name ?? id.slice(0, 8);
+  const moduleName = (id: string) => view?.modules.find((m) => m.module.id === id)?.module.name ?? id.slice(0, 8);
+  const inv = useGrid('sca.inventory', mods, [
+    { key: 'module', title: 'Модуль', text: (m) => m.module.name },
+    { key: 'inventory', title: 'Инвентаризация', text: (m) => (m.inventory ? INVENTORY_STATUS[m.inventory.status] : 'нет'), filter: 'enum' },
+    { key: 'summary', title: 'Инструменты и итог', text: (m) => (m.inventory?.summary ? `${m.inventory.summary.ecosystems.join(' ')} ${m.inventory.summary.tools.join(' ')}` : '') },
+    { key: 'job', title: 'Задача', text: (m) => (m.inventoryJob ? JOB_STATUS[m.inventoryJob.status] : m.failedJob ? 'ошибка' : ''), filter: 'enum' },
+    { key: 'actions', title: '', className: 'actions' },
+  ]);
+  const g = useGrid(
+    'sca.items',
+    all.filter((x) => (!stale || x.stale) && (!direct || x.direct)),
+    [
+      { key: 'package', title: 'Пакет', text: (x) => `${x.name}@${x.version} ${x.ecosystem}`, sort: (x) => x.name },
+      { key: 'vuln', title: 'Уязвимость', text: (x) => `${x.vulnId} ${x.vuln.title ?? ''}`, sort: (x) => x.vulnId },
+      { key: 'severity', title: 'Severity', text: (x) => SEVERITY[x.vuln.severity], sort: (x) => -SEV_RANK[x.vuln.severity], filter: 'enum' },
+      { key: 'fixed', title: 'Исправлено в', text: (x) => x.vuln.fixedVersion ?? '—' },
+      { key: 'status', title: 'Достижимость', text: (x) => SCA_STATUS[x.status], filter: 'enum' },
+      { key: 'module', title: 'Модуль', text: (x) => moduleName(x.moduleId), filter: 'enum' },
+    ],
+  );
+  // Without a chosen sort the worst vulnerabilities lead.
+  const items = g.sorted ? g.rows : [...g.rows].sort((a, b) => SEV_RANK[b.vuln.severity] - SEV_RANK[a.vuln.severity] || a.name.localeCompare(b.name));
+
+  if (!view) return null;
+  if (!view.modules.length) return <div className="empty">Сначала разметьте модули: SCA строится по модулям.</div>;
 
   return (
     <div className="signals-tab sca-tab">
       <div className="toolbar">
-        <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
+        <select aria-label="Область запуска" value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
           <option value="">все модули</option>
           {view.modules.map((m) => (
             <option key={m.module.id} value={m.module.id}>
@@ -195,75 +210,59 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
             </option>
           ))}
         </select>
-        <button className="primary" onClick={() => void run(api.enqueueScaInventories(project.id, moduleIds))}>
-          Инвентаризация {moduleId ? 'модуля' : 'всех модулей'}
-        </button>
-        <button disabled={!count((x) => x.status === 'not_checked')} onClick={() => void confirmSca(project, run, { scope: 'pending', moduleIds }, notify)}>
-          Проверить достижимость ({count((x) => x.status === 'not_checked')})
-        </button>
-        <button disabled={!count((x) => x.stale)} onClick={() => void confirmSca(project, run, { scope: 'stale', moduleIds }, notify)}>
-          Перепроверить устаревшие ({count((x) => x.stale)})
-        </button>
+        <span className="toolbar-group">
+          <IconButton
+            icon="package"
+            title={`Инвентаризация зависимостей: ${moduleId ? 'выбранный модуль' : 'все модули'}`}
+            label="Инвентаризация"
+            onClick={() => void run(api.enqueueScaInventories(project.id, moduleIds))}
+          />
+          <IconButton
+            icon="play"
+            className="primary"
+            title="Проверить достижимость непроверенных пунктов"
+            label={`Достижимость ${count((x) => x.status === 'not_checked')}`}
+            disabled={!count((x) => x.status === 'not_checked')}
+            onClick={() => void confirmSca(project, run, { scope: 'pending', moduleIds }, notify)}
+          />
+          <IconButton
+            icon="recheck"
+            title="Перепроверить устаревшие пункты"
+            label={`Устаревшие ${count((x) => x.stale)}`}
+            disabled={!count((x) => x.stale)}
+            onClick={() => void confirmSca(project, run, { scope: 'stale', moduleIds }, notify)}
+          />
+        </span>
       </div>
+      {inv.count && <div className="toolbar">{inv.count}</div>}
       <table className="grid compact">
-        <thead>
-          <tr>
-            <th>Модуль</th>
-            <th>Инвентаризация</th>
-            <th>Инструменты и итог</th>
-            <th>Задача</th>
-            <th></th>
-          </tr>
-        </thead>
+        {inv.head}
         <tbody>
-          {mods.map((m) => (
+          {inv.rows.length === 0 && <EmptyRow colSpan={inv.colSpan} filtered={inv.filtered}>—</EmptyRow>}
+          {inv.rows.map((m) => (
             <InventoryRow key={m.module.id} m={m} project={project} run={run} onSelect={onSelect} />
           ))}
         </tbody>
       </table>
       <Inputs project={project} run={run} view={view} />
 
-      <div className="toolbar">
-        <select value={status} onChange={(e) => setStatus(e.target.value as ScaItemStatus | 'stale' | '')}>
-          <option value="">все статусы ({all.length})</option>
-          {(Object.keys(SCA_STATUS) as ScaItemStatus[]).map((s) => (
-            <option key={s} value={s}>
-              {SCA_STATUS[s]} ({count((x) => x.status === s)})
-            </option>
-          ))}
-          <option value="stale">устаревшие ({count((x) => x.stale)})</option>
-        </select>
-        <select value={minSev} onChange={(e) => setMinSev(e.target.value as Severity | '')}>
-          <option value="">любая severity</option>
-          {SEVERITIES.map((s) => (
-            <option key={s} value={s}>
-              ≥ {SEVERITY[s]}
-            </option>
-          ))}
-        </select>
+      <div className="grid-title">
+        <h3>Уязвимые зависимости</h3>
         <label className="check">
-          <input type="checkbox" checked={direct} onChange={(e) => setDirect(e.target.checked)} /> только прямые зависимости
+          <input type="checkbox" checked={direct} onChange={(e) => setDirect(e.target.checked)} /> только прямые
         </label>
-        <input placeholder="пакет или CVE…" value={text} onChange={(e) => setText(e.target.value)} />
+        <label className="check">
+          <input type="checkbox" checked={stale} onChange={(e) => setStale(e.target.checked)} /> только устаревшие
+        </label>
+        {g.count}
       </div>
       <table className="grid">
-        <thead>
-          <tr>
-            <th>Пакет</th>
-            <th>Уязвимость</th>
-            <th>Severity</th>
-            <th>Исправлено в</th>
-            <th>Достижимость</th>
-            <th>Модуль</th>
-          </tr>
-        </thead>
+        {g.head}
         <tbody>
           {items.length === 0 && (
-            <tr>
-              <td colSpan={6} className="muted">
-                {all.length ? 'Нет пунктов под фильтр' : 'Уязвимых зависимостей нет или инвентаризация ещё не проводилась'}
-              </td>
-            </tr>
+            <EmptyRow colSpan={g.colSpan} filtered={g.filtered || stale || direct}>
+              Уязвимых зависимостей нет или инвентаризация ещё не проводилась
+            </EmptyRow>
           )}
           {items.map((x) => {
             const id = scaItemKey(x);

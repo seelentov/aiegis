@@ -4,6 +4,7 @@ import { api } from '../api';
 import type { RunFn } from '../App';
 import { SCAN_STATUS, SEVERITY, SIGNAL_KIND, SUPPRESSION_SCOPE, SUPPRESSION_STATE, time } from '../format';
 import type { Selection } from './DetailsPanel';
+import { IconButton } from './Icon';
 
 interface Common {
   project: ProjectInfo;
@@ -145,9 +146,7 @@ export function SignalDetailsView({ project, id, revision, run, onSelect }: Comm
         </details>
       )}
       <div className="actions">
-        <button className="primary" disabled={form} onClick={() => setForm(true)}>
-          Подавить…
-        </button>
+        <IconButton icon="suppress" className="primary" title="Подавить сигнал" label="Подавить" disabled={form} onClick={() => setForm(true)} />
       </div>
       {form && <SuppressForm project={project} run={run} signal={s} onDone={() => setForm(false)} />}
       <h4>Подавления</h4>
@@ -254,15 +253,11 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
         <>
           <div className="actions">
             <input type="date" title="новый срок (необязательно)" value={expires} onChange={(e) => setExpires(e.target.value)} />
-            <button className={s.state === 'active' ? '' : 'primary'} onClick={() => void renew()}>
-              Подтвердить на HEAD
-            </button>
+            <IconButton icon="check" className={s.state === 'active' ? '' : 'primary'} title="Подтвердить подавление на HEAD" label="Подтвердить" onClick={() => void renew()} />
           </div>
           <div className="actions">
             <input placeholder="причина отзыва" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <button disabled={!reason.trim()} onClick={() => void run(api.revokeSuppression(project.id, s.id, reason))}>
-              Отозвать
-            </button>
+            <IconButton icon="undo" className="danger" title="Отозвать подавление (нужна причина)" label="Отозвать" disabled={!reason.trim()} onClick={() => void run(api.revokeSuppression(project.id, s.id, reason))} />
           </div>
         </>
       )}

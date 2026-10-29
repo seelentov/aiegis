@@ -6,6 +6,7 @@ import type { RunFn } from '../App';
 import { CELL_STATUS, FINDING_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
 import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
+import { IconButton } from './Icon';
 
 interface Common {
   project: ProjectInfo;
@@ -198,12 +199,17 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
         )}
       </dl>
       <div className="actions">
-        <button className="primary" disabled={!d.module || !d.requirement || Boolean(d.cell.activeJob)} onClick={() => void confirmRecheck(project, run, [id], matrixId)}>
-          Перепроверить
-        </button>
-        {v?.runId && <button onClick={() => void run(api.openRun(project.id, v.runId!)).then(onTerminal)}>Провалиться</button>}
-        <button onClick={() => setForm(form === 'verdict' ? null : 'verdict')}>Вердикт вручную</button>
-        <button onClick={() => setForm(form === 'finding' ? null : 'finding')}>Находка вручную</button>
+        <IconButton
+          icon="recheck"
+          className="primary"
+          title="Перепроверить ячейку"
+          label="Перепроверить"
+          disabled={!d.module || !d.requirement || Boolean(d.cell.activeJob)}
+          onClick={() => void confirmRecheck(project, run, [id], matrixId)}
+        />
+        {v?.runId && <IconButton icon="terminal" title="Открыть сессию вердикта" onClick={() => void run(api.openRun(project.id, v.runId!)).then(onTerminal)} />}
+        <IconButton icon="verdict" title="Задать вердикт вручную" label="Вердикт" aria-pressed={form === 'verdict'} onClick={() => setForm(form === 'verdict' ? null : 'verdict')} />
+        <IconButton icon="finding" title="Добавить находку вручную" label="Находка" aria-pressed={form === 'finding'} onClick={() => setForm(form === 'finding' ? null : 'finding')} />
       </div>
       {form && (
         <div className="form module-form">
@@ -273,9 +279,7 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
               </option>
             ))}
         </select>
-        <button disabled={!link} onClick={() => void run(api.linkFinding(project.id, link, id)).then(() => setLink(''))}>
-          Связать
-        </button>
+        <IconButton icon="link" title="Связать находку с ячейкой" disabled={!link} onClick={() => void run(api.linkFinding(project.id, link, id)).then(() => setLink(''))} />
       </div>
 
       <h4>История</h4>
@@ -385,12 +389,14 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
       {!f.mergedInto && (
         <>
           <div className="actions">
-            <button className="primary" onClick={() => void run(api.openFixSession(project.id, f.id)).then(onTerminal)}>
-              Открыть сессию для фикса
-            </button>
-            <button disabled={!f.cells.length} onClick={() => void confirmRecheck(project, run, f.cells.map((c) => `${c.moduleId}/${c.requirementId}`))}>
-              Перепроверить ячейки
-            </button>
+            <IconButton icon="fix" className="primary" title="Открыть интерактивную сессию для фикса" label="Фикс" onClick={() => void run(api.openFixSession(project.id, f.id)).then(onTerminal)} />
+            <IconButton
+              icon="recheck"
+              title="Перепроверить связанные ячейки матрицы"
+              label={`Ячейки ${f.cells.length}`}
+              disabled={!f.cells.length}
+              onClick={() => void confirmRecheck(project, run, f.cells.map((c) => `${c.moduleId}/${c.requirementId}`))}
+            />
           </div>
           <div className="actions">
             <select value={status} onChange={(e) => setStatus(e.target.value as FindingStatus)}>
@@ -401,9 +407,7 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
               ))}
             </select>
             <input placeholder="причина" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <button disabled={status === f.status} onClick={() => void run(api.setFindingStatus(project.id, f.id, status, reason))}>
-              Сменить статус
-            </button>
+            <IconButton icon="check" title="Сменить статус" disabled={status === f.status} onClick={() => void run(api.setFindingStatus(project.id, f.id, status, reason))} />
           </div>
         </>
       )}
@@ -411,13 +415,13 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
       <h4>PoC-тестировщик</h4>
       {!f.mergedInto && (
         <div className="actions">
-          <button
+          <IconButton
+            icon="poc"
+            label="PoC"
             disabled={!d.poc.available || f.status !== 'suspected' || Boolean(d.poc.job)}
-            title={!d.poc.available ? (d.poc.reason ?? '') : f.status !== 'suspected' ? 'только для находок в статусе «подозрение»' : ''}
+            title={!d.poc.available ? (d.poc.reason ?? 'PoC недоступен') : f.status !== 'suspected' ? 'только для находок в статусе «подозрение»' : 'Запустить PoC-тестировщик'}
             onClick={() => void run(api.enqueuePoc(project.id, f.id))}
-          >
-            Запустить PoC
-          </button>
+          />
           {d.poc.job && <span className="muted small">задача в очереди: {d.poc.job.status}</span>}
           {d.poc.baseUrl && <span className="muted small mono">{d.poc.baseUrl}</span>}
         </div>
@@ -484,8 +488,8 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
               <span className="muted small">{FINDING_STATUS[s.finding.status]}</span>
               <div className="muted small">{s.reasons.join('; ')}</div>
               <div className="actions">
-                <button onClick={() => void merge(s.finding.id, f.id, s.finding.title)}>Влить её в эту</button>
-                <button onClick={() => void merge(f.id, s.finding.id, f.title)}>Влить эту в неё</button>
+                <IconButton icon="merge" title="Объединить эту находку в текущую" label="В текущую" onClick={() => void merge(s.finding.id, f.id, s.finding.title)} />
+                <IconButton icon="merge" title="Объединить текущую находку в эту" label="Текущую в неё" onClick={() => void merge(f.id, s.finding.id, f.title)} />
               </div>
             </div>
           ))}

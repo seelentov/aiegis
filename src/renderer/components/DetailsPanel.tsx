@@ -5,6 +5,7 @@ import type { RunFn } from '../App';
 import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
 import { CellDetailsView, FindingDetailsView } from './AuditDetails';
 import { ConfigView } from './ConfigView';
+import { IconButton } from './Icon';
 import { ModuleForm } from './ModulesTab';
 import { ScaItemDetailsView } from './ScaDetails';
 import { SignalDetailsView, SuppressionDetailsView } from './SignalDetails';
@@ -84,19 +85,13 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
             </dd>
           </dl>
           <div className="actions">
-            <button className="primary" disabled={Boolean(mod.activeJob)} onClick={() => void run(api.enqueueEntryPoints(project.id, id))}>
-              Построить карту
-            </button>
-            <button disabled={!mod.latestSnapshot} onClick={() => onOpenMap(id)}>
-              Открыть карту
-            </button>
-            <button onClick={() => setEditing(true)}>Изменить</button>
+            <IconButton icon="route" className="primary" title="Построить карту точек входа" label="Построить карту" disabled={Boolean(mod.activeJob)} onClick={() => void run(api.enqueueEntryPoints(project.id, id))} />
+            <IconButton icon="map" title="Открыть карту" disabled={!mod.latestSnapshot} onClick={() => onOpenMap(id)} />
+            <IconButton icon="edit" title="Изменить модуль" onClick={() => setEditing(true)} />
           </div>
           <div className="actions">
             <input placeholder="причина удаления" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <button disabled={!reason.trim()} onClick={() => void remove()}>
-              Удалить
-            </button>
+            <IconButton icon="trash" className="danger" title="Удалить модуль (нужна причина)" disabled={!reason.trim()} onClick={() => void remove()} />
           </div>
         </>
       )}
@@ -248,11 +243,9 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
             )}
           </dl>
           <div className="actions">
-            <button className="primary" onClick={() => void run(api.openRun(project.id, r.id)).then(onTerminal)}>
-              Провалиться
-            </button>
-            <button onClick={() => void run(api.openExternal(project.id, r.id))}>Во внешнем терминале</button>
-            {details?.log && <button onClick={() => void run(api.openInEditor(details.log!))}>Лог</button>}
+            <IconButton icon="terminal" className="primary" title="Открыть сессию во встроенном терминале" label="Открыть сессию" onClick={() => void run(api.openRun(project.id, r.id)).then(onTerminal)} />
+            <IconButton icon="external" title="Открыть во внешнем терминале" onClick={() => void run(api.openExternal(project.id, r.id))} />
+            {details?.log && <IconButton icon="file" title="Открыть лог прогона" onClick={() => void run(api.openInEditor(details.log!))} />}
           </div>
           <h4>Результаты</h4>
           {details.results.length === 0 ? (

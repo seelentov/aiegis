@@ -184,7 +184,7 @@ describe('SCA with a fake claude', () => {
   it('removing an input is recorded once', async () => {
     const [i] = core.store(pid).sca.listInputs();
     await core.removeScaInput(pid, i.id);
-    await expect(core.removeScaInput(pid, i.id)).rejects.toThrow(/уже убран/);
+    await expect(core.removeScaInput(pid, i.id)).rejects.toThrow(/уже исключён/);
     expect(core.store(pid).sca.inputsFor(moduleId)).toEqual([]);
   });
 });

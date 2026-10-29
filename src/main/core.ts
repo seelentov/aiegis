@@ -764,7 +764,7 @@ export class Core extends EventEmitter {
       const doc = a.listDocuments().find((d) => d.id === o.documentId);
       if (!doc) throw new Error(`документ ${o.documentId} не найден`);
       const open = doc.versions.find((v) => v.status === 'extracting' || v.status === 'review');
-      if (open) throw new Error(`у документа есть неутверждённая версия v${open.n}: утвердите или отбросьте её`);
+      if (open) throw new Error(`у документа есть неутверждённая версия v${open.n}: утвердите или аннулируйте её`);
       if (doc.current?.sha256 === sha) throw new Error('файл совпадает с текущей утверждённой версией');
     }
     this.taskSpec(projectId, 'requirements');
@@ -2715,7 +2715,7 @@ export class Core extends EventEmitter {
   // --- interactive sessions ---
 
   /**
-   * "Провалиться": shows the read-only stream while the background run is alive,
+   * "Open session": shows the read-only stream while the background run is alive,
    * otherwise opens `claude --resume` in a PTY in the run's cwd.
    */
   async openRun(projectId: string, runId: string): Promise<string> {
@@ -2882,7 +2882,7 @@ export class Core extends EventEmitter {
   async openExternal(projectId: string, runId: string): Promise<void> {
     const run = this.store(projectId).getRun(runId);
     if (!run) throw new Error(`прогон ${runId} не найден`);
-    if (run.jobId && this.activeRuns.get(run.jobId)?.runId === runId) throw new Error('фоновый прогон ещё идёт — сначала перехватите его');
+    if (run.jobId && this.activeRuns.get(run.jobId)?.runId === runId) throw new Error('фоновый прогон ещё идёт — сначала выполните перехват');
     if (this.liveSessions.has(run.sessionId)) throw new Error('сессия уже открыта во встроенном терминале');
     const cwd = await this.ensureCwd(projectId, run);
     const entity = run.entityType && run.entityId ? { type: run.entityType, id: run.entityId } : null;

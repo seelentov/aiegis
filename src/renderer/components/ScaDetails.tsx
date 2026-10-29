@@ -8,6 +8,7 @@ import { EvidenceList, parseEvidence } from './AuditDetails';
 import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { confirmSca } from './ScaTab';
+import { IconButton } from './Icon';
 
 interface Common {
   project: ProjectInfo;
@@ -182,12 +183,17 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
         )}
       </dl>
       <div className="actions">
-        <button className="primary" disabled={Boolean(item.activeJob) || !d.module} onClick={() => void confirmSca(project, run, { items: [id] })}>
-          Перепроверить
-        </button>
-        {v?.runId && <button onClick={() => void run(api.openRun(project.id, v.runId!)).then(onTerminal)}>Провалиться</button>}
-        <button onClick={() => openForm('verdict')}>Вердикт вручную</button>
-        <button onClick={() => openForm('finding')}>Находка вручную</button>
+        <IconButton
+          icon="recheck"
+          className="primary"
+          title="Перепроверить достижимость"
+          label="Перепроверить"
+          disabled={Boolean(item.activeJob) || !d.module}
+          onClick={() => void confirmSca(project, run, { items: [id] })}
+        />
+        {v?.runId && <IconButton icon="terminal" title="Открыть сессию вердикта" onClick={() => void run(api.openRun(project.id, v.runId!)).then(onTerminal)} />}
+        <IconButton icon="verdict" title="Задать вердикт вручную" label="Вердикт" aria-pressed={form === 'verdict'} onClick={() => openForm('verdict')} />
+        <IconButton icon="finding" title="Добавить находку вручную" label="Находка" aria-pressed={form === 'finding'} onClick={() => openForm('finding')} />
       </div>
       {form && (
         <div className="form module-form">
@@ -254,9 +260,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
               </option>
             ))}
         </select>
-        <button disabled={!link} onClick={() => void run(api.linkScaFinding(project.id, link, id)).then(() => setLink(''))}>
-          Связать
-        </button>
+        <IconButton icon="link" title="Связать находку с пунктом" disabled={!link} onClick={() => void run(api.linkScaFinding(project.id, link, id)).then(() => setLink(''))} />
       </div>
 
       <h4>История</h4>
