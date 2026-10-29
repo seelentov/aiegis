@@ -3,11 +3,15 @@ import type { EffectiveConfigView, Job, ModuleRevision, ModuleSummary, ProjectIn
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
+import { CellDetailsView, FindingDetailsView } from './AuditDetails';
+import { ConfigView } from './ConfigView';
 import { ModuleForm } from './ModulesTab';
 
 export interface Selection {
-  kind: 'job' | 'run' | 'module';
+  kind: 'job' | 'run' | 'module' | 'cell' | 'finding';
   id: string;
+  /** Matrix the cell was opened from (its cascade level). */
+  matrixId?: string;
 }
 
 interface Props {
@@ -119,48 +123,7 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
           )}
         </div>
       ))}
-      {config && (
-        <details>
-          <summary>Итоговая конфигурация карты точек входа</summary>
-          <dl>
-            <dt>Роль</dt>
-            <dd>{config.role.name}</dd>
-            {config.model && (
-              <>
-                <dt>model</dt>
-                <dd>
-                  {config.model.value} <span className="muted">← {config.model.source}</span>
-                </dd>
-              </>
-            )}
-            {config.effort && (
-              <>
-                <dt>effort</dt>
-                <dd>
-                  {config.effort.value} <span className="muted">← {config.effort.source}</span>
-                </dd>
-              </>
-            )}
-            <dt>Инструкции</dt>
-            <dd>
-              {config.instructions.map((i, n) => (
-                <div key={n} className="muted small">
-                  {i.source}
-                  {i.file ? `: ${i.file.split('/').slice(-2).join('/')}` : ''}
-                </div>
-              ))}
-            </dd>
-            <dt>allow</dt>
-            <dd className="mono small">
-              {config.allow.map((a) => (
-                <div key={a.value} className={a.denied ? 'strike' : ''} title={a.source}>
-                  {a.value}
-                </div>
-              ))}
-            </dd>
-          </dl>
-        </details>
-      )}
+      {config && <ConfigView config={config} title="Итоговая конфигурация карты точек входа" />}
     </section>
   );
 }
@@ -172,7 +135,7 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
   useEffect(() => {
     setJob(null);
     setDetails(null);
-    if (!project || !selection || selection.kind === 'module') return;
+    if (!project || !selection || selection.kind !== 'job' && selection.kind !== 'run') return;
     void (async () => {
       let runId: string | null = selection.id;
       if (selection.kind === 'job') {
@@ -191,6 +154,19 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
         <ModuleDetails project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} onOpenMap={onOpenMap} />
       </aside>
     );
+
+  if (selection.kind === 'cell' || selection.kind === 'finding') {
+    const common = { project, revision, run, onSelect, onTerminal };
+    return (
+      <aside className="details">
+        {selection.kind === 'cell' ? (
+          <CellDetailsView {...common} id={selection.id} matrixId={selection.matrixId} />
+        ) : (
+          <FindingDetailsView {...common} id={selection.id} />
+        )}
+      </aside>
+    );
+  }
 
   const r = details?.run;
   return (

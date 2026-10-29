@@ -155,3 +155,40 @@ a { color: var(--accent); cursor: pointer; }
 .c-added { color: var(--ok); border-color: var(--ok); }
 .c-changed { color: var(--warn); border-color: var(--warn); }
 .c-removed { color: var(--err); border-color: var(--err); }
+
+/* Stage 3: documents, matrix, findings */
+.prewrap { white-space: pre-wrap; word-break: break-word; }
+.status.stale { color: var(--warn); border-color: var(--warn); margin-left: 4px; }
+.cs-pass, .fs-fixed { color: var(--ok); border-color: var(--ok); }
+.cs-finding, .sev-critical, .sev-high { color: var(--err); border-color: var(--err); }
+.cs-needs_human, .sev-medium, .fs-suspected { color: var(--warn); border-color: var(--warn); }
+.cs-na, .fs-false_positive, .fs-accepted_risk, .sev-info { color: var(--muted); }
+.cs-not_checked { color: var(--muted); border-style: dashed; }
+.fs-verified { color: var(--accent); border-color: var(--accent); }
+.v-approved { color: var(--ok); border-color: var(--ok); }
+.v-review, .v-extracting { color: var(--accent); border-color: var(--accent); }
+.v-failed { color: var(--err); border-color: var(--err); }
+.v-discarded { color: var(--muted); }
+a.version { margin-right: 10px; white-space: nowrap; }
+a.version.active { font-weight: 600; }
+.documents-tab > table { margin-bottom: 14px; }
+.req-grid tr.review-rejected td { color: var(--muted); text-decoration: line-through; }
+.req-grid tr.removed td { color: var(--muted); }
+.req-grid td .status { display: inline-block; margin-top: 2px; }
+.quote { margin-top: 2px; font-style: italic; }
+.form fieldset { border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; }
+.form fieldset legend { color: var(--muted); }
+label.check { display: flex; flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+.estimate { display: flex; flex-direction: column; gap: 6px; }
+.matrix-grid th { position: sticky; top: 0; background: var(--panel); }
+.matrix-grid tr.section-row td { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11px; cursor: default; }
+.matrix-grid td.req-cell { max-width: 520px; }
+.matrix-grid td.matrix-cell { white-space: nowrap; }
+.matrix-grid td.matrix-cell.selected { background: var(--selected); }
+.matrix-grid tbody tr:hover { background: transparent; }
+.matrix-grid td.matrix-cell:hover { background: var(--hover); }
+.cell-badge { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.evidence { margin: 0; padding-left: 16px; }
+.compare td { word-break: break-word; white-space: pre-wrap; }
+.compare tr.diff td { background: var(--selected); }
+.notice .row { margin-top: 6px; }

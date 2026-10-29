@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { AppEvent, ProjectInfo, TerminalInfo } from '../shared/types';
+import type { AppEvent, ProjectInfo, RecheckOffer, TerminalInfo } from '../shared/types';
 import { api, bridge, errorText } from './api';
+import { confirmRecheck } from './components/AuditDetails';
 import { DetailsPanel, type Selection } from './components/DetailsPanel';
+import { DocumentsTab } from './components/DocumentsTab';
 import { EntryPointsTab } from './components/EntryPointsTab';
+import { FindingsTab } from './components/FindingsTab';
+import { MatrixTab } from './components/MatrixTab';
 import { ModulesTab } from './components/ModulesTab';
 import { QueueTab } from './components/QueueTab';
 import { SettingsTab } from './components/SettingsTab';
@@ -26,6 +30,8 @@ interface Notice {
   id: number;
   level: 'info' | 'warn' | 'error';
   text: string;
+  /** Offer to re-check matrix cells; such notices stay until acted upon or dismissed. */
+  recheck?: RecheckOffer & { projectId: string };
 }
 
 let noticeSeq = 0;
@@ -41,10 +47,10 @@ export function App() {
   const [revision, setRevision] = useState(0);
   const [mapModule, setMapModule] = useState<string | null>(null);
 
-  const notify = useCallback((level: Notice['level'], text: string) => {
+  const notify = useCallback((level: Notice['level'], text: string, recheck?: Notice['recheck']) => {
     const id = ++noticeSeq;
-    setNotices((n) => [...n, { id, level, text }]);
-    setTimeout(() => setNotices((n) => n.filter((x) => x.id !== id)), level === 'error' ? 12000 : 7000);
+    setNotices((n) => [...n, { id, level, text, recheck }]);
+    if (!recheck) setTimeout(() => setNotices((n) => n.filter((x) => x.id !== id)), level === 'error' ? 12000 : 7000);
   }, []);
 
   /** Runs an API call, reporting errors as notices. */
@@ -70,7 +76,7 @@ export function App() {
     void refreshTerminals();
     return bridge.onEvent((ev: AppEvent) => {
       if (ev.type === 'terminals-changed') void refreshTerminals();
-      else if (ev.type === 'notice') notify(ev.level, ev.text);
+      else if (ev.type === 'notice') notify(ev.level, ev.text, ev.recheck && ev.projectId ? { ...ev.recheck, projectId: ev.projectId } : undefined);
       else if (ev.type !== 'terminal-data') setRevision((r) => r + 1);
     });
   }, [notify, refreshTerminals]);
@@ -161,6 +167,12 @@ export function App() {
                 onOpenMap={openMap}
                 onTerminal={showTerminal}
               />
+            ) : tab === 'documents' ? (
+              <DocumentsTab project={project} revision={revision} run={run} onTerminal={showTerminal} />
+            ) : tab === 'matrix' ? (
+              <MatrixTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
+            ) : tab === 'findings' ? (
+              <FindingsTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
             ) : tab === 'entry-points' ? (
               <EntryPointsTab
                 project={project}
@@ -193,6 +205,23 @@ export function App() {
         {notices.map((n) => (
           <div key={n.id} className={`notice ${n.level}`} onClick={() => setNotices((x) => x.filter((y) => y.id !== n.id))}>
             {n.text}
+            {n.recheck && (
+              <div className="row">
+                <button
+                  className="primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const offer = n.recheck!;
+                    const p = projects.find((x) => x.id === offer.projectId);
+                    setNotices((x) => x.filter((y) => y.id !== n.id));
+                    if (p) void confirmRecheck(p, run, offer.cells);
+                  }}
+                >
+                  Перепроверить ({n.recheck.cells.length})
+                </button>
+                <button>Позже</button>
+              </div>
+            )}
           </div>
         ))}
       </div>

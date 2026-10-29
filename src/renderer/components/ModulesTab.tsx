@@ -168,6 +168,12 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
                   <span title={`прогон ${m.latestSnapshot.runId}`}>
                     {m.latestSnapshot.entryCount} · <span className="mono">{m.latestSnapshot.commitSha.slice(0, 8)}</span> ·{' '}
                     {time(m.latestSnapshot.createdAt)}
+                    {m.snapshotStale && (
+                      <span className="status stale" title="код модуля или цепочек вызовов изменился после снимка">
+                        {' '}
+                        устарела
+                      </span>
+                    )}
                   </span>
                 ) : (
                   <span className="muted">нет</span>
