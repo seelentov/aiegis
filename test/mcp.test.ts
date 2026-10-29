@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb } from '../src/main/db';
-import { AiegisMcpServer, mcpConfigJson } from '../src/main/mcp/server';
+import { AiegisMcpServer, mcpConfigJson, NO_SIGNALS_REASON } from '../src/main/mcp/server';
 import { TokenRegistry } from '../src/main/mcp/tokens';
 import { ProjectStore } from '../src/main/store';
 import { tmpDir, write } from './helpers';
@@ -261,5 +261,14 @@ describe('MCP requirement, matrix and finding tools', () => {
     expect(a.latestVerdicts().get(`${mod.id}/${item.requirementId}`)).toMatchObject({ status: 'n/a', reason: 'no HTTP' });
     expect((await call('recheck_cells', { cells: [cell] })).text).toMatch(/прав управления/);
     await c.close();
+  });
+});
+
+describe('NO_SIGNALS_REASON', () => {
+  it('catches a pass argued from silent scanners, not code-based reasons', () => {
+    for (const r of ['No signals were found and the code looks fine.', 'Scanners returned no signals.', 'gitleaks reported nothing for the module', 'pass: without scanner hits'])
+      expect(NO_SIGNALS_REASON.test(r), r).toBe(true);
+    for (const r of ['Every handler calls requireRole before reading the order.', 'Secrets come from Vault; no literal keys in the config files.', 'Input is validated by the Bean Validation filter.'])
+      expect(NO_SIGNALS_REASON.test(r), r).toBe(false);
   });
 });

@@ -7,6 +7,7 @@ import { buildInvocations } from '../src/main/scanners/run';
 import {
   covers,
   globTargets,
+  groupSameSecret,
   matchesRequirement,
   minimalTargets,
   suppressionApplies,
@@ -228,5 +229,13 @@ describe('signal store', () => {
     expect(() => s.revokeSuppression(x.id, 'me', 'again')).toThrow(/уже отозвано/);
     expect(() => s.db.prepare('UPDATE suppressions SET revoke_reason = ? WHERE id = ?').run('z', x.id)).toThrow(/append-only/);
     expect(() => s.db.prepare('DELETE FROM suppressions').run()).toThrow(/append-only/);
+  });
+});
+
+describe('groupSameSecret', () => {
+  it('merges secrets of several scanners on one line; other signals stay apart', () => {
+    const r = (id: string, kind: 'secret' | 'sast', file: string, line: number | null) => ({ id, kind, file, line });
+    const groups = groupSameSecret([r('g', 'secret', 'a.env', 3), r('s', 'sast', 'a.env', 3), r('t', 'secret', 'a.env', 3), r('u', 'secret', 'a.env', null), r('v', 'secret', 'a.env', null), r('w', 'secret', 'b.env', 3)]);
+    expect(groups.map((g) => g.map((x) => x.id))).toEqual([['g', 't'], ['s'], ['u'], ['v'], ['w']]);
   });
 });

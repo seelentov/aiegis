@@ -67,6 +67,10 @@ const ok = (data: unknown): ToolResult => ({ content: [{ type: 'text', text: JSO
 const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true });
 
 /** Builds an MCP server instance whose tools are bound to one grant. */
+/** "The scanners found nothing" is not evidence for a pass (role prompt); the agent must argue from the code. */
+export const NO_SIGNALS_REASON =
+  /\b(no|zero|without|absence of)\b[^.;]{0,30}\b(signals?|scanners?|semgrep|gitleaks|trivy)\b|\b(signals?|scanners?|semgrep|gitleaks|trivy)\b[^.;]{0,30}\b(returned|found|reported|showed?)\s+(no|nothing|none)\b/i;
+
 export function buildServer(grant: Grant, svc: McpServices, checks: SimilarChecks = new Map()): McpServer {
   const server = new McpServer({ name: 'aiegis', version: '0.1.0' });
   const pid = grant.projectId;
@@ -463,6 +467,8 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         const s = svc.store(pid);
         const evidence = a.evidence ?? [];
         if ((a.status === 'pass' || a.status === 'finding') && !evidence.length) return fail('для pass/finding нужны ссылки на код (evidence)');
+        if (a.status === 'pass' && NO_SIGNALS_REASON.test(a.reason))
+          return fail('pass не обосновывается отсутствием сигналов сканеров: опишите, что в коде обеспечивает требование');
         checkFiles(run.cwd, evidence);
         const findings = s.audit.findingsOfCell(c);
         if (a.status === 'finding' && !findings.length)

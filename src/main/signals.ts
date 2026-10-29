@@ -124,3 +124,13 @@ export interface SignalQuery {
   filePrefix?: string | null;
   limit?: number | null;
 }
+
+/** One secret is often reported by several scanners: groups secret signals by file:line, other signals stay alone. */
+export function groupSameSecret<T extends Pick<RawFinding, 'id' | 'kind' | 'file' | 'line'>>(rows: T[]): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const f of rows) {
+    const key = f.kind === 'secret' && f.line !== null ? `secret ${f.file}:${f.line}` : `id ${f.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), f]);
+  }
+  return [...groups.values()];
+}

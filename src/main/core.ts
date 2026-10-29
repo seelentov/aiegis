@@ -132,6 +132,7 @@ import { buildInvocations, checkScanner, runProcess } from './scanners/run';
 import {
   covers,
   globTargets,
+  groupSameSecret,
   matchesRequirement,
   minimalTargets,
   REPO_TARGET,
@@ -1739,12 +1740,18 @@ export class Core extends EventEmitter {
     };
     const cellSup = item ? (await viewsAt(commit)).filter((v) => v.scope === 'requirement_module' && v.moduleId === mod.id && v.requirementId === item.requirementId) : [];
     const cellApplies = cellSup.find((v) => suppressionApplies(v.state, applyStale));
+    // A suppression of any scanner's report of a merged secret applies to it.
     let suppressed = 0;
     const kept: Record<string, unknown>[] = [];
-    for (const f of rows) {
-      const sup = cellApplies ?? this.rowSuppression(await viewsAt(f.commitSha), f, applyStale);
+    for (const group of groupSameSecret(rows)) {
+      const f = group[0];
+      let sup: SuppressionView | undefined | null = cellApplies;
+      for (const g of cellApplies ? [] : group) {
+        const x = this.rowSuppression(await viewsAt(g.commitSha), g, applyStale);
+        if (x && (!sup || suppressionApplies(x.state, applyStale))) sup = x;
+      }
       if (sup && suppressionApplies(sup.state, applyStale)) {
-        suppressed++;
+        suppressed += group.length;
         continue;
       }
       kept.push({
@@ -1760,6 +1767,7 @@ export class Core extends EventEmitter {
         cwe: f.cwe,
         ...(f.snippet ? { snippet: f.snippet.slice(0, 300) } : {}),
         ...(sup ? { suppression_not_applied: { state: sup.state, reason: sup.reason } } : {}),
+        ...(group.length > 1 ? { also_reported_by: group.slice(1).map((g) => ({ scanner: g.scanner, signal_id: g.id, rule: g.ruleId })) } : {}),
       });
     }
     kept.sort((a, b) => SEVERITY_RANK[b.severity as Severity] - SEVERITY_RANK[a.severity as Severity]);
