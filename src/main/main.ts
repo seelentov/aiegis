@@ -5,6 +5,7 @@ import { EVENT_CHANNEL, invokeChannel, type ApiImpl, type ApiMethod } from '../s
 import type { AppEvent } from '../shared/types';
 import { Core } from './core';
 import { resolveAppPaths } from './paths';
+import { adoptLoginShellPath } from './shell-env';
 
 let core: Core;
 let win: BrowserWindow | null = null;
@@ -136,6 +137,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  // Before anything spawns `claude` or scanners: Finder/Dock launches lack the user's shell PATH.
+  await adoptLoginShellPath();
   core = new Core(resolveAppPaths(path.join(__dirname, '..', 'defaults')));
   core.on('event', (ev: AppEvent) => win?.webContents.send(EVENT_CHANNEL, ev));
   await core.start();
