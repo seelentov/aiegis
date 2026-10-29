@@ -8,6 +8,9 @@ import {
   listRoles,
   parseConfigText,
   resolveConfig,
+  resolveSettings,
+  scannerSettings,
+  loadConfigFile,
 } from '../src/main/config/loader';
 import { DEFAULTS_DIR, tmpDir, write } from './helpers';
 
@@ -172,6 +175,27 @@ describe('config files', () => {
     expect(cfg.settings.queue.parallelism).toBe(5);
     expect(cfg.settingsSources['queue.parallelism']).toBe('проект');
     expect(cfg.settingsSources['limits.max_tokens_per_run']).toBe('глобальный');
+  });
+
+  it('scanners: shipped set, project overrides per leaf, missing fields fail loudly, new scanners are merged in', () => {
+    const g = tmpDir();
+    const repo = tmpDir();
+    ensureGlobalDefaults(DEFAULTS_DIR, g);
+    write(path.join(repo, '.aiegis/config.yaml'), 'scanners: { trivy: { enabled: false }, custom: { binary: x } }\nsignals: { max_per_call: 7 }\n');
+    const { settings, sources } = resolveSettings(loadConfigFile(path.join(g, 'config.yaml')), loadConfigFile(path.join(repo, '.aiegis/config.yaml')));
+    expect(Object.keys(settings.scanners)).toEqual(['semgrep', 'gitleaks', 'trivy', 'custom']);
+    expect(scannerSettings(settings, 'semgrep')).toMatchObject({ enabled: true, binary: 'semgrep', format: 'semgrep' });
+    expect(scannerSettings(settings, 'trivy').enabled).toBe(false);
+    expect(sources['scanners.trivy.enabled']).toBe('проект');
+    expect(settings.signals).toMatchObject({ max_per_call: 7, exclude_kinds: ['vuln'], auto_scan: true });
+    expect(settings.suppressions).toEqual({ few_shot_limit: 5, apply_stale: false });
+    expect(() => scannerSettings(settings, 'custom')).toThrow(/scanners\.custom\.format/);
+    expect(() => scannerSettings(settings, 'nope')).toThrow(/не описан/);
+
+    const old = tmpDir();
+    write(path.join(old, 'config.yaml'), 'scanners:\n  semgrep: { enabled: false }\n');
+    expect(ensureGlobalDefaults(DEFAULTS_DIR, old)).toEqual(expect.arrayContaining(['scanners.gitleaks', 'scanners.trivy', 'signals', 'suppressions']));
+    expect(parseConfigText(fs.readFileSync(path.join(old, 'config.yaml'), 'utf8'), 'x').scanners!.semgrep).toEqual({ enabled: false });
   });
 
   it('fails loudly when required settings or roles are missing', () => {

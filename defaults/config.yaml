@@ -59,6 +59,62 @@ findings:
   # Max candidates returned by find_similar.
   similar_limit: 5
 
+# Scanners the app runs itself, once per commit in the worktree (results are cached by commit and scanned paths).
+# Binaries come from the system (PATH); availability is checked at startup with `version_args`.
+#   format         - normalizer of the output: semgrep | gitleaks | trivy;
+#   args           - command line; placeholders (whole arguments only):
+#                    {{targets}} - all scanned paths (several arguments), {{target}} - one path (one run per path),
+#                    {{report}}  - file the scanner writes its report to (otherwise stdout is parsed);
+#   ok_exit_codes  - exit codes that mean "scan completed";
+#   timeout_sec    - one invocation is killed after this time.
+# Paths are relative to the worktree root; `.aiegis/...` rule files committed to the repository work as --config.
+scanners:
+  semgrep:
+    enabled: true
+    binary: semgrep
+    format: semgrep
+    version_args: ["--version"]
+    args: ["scan", "--config", "p/default", "--json", "--quiet", "--metrics", "off", "--disable-version-check", "{{targets}}"]
+    ok_exit_codes: [0, 1]
+    timeout_sec: 1800
+  gitleaks:
+    enabled: true
+    binary: gitleaks
+    format: gitleaks
+    version_args: ["version"]
+    args: ["dir", "--report-format", "json", "--report-path", "{{report}}", "--no-banner", "--log-level", "error", "--exit-code", "0", "{{target}}"]
+    ok_exit_codes: [0]
+    timeout_sec: 900
+  trivy:
+    enabled: true
+    binary: trivy
+    format: trivy
+    version_args: ["--version"]
+    # vuln = dependency CVEs (stored for SCA), secret and misconfig = signals.
+    args: ["fs", "--format", "json", "--output", "{{report}}", "--scanners", "vuln,secret,misconfig", "--quiet", "{{target}}"]
+    ok_exit_codes: [0]
+    timeout_sec: 1800
+
+signals:
+  # Queue missing scans of the batch's modules (at the job's commit) before matrix verdict sessions;
+  # those sessions wait in the queue until the scans finish.
+  auto_scan: true
+  # Max signals one get_signals call returns (the rest is reported as truncated).
+  max_per_call: 40
+  # Signal kinds get_signals does not return: dependency CVEs (vuln) are handled by SCA.
+  exclude_kinds: [vuln]
+  # Optional relevance of signals to requirements, by requirement key (usually set in the project config):
+  #   requirements: { AC-2: { kinds: [sast], cwe: [CWE-639, CWE-284], rules: ["idor|authz"] } }
+  # `rules` are regular expressions over rule ids. Without an entry the agent filters signals itself.
+  requirements: {}
+
+suppressions:
+  # Max relevant suppressions mixed into a matrix verdict prompt as few-shot examples.
+  few_shot_limit: 5
+  # Whether suppressions made stale by code changes (SPEC §5) still filter signals; false = stale ones are shown
+  # to the agent with their reason until a human confirms them again.
+  apply_stale: false
+
 # Background tasks the app starts itself. `prompt` is a template file (relative to this config's directory);
 # {{placeholders}} are filled by the app, an unknown placeholder is a configuration error.
 tasks:
@@ -85,7 +141,8 @@ tasks:
     title: "Отсев n/a: {{matrix}} × {{module_name}}"
     prompt: instructions/tasks/matrix-triage.md
   # Verdicts for a batch of cells (one module, one requirement group).
-  # Placeholders: project, matrix, module_id, module_name, module_globs, module_description, group, requirements.
+  # Placeholders: project, matrix, module_id, module_name, module_globs, module_description, group, requirements,
+  # suppressions (relevant human suppressions of scanner signals, few-shot).
   matrix_verdicts:
     role: matrix
     title: "Вердикты: {{matrix}} × {{module_name}} / {{group}}"

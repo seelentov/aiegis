@@ -41,6 +41,26 @@ export const TaskSchema = z.looseObject({
   prompt: z.string().optional(),
 });
 
+/** Scanner run by the app (SPEC §4, Q10): binary from the system, args and output normalizer from config. */
+export const ScannerSchema = z.looseObject({
+  enabled: z.boolean().optional(),
+  binary: z.string().optional(),
+  /** Normalizer of the output. */
+  format: z.string().optional(),
+  version_args: z.array(z.string()).optional(),
+  args: z.array(z.string()).optional(),
+  ok_exit_codes: z.array(z.number().int()).optional(),
+  timeout_sec: z.number().int().min(1).optional(),
+});
+
+/** Relevance of signals to a requirement (by requirement key). */
+export const SignalFilterSchema = z.looseObject({
+  kinds: z.array(z.string()).optional(),
+  cwe: z.array(z.string()).optional(),
+  /** Regular expressions over rule ids. */
+  rules: z.array(z.string()).optional(),
+});
+
 export const ConfigFileSchema = z.looseObject({
   ...LevelShape,
   claude: z
@@ -70,6 +90,18 @@ export const ConfigFileSchema = z.looseObject({
     })
     .optional(),
   findings: z.looseObject({ similar_limit: z.number().int().min(1).optional() }).optional(),
+  scanners: z.record(z.string(), ScannerSchema).optional(),
+  signals: z
+    .looseObject({
+      auto_scan: z.boolean().optional(),
+      max_per_call: z.number().int().min(1).optional(),
+      exclude_kinds: z.array(z.string()).optional(),
+      requirements: z.record(z.string(), SignalFilterSchema).optional(),
+    })
+    .optional(),
+  suppressions: z
+    .looseObject({ few_shot_limit: z.number().int().min(0).optional(), apply_stale: z.boolean().optional() })
+    .optional(),
   tasks: z.record(z.string(), TaskSchema).optional(),
   roles: z.record(z.string(), RoleSchema).optional(),
   modules: z.record(z.string(), LevelSchema).optional(),
@@ -85,4 +117,16 @@ export type RoleConfig = z.infer<typeof RoleSchema>;
 export type ConfigFile = z.infer<typeof ConfigFileSchema>;
 
 /** Settings that are not cascade levels; merged global -> project. */
-export const SETTINGS_KEYS = ['claude', 'queue', 'limits', 'terminal', 'sessions', 'matrix', 'findings', 'tasks'] as const;
+export const SETTINGS_KEYS = [
+  'claude',
+  'queue',
+  'limits',
+  'terminal',
+  'sessions',
+  'matrix',
+  'findings',
+  'tasks',
+  'scanners',
+  'signals',
+  'suppressions',
+] as const;

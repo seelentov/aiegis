@@ -78,6 +78,36 @@ export interface Settings {
   };
   findings: { similar_limit: number };
   tasks: Record<string, TaskSettings>;
+  /** Scanners by name; entries are validated when used (`scannerSettings`). */
+  scanners: Record<string, Partial<ScannerSettings>>;
+  signals: {
+    auto_scan: boolean;
+    max_per_call: number;
+    exclude_kinds: string[];
+    requirements: Record<string, { kinds?: string[]; cwe?: string[]; rules?: string[] }>;
+  };
+  suppressions: { few_shot_limit: number; apply_stale: boolean };
+}
+
+export interface ScannerSettings {
+  enabled: boolean;
+  binary: string;
+  format: string;
+  version_args: string[];
+  args: string[];
+  ok_exit_codes: number[];
+  timeout_sec: number;
+}
+
+const SCANNER_KEYS: (keyof ScannerSettings)[] = ['enabled', 'binary', 'format', 'version_args', 'args', 'ok_exit_codes', 'timeout_sec'];
+
+/** A configured scanner with every field set; a missing field is a configuration error. */
+export function scannerSettings(settings: Settings, name: string): ScannerSettings {
+  const s = settings.scanners[name];
+  if (!s) throw new ConfigError(`сканер scanners.${name} не описан в конфигурации`);
+  const missing = SCANNER_KEYS.filter((k) => s[k] === undefined);
+  if (missing.length) throw new ConfigError(`в конфигурации не заданы: ${missing.map((k) => `scanners.${name}.${k}`).join(', ')}`);
+  return s as ScannerSettings;
 }
 
 /** App-started task kinds that must be configured. */
@@ -123,6 +153,13 @@ const REQUIRED_SETTINGS: string[] = [
   'matrix.estimate_tokens_per_cell.triage',
   'matrix.estimate_tokens_per_cell.verdicts',
   'findings.similar_limit',
+  'scanners',
+  'signals.auto_scan',
+  'signals.max_per_call',
+  'signals.exclude_kinds',
+  'signals.requirements',
+  'suppressions.few_shot_limit',
+  'suppressions.apply_stale',
   ...TASK_KINDS.flatMap((t) => ['role', 'title', 'prompt'].map((k) => `tasks.${t}.${k}`)),
 ];
 
@@ -217,11 +254,11 @@ export function resolveConfig(loc: ConfigLocation, target: ResolveTarget): Effec
 }
 
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing
- * entries of `roles`/`tasks`. Existing values are never changed; comments are preserved. Returns added paths.
+ * entries of `roles`/`tasks`/`scanners`. Existing values are never changed; comments are preserved. Returns added paths.
  */
 export function addMissingDefaults(userText: string, defaultsText: string): { text: string; added: string[] } {
   const doc = YAML.parseDocument(userText);
