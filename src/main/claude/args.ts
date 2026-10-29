@@ -45,14 +45,16 @@ export function backgroundCommand(cfg: EffectiveConfig, o: { sessionId: string; 
   };
 }
 
-/** Interactive session: new (`--session-id`) or continued (`--resume`). */
+/** Interactive session: new (`--session-id`) or continued (`--resume`), optionally with an initial prompt. */
 export function interactiveCommand(
   cfg: EffectiveConfig,
-  o: { sessionId: string; resume: boolean; mcpConfigPath: string },
+  o: { sessionId: string; resume: boolean; mcpConfigPath: string; prompt?: string },
 ): ClaudeCommand {
   return {
     binary: cfg.settings.claude.binary,
     args: [
+      // The initial prompt goes first: later options (--allowedTools) are variadic.
+      ...(o.prompt ? [o.prompt] : []),
       o.resume ? '--resume' : '--session-id',
       o.sessionId,
       '--mcp-config',

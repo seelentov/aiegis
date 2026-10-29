@@ -147,7 +147,7 @@ describe('Core with a fake claude', () => {
     expect(markup).toMatchObject({ role: 'modules', entityType: 'module_map', entityId: pid, title: 'Разметка модулей' });
     expect(String(markup.payload.prompt)).toContain('only svc');
     expect((await settled(markup)).status).toBe('done');
-    const [mod] = core.listModules(pid);
+    const [mod] = await core.listModules(pid);
     expect(mod).toMatchObject({ name: 'svc', globs: ['svc/**'], author: 'ai:modules', latestSnapshot: null });
 
     write(path.join(repo, '.aiegis', 'config.yaml'), 'modules: { svc: { model: module-model } }\n');
@@ -169,7 +169,7 @@ describe('Core with a fake claude', () => {
     expect(map2.snapshots).toHaveLength(2);
     expect(map2.baseline!.id).toBe(map1.snapshot!.id);
     expect(map2.entries.map((e) => e.change)).toEqual(['same']);
-    expect(core.listModules(pid)[0].latestSnapshot!.id).toBe(map2.snapshot!.id);
+    expect((await core.listModules(pid))[0].latestSnapshot!.id).toBe(map2.snapshot!.id);
     // Older versions stay viewable.
     expect(core.entryPointMap(pid, mod.id, map1.snapshot!.id).entries).toHaveLength(1);
 

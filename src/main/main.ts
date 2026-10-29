@@ -49,6 +49,41 @@ function api(): ApiImpl {
     enqueueAllEntryPoints: (pid) => core.enqueueAllEntryPoints(pid),
     entryPointMap: (pid, id, snap) => core.entryPointMap(pid, id, snap),
 
+    listDocuments: (pid) => core.listDocuments(pid),
+    pickDocumentFile: async () => {
+      const r = await dialog.showOpenDialog(win!, {
+        properties: ['openFile'],
+        title: 'Выберите документ',
+        filters: [{ name: 'MD, PDF, DOCX', extensions: ['md', 'markdown', 'txt', 'pdf', 'docx'] }],
+      });
+      return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+    },
+    importDocument: (pid, file, o) => core.importDocument(pid, file, o),
+    docVersion: (pid, id) => core.docVersion(pid, id),
+    retryExtraction: (pid, id) => core.retryExtraction(pid, id),
+    setVersionState: (pid, id, st) => core.setVersionState(pid, id, st),
+    reviewItems: (pid, id, items, review) => core.reviewItems(pid, id, items, review),
+    saveItem: (pid, id, item) => core.saveItem(pid, id, item),
+    approveVersion: (pid, id) => core.approveVersion(pid, id),
+
+    listMatrices: (pid) => core.listMatrices(pid),
+    saveMatrix: (pid, m) => core.saveMatrix(pid, m),
+    matrixView: (pid, id) => core.matrixView(pid, id),
+    cellDetails: (pid, cell, matrix) => core.cellDetails(pid, cell, matrix),
+    estimateMatrix: (pid, id, stage, scope) => core.estimateMatrix(pid, id, stage, scope),
+    runMatrix: (pid, id, stage, scope) => core.runMatrix(pid, id, stage, scope),
+    estimateRecheck: (pid, cells, matrix) => core.estimateRecheck(pid, cells, matrix),
+    recheckCells: (pid, cells, matrix) => core.recheckCells(pid, cells, matrix),
+    setVerdict: (pid, cell, v) => core.setVerdict(pid, cell, v),
+
+    listFindings: (pid) => core.listFindings(pid),
+    findingDetails: (pid, id) => core.findingDetails(pid, id),
+    setFindingStatus: (pid, id, st, reason) => core.setFindingStatus(pid, id, st, reason),
+    mergeFinding: (pid, src, dst) => core.mergeFinding(pid, src, dst),
+    createFinding: (pid, cell, input) => core.createFinding(pid, cell, input),
+    linkFinding: (pid, id, cell) => core.linkFinding(pid, id, cell),
+    openFixSession: (pid, id) => core.openFixSession(pid, id),
+
     listTerminals: () => core.terminals.list(),
     terminalSnapshot: (id) => core.terminals.snapshot(id),
     terminalWrite: (id, data) => core.terminals.write(id, data),
@@ -57,7 +92,7 @@ function api(): ApiImpl {
 
     listRoles: (pid) => core.roles(pid),
     defaultTaskRole: (pid) => core.sessionsSettings(pid).default_task_role,
-    effectiveConfig: (pid, role, module) => core.effectiveView(pid, role, module),
+    effectiveConfig: (pid, role, module, extra) => core.effectiveView(pid, role, module, extra),
     taskRole: (pid, kind) => core.taskRole(pid, kind),
     listConfigFiles: (pid) => core.listConfigFiles(pid),
     readConfigFile: (pid, file) => core.readConfigFile(pid, file),

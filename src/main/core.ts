@@ -5,19 +5,41 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type {
   AppEvent,
+  Cell,
+  CellDetails,
+  CellLabel,
   ConfigFileInfo,
+  DocumentSummary,
+  DocVersionView,
   EffectiveConfigView,
   EntryPointMap,
+  Evidence,
+  Finding,
+  FindingDetails,
+  FindingInput,
+  FindingStatus,
   Job,
+  Matrix,
+  MatrixEstimate,
+  MatrixScope,
+  MatrixStage,
+  MatrixView,
   Module,
   ModuleRevision,
   ModuleSummary,
   ProjectInfo,
+  RecheckOffer,
+  RequirementItem,
   ResultRecord,
+  ReviewState,
   Run,
   RunStatus,
+  StaleReason,
   TokenUsage,
+  Verdict,
+  VerdictStatus,
 } from '../shared/types';
+import { FINDING_STATUSES, VERDICT_STATUSES } from '../shared/types';
 import { backgroundCommand, interactiveCommand, shellQuote, type ClaudeCommand } from './claude/args';
 import { billableTokens, formatEvent, LineSplitter, StreamTracker } from './claude/stream';
 import { effectiveAllow } from './config/cascade';
@@ -38,12 +60,30 @@ import {
   type Settings,
 } from './config/loader';
 import { openDb } from './db';
-import { headSha } from './git';
+import { agentFile, detectFormat, documentText, sha256File, sourceFile, stageDocument } from './documents';
+import { changedFiles, headSha } from './git';
+import {
+  affectingChanges,
+  CELL_ENTITY,
+  cellId,
+  DOC_VERSION_ENTITY,
+  FINDING_ENTITY,
+  MATRIX_BATCH_ENTITY,
+  parseCellId,
+  planBatches,
+  rankSimilar,
+  reqHash,
+  SNAPSHOT_VALIDITY,
+  VERDICT_VALIDITY,
+  type Batch,
+  type BatchCell,
+  type CellRef,
+} from './matrix';
 import { AiegisMcpServer, mcpConfigJson } from './mcp/server';
 import { TokenRegistry, type EntityRef } from './mcp/tokens';
 import { projectDataDir, type AppPaths } from './paths';
 import { ProjectRegistry, type Project } from './projects';
-import { diffEntryPoints, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, renderTemplate } from './modules';
+import { diffEntryPoints, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, renderTemplate, repoFileError } from './modules';
 import { JobQueue, type JobOutcome } from './queue';
 import { ProjectStore } from './store';
 import { Terminals } from './terminals';
@@ -55,6 +95,21 @@ export const AGENT_JOB = 'agent';
 export const TASK_ENTITY = 'task';
 
 const KILL_GRACE_MS = 5000;
+
+/** Task kind (`tasks.<kind>`) of each matrix stage. */
+const STAGE_TASK: Record<MatrixStage, string> = { triage: 'matrix_triage', verdicts: 'matrix_verdicts' };
+
+/** Payload of a matrix job: which matrix, stage and cells it covers. */
+interface MatrixPayload {
+  matrix_id: string;
+  stage: MatrixStage;
+  cells: string[];
+}
+
+const matrixPayload = (job: Job): MatrixPayload | null =>
+  job.entityType === MATRIX_BATCH_ENTITY ? (job.payload as unknown as MatrixPayload) : null;
+
+const uniq = <T,>(xs: T[]) => [...new Set(xs)];
 
 const zeroUsage = (): TokenUsage => ({ input: 0, output: 0, cacheCreation: 0, cacheRead: 0, costUsd: 0 });
 
@@ -96,9 +151,15 @@ export class Core extends EventEmitter {
       enqueueTask: (pid, t) => this.enqueueTaskSync(pid, t),
       stopJob: (pid, jobId) => this.cancelJob(pid, jobId),
       queueState: () => this.queue.state(),
+      documentText: (pid, versionId) => documentText(this.docDir(pid, versionId)),
+      matrixView: (pid, id) => this.matrixView(pid, id),
+      cellDetails: (pid, c) => this.cellDetails(pid, cellId(c)),
+      recheckCells: (pid, cells) => this.recheckCells(pid, cells.map(cellId)),
+      similarLimit: (pid) => this.projectSettings(pid).findings.similar_limit,
       onWrite: (pid) => {
         this.send({ type: 'runs-changed', projectId: pid });
         this.send({ type: 'modules-changed', projectId: pid });
+        this.send({ type: 'audit-changed', projectId: pid });
       },
     });
     this.queue = new JobQueue(
@@ -150,8 +211,8 @@ export class Core extends EventEmitter {
     this.emit('event', ev);
   }
 
-  notice(level: 'info' | 'warn' | 'error', text: string, projectId?: string): void {
-    this.send({ type: 'notice', level, text, projectId });
+  notice(level: 'info' | 'warn' | 'error', text: string, projectId?: string, recheck?: RecheckOffer): void {
+    this.send({ type: 'notice', level, text, projectId, recheck });
   }
 
   // --- projects ---
@@ -207,16 +268,35 @@ export class Core extends EventEmitter {
     return this.lastSettings!;
   }
 
-  /** Effective config of a role, optionally with the module cascade level (`modules.<name>`). */
-  resolve(projectId: string | null, role: string, module?: string): EffectiveConfig {
+  /**
+   * Effective config of a role, optionally with the module (`modules.<name>`), matrix (`matrices.<name>`)
+   * and requirement (`requirements.<key>`) levels of the cascade.
+   */
+  resolve(projectId: string | null, role: string, module?: string, extra: { matrix?: string; item?: string } = {}): EffectiveConfig {
     return resolveConfig(
       { globalDir: this.paths.globalDir, projectRoot: projectId ? this.project(projectId).root : undefined },
-      { role, module },
+      { role, module, ...extra },
     );
   }
 
-  /** Config of a job's run: module jobs get the module level of the cascade. */
+  /** Non-cascade settings of a project (global -> project). */
+  projectSettings(projectId: string): Settings {
+    const global = loadConfigFile(globalConfigPath(this.paths.globalDir));
+    return resolveSettings(global, loadConfigFile(projectConfigPath(this.project(projectId).root))).settings;
+  }
+
+  /** Config of a job's run: module jobs get the module level, matrix jobs also the matrix and (single cell) item levels. */
   private resolveForJob(job: Job): EffectiveConfig {
+    const mp = matrixPayload(job);
+    if (mp) {
+      const s = this.store(job.projectId);
+      const cells = mp.cells.map(parseCellId);
+      const mod = s.getModule(cells[0].moduleId);
+      if (!mod) throw new Error(`модуль ${cells[0].moduleId} удалён`);
+      const matrix = s.audit.getMatrix(mp.matrix_id);
+      const item = cells.length === 1 ? s.audit.currentItem(cells[0].requirementId) : undefined;
+      return this.resolve(job.projectId, job.role, mod.name, { matrix: matrix?.name, item: item?.key });
+    }
     if (job.entityType !== MODULE_ENTITY) return this.resolve(job.projectId, job.role);
     const mod = this.store(job.projectId).getModule(job.entityId);
     if (!mod) throw new Error(`модуль ${job.entityId} удалён`);
@@ -233,8 +313,8 @@ export class Core extends EventEmitter {
     return resolveSettings(files.global, project).settings.sessions;
   }
 
-  effectiveView(projectId: string | null, role: string, module?: string): EffectiveConfigView {
-    const cfg = this.resolve(projectId, role, module);
+  effectiveView(projectId: string | null, role: string, module?: string, extra: { matrix?: string; item?: string } = {}): EffectiveConfigView {
+    const cfg = this.resolve(projectId, role, module, extra);
     const denied = new Set(cfg.level.permissions.deny.map((d) => d.value));
     const flat: { key: string; value: string; source: string }[] = [];
     const walk = (o: Record<string, unknown>, prefix: string) => {
@@ -328,7 +408,7 @@ export class Core extends EventEmitter {
   /** Queues a background claude run whose token may write `entity`. */
   private addAgentJob(
     projectId: string,
-    t: { prompt: string; role: string; title: string; entity: EntityRef },
+    t: { prompt: string; role: string; title: string; entity: EntityRef; payload?: Record<string, unknown> },
     sha: string,
     id?: string,
   ): Job {
@@ -341,7 +421,7 @@ export class Core extends EventEmitter {
         title: t.title,
         entityType: t.entity.type,
         entityId: t.entity.id,
-        payload: { prompt: t.prompt, commit_sha: sha },
+        payload: { ...t.payload, prompt: t.prompt, commit_sha: sha },
       },
       id,
     );
@@ -466,12 +546,17 @@ export class Core extends EventEmitter {
     return jobs;
   }
 
-  listModules(projectId: string): ModuleSummary[] {
+  async listModules(projectId: string): Promise<ModuleSummary[]> {
     const s = this.store(projectId);
-    return s.listModules().map((m) => {
+    const head = await headSha(this.project(projectId).root);
+    const out: ModuleSummary[] = [];
+    for (const m of s.listModules()) {
       const job = s.activeJobFor(MODULE_ENTITY, m.id);
-      return { ...m, latestSnapshot: s.latestSnapshot(m.id) ?? null, activeJob: job ? { id: job.id, status: job.status } : null };
-    });
+      const snap = s.latestSnapshot(m.id) ?? null;
+      const valid = snap ? await this.validityOf(projectId, SNAPSHOT_VALIDITY, snap.id, snap.commitSha, snap.touchedFiles ?? [], snap.globs, head) : null;
+      out.push({ ...m, latestSnapshot: snap, snapshotStale: valid ? !valid.valid : false, activeJob: job ? { id: job.id, status: job.status } : null });
+    }
+    return out;
   }
 
   moduleHistory(projectId: string, moduleId: string): ModuleRevision[] {
@@ -513,15 +598,619 @@ export class Core extends EventEmitter {
     return { snapshots, snapshot, baseline, ...diff };
   }
 
+  // --- validity (SPEC §5) ---
+
+  private readonly diffs = new Map<string, Promise<string[] | null>>();
+
+  private diffBetween(projectId: string, from: string, to: string): Promise<string[] | null> {
+    const key = `${projectId}:${from}..${to}`;
+    let d = this.diffs.get(key);
+    if (!d) {
+      d = changedFiles(this.project(projectId).root, from, to);
+      this.diffs.set(key, d);
+    }
+    return d;
+  }
+
+  /**
+   * Whether a verdict or snapshot made at `sha` still holds at `head`: no changed file is among its touched files
+   * or module files. Computed without AI from `git diff` and cached in `validity`. An unknown commit is not valid.
+   */
+  private async validityOf(
+    projectId: string,
+    type: string,
+    id: string,
+    sha: string,
+    touched: string[],
+    globs: string[],
+    head: string,
+  ): Promise<{ valid: boolean; changedFiles: string[] }> {
+    if (sha === head) return { valid: true, changedFiles: [] };
+    const a = this.store(projectId).audit;
+    const cached = a.getValidity(type, id, head);
+    if (cached) return cached;
+    const diff = await this.diffBetween(projectId, sha, head);
+    const changed = diff ? affectingChanges(diff, touched, globs) : [];
+    const valid = diff !== null && changed.length === 0;
+    a.setValidity(type, id, head, valid, changed);
+    return { valid, changedFiles: changed };
+  }
+
+  // --- documents and requirements (SPEC §4, Q17) ---
+
+  private docDir(projectId: string, versionId: string): string {
+    return path.join(projectDataDir(this.paths, projectId), 'documents', versionId);
+  }
+
+  private auditChanged(projectId: string): void {
+    this.send({ type: 'audit-changed', projectId });
+  }
+
+  listDocuments(projectId: string): DocumentSummary[] {
+    return this.store(projectId).audit.listDocuments();
+  }
+
+  /** Imports a file as a new document or a new version of `documentId` and queues requirement extraction. */
+  async importDocument(projectId: string, file: string, o: { documentId?: string; title?: string } = {}): Promise<DocVersionView> {
+    const format = detectFormat(file);
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) throw new Error(`файл ${file} не найден`);
+    const a = this.store(projectId).audit;
+    const sha = sha256File(file);
+    if (o.documentId) {
+      const doc = a.listDocuments().find((d) => d.id === o.documentId);
+      if (!doc) throw new Error(`документ ${o.documentId} не найден`);
+      const open = doc.versions.find((v) => v.status === 'extracting' || v.status === 'review');
+      if (open) throw new Error(`у документа есть неутверждённая версия v${open.n}: утвердите или отбросьте её`);
+      if (doc.current?.sha256 === sha) throw new Error('файл совпадает с текущей утверждённой версией');
+    }
+    this.taskSpec(projectId, 'requirements');
+    const versionId = crypto.randomUUID();
+    await stageDocument(file, this.docDir(projectId, versionId), format);
+    const documentId = o.documentId ?? a.createDocument(o.title?.trim() || path.basename(file, path.extname(file)));
+    a.addVersion(documentId, { filename: path.basename(file), format, sha256: sha }, versionId);
+    try {
+      await this.enqueueExtraction(projectId, versionId);
+    } catch (e) {
+      a.setVersionStatus(versionId, 'failed');
+      throw e;
+    }
+    this.auditChanged(projectId);
+    return this.docVersion(projectId, versionId);
+  }
+
+  private async enqueueExtraction(projectId: string, versionId: string): Promise<Job> {
+    const p = this.project(projectId);
+    const a = this.store(projectId).audit;
+    const v = a.getVersion(versionId);
+    if (!v) throw new Error(`версия ${versionId} не найдена`);
+    const entity = { type: DOC_VERSION_ENTITY, id: versionId };
+    this.assertNotQueued(projectId, entity);
+    const spec = this.taskSpec(projectId, 'requirements');
+    const prev = a.previousApproved(v);
+    const prevItems = prev ? a.listItems(prev.id).filter((i) => i.review === 'accepted') : [];
+    const vars = {
+      project: p.name,
+      document_title: a.getDocumentTitle(v.documentId) ?? '',
+      version_id: v.id,
+      version_n: String(v.n),
+      file: agentFile(this.docDir(projectId, versionId)),
+      format: v.format,
+      previous: prevItems.length ? prevItems.map((i) => `- ${i.key} [${i.section}]: ${i.text}`).join('\n') : '(none)',
+    };
+    return this.addAgentJob(
+      projectId,
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity },
+      await headSha(p.root),
+    );
+  }
+
+  /** Re-runs extraction of a version whose run failed or never ran. */
+  async retryExtraction(projectId: string, versionId: string): Promise<Job> {
+    const a = this.store(projectId).audit;
+    const v = a.getVersion(versionId);
+    if (!v || (v.status !== 'failed' && v.status !== 'extracting')) throw new Error('повторить можно только неудавшееся извлечение');
+    a.setVersionStatus(versionId, 'extracting');
+    const job = await this.enqueueExtraction(projectId, versionId);
+    this.auditChanged(projectId);
+    return job;
+  }
+
+  /** Moves a version out of extraction: to review (keeps what was extracted) or discarded. */
+  setVersionState(projectId: string, versionId: string, status: 'review' | 'discarded'): void {
+    const s = this.store(projectId);
+    const v = s.audit.getVersion(versionId);
+    if (!v) throw new Error(`версия ${versionId} не найдена`);
+    if (v.status === 'approved') throw new Error('утверждённая версия неизменяема');
+    if (s.activeJobFor(DOC_VERSION_ENTITY, versionId)) throw new Error('извлечение ещё идёт');
+    if (status === 'review' && !v.itemCount) throw new Error('в версии нет пунктов');
+    s.audit.setVersionStatus(versionId, status);
+    this.auditChanged(projectId);
+  }
+
+  docVersion(projectId: string, versionId: string): DocVersionView {
+    const s = this.store(projectId);
+    const a = s.audit;
+    const version = a.getVersion(versionId);
+    if (!version) throw new Error(`версия ${versionId} не найдена`);
+    const job = s.latestJobFor(DOC_VERSION_ENTITY, versionId);
+    const dir = this.docDir(projectId, versionId);
+    return {
+      document: { id: version.documentId, title: a.getDocumentTitle(version.documentId) ?? '' },
+      version,
+      ...a.versionDiff(version),
+      job: job ? { id: job.id, status: job.status, lastRunId: job.lastRunId, error: job.error } : null,
+      sourceFile: sourceFile(dir),
+      quotesVerified: version.format !== 'pdf',
+    };
+  }
+
+  reviewItems(projectId: string, versionId: string, itemIds: string[], review: ReviewState): void {
+    const v = this.store(projectId).audit.getVersion(versionId);
+    if (!v || v.status === 'approved') throw new Error('версия недоступна для ревью');
+    this.store(projectId).audit.reviewItems(versionId, itemIds, review);
+    this.auditChanged(projectId);
+  }
+
+  /** Manual add/edit of an item during review: authored by human and accepted. */
+  saveItem(projectId: string, versionId: string, it: { key?: string | null; text: string; section: string; quote: string }): RequirementItem {
+    const a = this.store(projectId).audit;
+    const v = a.getVersion(versionId);
+    if (!v || v.status === 'approved' || v.status === 'discarded') throw new Error('версия недоступна для правки');
+    const item = a.upsertItem(versionId, it, { author: 'human', runId: null }, 'accepted');
+    this.auditChanged(projectId);
+    return item;
+  }
+
+  approveVersion(projectId: string, versionId: string): void {
+    this.store(projectId).audit.approveVersion(versionId, 'human');
+    this.auditChanged(projectId);
+  }
+
+  // --- matrices (SPEC §4, Q8/Q9) ---
+
+  listMatrices(projectId: string): Matrix[] {
+    return this.store(projectId).audit.listMatrices();
+  }
+
+  saveMatrix(projectId: string, m: { id?: string; name: string; documentIds: string[]; moduleIds: string[] }): Matrix {
+    const s = this.store(projectId);
+    for (const d of m.documentIds) if (!s.audit.getDocumentTitle(d)) throw new Error(`документ ${d} не найден`);
+    for (const id of m.moduleIds) if (!s.getModule(id)) throw new Error(`модуль ${id} не найден`);
+    const saved = s.audit.saveMatrix(m);
+    this.auditChanged(projectId);
+    return saved;
+  }
+
+  private matrixOf(s: ProjectStore, matrixId: string): Matrix {
+    const m = s.audit.getMatrix(matrixId);
+    if (!m) throw new Error(`матрица ${matrixId} не найдена`);
+    return m;
+  }
+
+  /** Modules (empty list = all current) and current requirements of a matrix. */
+  private matrixScope(s: ProjectStore, matrix: Matrix): { modules: Module[]; requirements: (RequirementItem & { documentTitle: string })[] } {
+    const modules = matrix.moduleIds.length ? matrix.moduleIds.map((id) => s.getModule(id)).filter((m): m is Module => Boolean(m)) : s.listModules();
+    return { modules, requirements: s.audit.currentItems(matrix.documentIds) };
+  }
+
+  /** Matrices whose cells include `c` (by name). */
+  private matricesOfCell(s: ProjectStore, c: CellRef): Matrix[] {
+    const doc = s.audit.requirementDocument(c.requirementId);
+    return s.audit
+      .listMatrices()
+      .filter((m) => doc && m.documentIds.includes(doc) && (m.moduleIds.length ? m.moduleIds.includes(c.moduleId) : Boolean(s.getModule(c.moduleId))));
+  }
+
+  /** Queued or running matrix jobs by the cells they cover. */
+  private busyCells(projectId: string): Map<string, { id: string; status: Job['status'] }> {
+    const out = new Map<string, { id: string; status: Job['status'] }>();
+    for (const j of this.store(projectId).activeJobs()) {
+      for (const c of matrixPayload(j)?.cells ?? []) out.set(c, { id: j.id, status: j.status });
+    }
+    return out;
+  }
+
+  private cellContext(projectId: string, head: string) {
+    const a = this.store(projectId).audit;
+    return { head, verdicts: a.latestVerdicts(), triage: a.latestTriage(), counts: a.findingCounts(), busy: this.busyCells(projectId) };
+  }
+
+  /** Current state of a cell: latest verdict, staleness by code (validity at HEAD) and by requirement text. */
+  private async cellState(
+    projectId: string,
+    ref: CellRef,
+    item: RequirementItem | undefined,
+    ctx: ReturnType<Core['cellContext']>,
+  ): Promise<{ cell: Cell; changed: string[] }> {
+    const id = cellId(ref);
+    const v = ctx.verdicts.get(id) ?? null;
+    const t = ctx.triage.get(id);
+    const hash = item ? reqHash(item.text) : null;
+    const reasons: StaleReason[] = [];
+    let changed: string[] = [];
+    if (v) {
+      if (v.reqHash !== hash) reasons.push('requirement');
+      const val = await this.validityOf(projectId, VERDICT_VALIDITY, v.id, v.commitSha, v.touchedFiles, v.moduleGlobs, ctx.head);
+      if (!val.valid) {
+        reasons.push('code');
+        changed = val.changedFiles;
+      }
+    }
+    return {
+      cell: {
+        ...ref,
+        status: v?.status ?? 'not_checked',
+        stale: reasons.length > 0,
+        staleReasons: reasons,
+        triaged: !v && Boolean(t?.applicable && t.reqHash === hash),
+        verdict: v,
+        findingCount: ctx.counts.get(id) ?? 0,
+        activeJob: ctx.busy.get(id) ?? null,
+      },
+      changed,
+    };
+  }
+
+  async matrixView(projectId: string, matrixId: string): Promise<MatrixView> {
+    const s = this.store(projectId);
+    const matrix = this.matrixOf(s, matrixId);
+    const head = await headSha(this.project(projectId).root);
+    const { modules, requirements } = this.matrixScope(s, matrix);
+    const ctx = this.cellContext(projectId, head);
+    const cells: Cell[] = [];
+    for (const r of requirements) {
+      for (const m of modules) cells.push((await this.cellState(projectId, { moduleId: m.id, requirementId: r.requirementId }, r, ctx)).cell);
+    }
+    return { matrix, head, modules, requirements, cells };
+  }
+
+  async cellDetails(projectId: string, id: string, matrixId?: string): Promise<CellDetails> {
+    const ref = parseCellId(id);
+    const s = this.store(projectId);
+    const a = s.audit;
+    const head = await headSha(this.project(projectId).root);
+    const item = a.currentItem(ref.requirementId);
+    const module = s.getModule(ref.moduleId) ?? null;
+    const { cell, changed } = await this.cellState(projectId, ref, item, this.cellContext(projectId, head));
+    const doc = a.requirementDocument(ref.requirementId);
+    const findings = a.findingsOfCell(ref);
+    const matrix = matrixId ? a.getMatrix(matrixId) : this.matricesOfCell(s, ref)[0];
+    let config: EffectiveConfigView | null = null;
+    if (module) {
+      try {
+        config = this.effectiveView(projectId, this.taskRole(projectId, STAGE_TASK.verdicts), module.name, { matrix: matrix?.name, item: item?.key });
+      } catch {
+        config = null;
+      }
+    }
+    return {
+      cell,
+      module,
+      requirement: item ? { ...item, documentTitle: (doc && a.getDocumentTitle(doc)) || '' } : null,
+      verdicts: a.verdictHistory(ref).map((v) => ({ ...v, run: v.runId ? (s.getRun(v.runId) ?? null) : null })),
+      triage: a.triageHistory(ref),
+      findings,
+      findingEvents: findings
+        .flatMap((f) => a.findingEvents(f.id))
+        .filter((e) => e.kind !== 'link' || (e.cell && cellId(e.cell) === id))
+        .sort((x, y) => x.createdAt.localeCompare(y.createdAt)),
+      changedFiles: changed,
+      config,
+    };
+  }
+
+  /** Cells of a matrix a stage would cover: triage — never triaged and not checked; verdicts — not checked or stale. */
+  private async stageCells(projectId: string, matrix: Matrix, stage: MatrixStage, scope: MatrixScope): Promise<{ free: CellRef[]; busy: number }> {
+    const view = await this.matrixView(projectId, matrix.id);
+    const want = view.cells.filter((c) =>
+      stage === 'triage' ? c.status === 'not_checked' && !c.triaged : scope === 'stale' ? c.stale : c.status === 'not_checked',
+    );
+    return {
+      free: want.filter((c) => !c.activeJob).map((c) => ({ moduleId: c.moduleId, requirementId: c.requirementId })),
+      busy: want.filter((c) => c.activeJob).length,
+    };
+  }
+
+  /** Sessions for cells: verdicts — one per module x group (cells with their own cascade level alone); triage — per module. */
+  private planCells(projectId: string, stage: MatrixStage, cells: CellRef[]): Batch[] {
+    const s = this.store(projectId);
+    const settings = this.projectSettings(projectId);
+    const itemLevels = new Set(Object.keys(loadConfigFile(projectConfigPath(this.project(projectId).root)).data.requirements ?? {}));
+    const bc: BatchCell[] = cells.map((c) => {
+      const item = s.audit.currentItem(c.requirementId);
+      return { ...c, group: item?.section || '—', alone: stage === 'verdicts' && Boolean(item && itemLevels.has(item.key)) };
+    });
+    return stage === 'triage' ? planBatches(bc, settings.matrix.triage_batch_size, false) : planBatches(bc, settings.matrix.batch_size);
+  }
+
+  /** Average billable tokens per cell over recent successful runs of the role, or null without history. */
+  private historyTokensPerCell(projectId: string, role: string, stage: MatrixStage, limit: number): number | null {
+    const s = this.store(projectId);
+    let tokensSum = 0;
+    let cells = 0;
+    for (const r of s.recentRuns(role, limit)) {
+      const rows = stage === 'triage' ? s.audit.triageOfRuns([r.id]) : s.audit.verdictsOfRuns([r.id]);
+      const n = new Set(rows.map((x) => cellId(x))).size;
+      if (!n) continue;
+      tokensSum += billableTokens(r.usage);
+      cells += n;
+    }
+    return cells ? Math.round(tokensSum / cells) : null;
+  }
+
+  private estimateOf(projectId: string, stage: MatrixStage, batches: Batch[], busy: number): MatrixEstimate {
+    const s = this.store(projectId);
+    const settings = this.projectSettings(projectId);
+    const role = this.taskRole(projectId, STAGE_TASK[stage]);
+    const hist = this.historyTokensPerCell(projectId, role, stage, settings.matrix.estimate_history_runs);
+    const tpc = hist ?? settings.matrix.estimate_tokens_per_cell[stage];
+    const cells = batches.reduce((n, b) => n + b.cells.length, 0);
+    return {
+      stage,
+      role,
+      sessions: batches.length,
+      cells,
+      tokensPerCell: tpc,
+      tokensPerCellSource: hist === null ? 'config' : 'history',
+      tokens: cells * tpc,
+      maxTokensPerRun: settings.limits.max_tokens_per_run,
+      batches: batches.map((b) => ({
+        moduleId: b.moduleId,
+        moduleName: s.getModule(b.moduleId)?.name ?? b.moduleId,
+        group: b.group,
+        cells: b.cells.length,
+        tokens: b.cells.length * tpc,
+      })),
+      busy,
+    };
+  }
+
+  /** Dry-run estimate of a matrix stage (SPEC §7): sessions, cells and tokens, nothing is queued. */
+  async estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Promise<MatrixEstimate> {
+    const matrix = this.matrixOf(this.store(projectId), matrixId);
+    const { free, busy } = await this.stageCells(projectId, matrix, stage, scope);
+    return this.estimateOf(projectId, stage, this.planCells(projectId, stage, free), busy);
+  }
+
+  /** Queues a matrix stage: one job per batch; cells already covered by queued/running jobs are skipped. */
+  async runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Promise<Job[]> {
+    const matrix = this.matrixOf(this.store(projectId), matrixId);
+    const { free } = await this.stageCells(projectId, matrix, stage, scope);
+    if (!free.length) throw new Error('нет ячеек для проверки');
+    return this.enqueueBatches(projectId, matrix, stage, this.planCells(projectId, stage, free));
+  }
+
+  /** Groups cells by matrix (given, else the first matrix containing the cell); busy and orphan cells are reported. */
+  private recheckGroups(projectId: string, ids: string[], matrixId?: string): { groups: { matrix: Matrix; cells: CellRef[] }[]; busy: number } {
+    const s = this.store(projectId);
+    const busyMap = this.busyCells(projectId);
+    const groups = new Map<string, { matrix: Matrix; cells: CellRef[] }>();
+    let busy = 0;
+    for (const id of uniq(ids)) {
+      const c = parseCellId(id);
+      if (!this.cellAlive(s, c)) throw new Error(`ячейка ${id} не найдена: модуль удалён или требование выведено`);
+      if (busyMap.has(id)) {
+        busy++;
+        continue;
+      }
+      const matrix = matrixId ? this.matrixOf(s, matrixId) : this.matricesOfCell(s, c)[0];
+      if (!matrix) throw new Error(`ячейка ${id} не входит ни в одну матрицу`);
+      const g = groups.get(matrix.id) ?? { matrix, cells: [] };
+      g.cells.push(c);
+      groups.set(matrix.id, g);
+    }
+    return { groups: [...groups.values()], busy };
+  }
+
+  async estimateRecheck(projectId: string, cells: string[], matrixId?: string): Promise<MatrixEstimate> {
+    const { groups, busy } = this.recheckGroups(projectId, cells, matrixId);
+    return this.estimateOf(projectId, 'verdicts', groups.flatMap((g) => this.planCells(projectId, 'verdicts', g.cells)), busy);
+  }
+
+  /** Verdict re-check of cells; a single cell is its own session. */
+  async recheckCells(projectId: string, cells: string[], matrixId?: string): Promise<Job[]> {
+    const { groups, busy } = this.recheckGroups(projectId, cells, matrixId);
+    if (!groups.length) throw new Error(busy ? 'эти ячейки уже в очереди' : 'нет ячеек для проверки');
+    const jobs: Job[] = [];
+    for (const g of groups) jobs.push(...(await this.enqueueBatches(projectId, g.matrix, 'verdicts', this.planCells(projectId, 'verdicts', g.cells))));
+    return jobs;
+  }
+
+  private async enqueueBatches(projectId: string, matrix: Matrix, stage: MatrixStage, batches: Batch[]): Promise<Job[]> {
+    const sha = await headSha(this.project(projectId).root);
+    const jobs = batches.map((b) => {
+      const t = this.renderMatrixTask(projectId, matrix, stage, b.cells);
+      const id = crypto.randomUUID();
+      const payload: MatrixPayload = { matrix_id: matrix.id, stage, cells: b.cells.map(cellId) };
+      return this.addAgentJob(projectId, { ...t, entity: { type: MATRIX_BATCH_ENTITY, id }, payload: { ...payload } }, sha, id);
+    });
+    this.auditChanged(projectId);
+    return jobs;
+  }
+
+  /** Title and prompt of a matrix job from `tasks.matrix_triage` / `tasks.matrix_verdicts`; all cells share a module. */
+  private renderMatrixTask(projectId: string, matrix: Matrix, stage: MatrixStage, cells: CellRef[]): { role: string; title: string; prompt: string } {
+    const s = this.store(projectId);
+    const spec = this.taskSpec(projectId, STAGE_TASK[stage]);
+    const mod = s.getModule(cells[0].moduleId);
+    if (!mod) throw new Error(`модуль ${cells[0].moduleId} не найден`);
+    const items = cells.map((c) => {
+      const it = s.audit.currentItem(c.requirementId);
+      if (!it) throw new Error(`требование ${c.requirementId} не найдено`);
+      return it;
+    });
+    const vars = {
+      project: this.project(projectId).name,
+      matrix: matrix.name,
+      module_id: mod.id,
+      module_name: mod.name,
+      module_globs: mod.globs.map((g) => `- ${g}`).join('\n'),
+      module_description: mod.description || '(none)',
+      group: stage === 'verdicts' ? items[0].section || '—' : '',
+      requirements: items.map((i) => `- requirement_id \`${i.requirementId}\` — ${i.key}${i.section ? ` (${i.section})` : ''}: ${i.text}`).join('\n'),
+    };
+    return { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file) };
+  }
+
+  /** Manual verdict (SPEC §6): a record authored by human at the working copy's HEAD. */
+  async setVerdict(projectId: string, id: string, v: { status: VerdictStatus; reason: string; evidence: Evidence[] }): Promise<Verdict> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const ref = parseCellId(id);
+    if (!VERDICT_STATUSES.includes(v.status)) throw new Error(`неизвестный статус ${v.status}`);
+    const reason = v.reason.trim();
+    if (!reason) throw new Error('укажите обоснование');
+    const item = s.audit.currentItem(ref.requirementId);
+    const mod = s.getModule(ref.moduleId);
+    if (!item || !mod) throw new Error('ячейка не найдена: модуль удалён или требование выведено');
+    const evidence = v.evidence.filter((e) => e.file.trim());
+    if ((v.status === 'pass' || v.status === 'finding') && !evidence.length) throw new Error('для pass/finding нужны ссылки на код');
+    for (const e of evidence) {
+      const err = repoFileError(p.root, e.file);
+      if (err) throw new Error(err);
+    }
+    const findings = s.audit.findingsOfCell(ref);
+    if (v.status === 'finding' && !findings.length) throw new Error('сначала создайте или свяжите находку для этой ячейки');
+    const touched = uniq([...evidence.map((e) => e.file), ...(v.status === 'finding' ? findings.flatMap((f) => f.files.map((x) => x.file)) : [])]).sort();
+    const saved = s.audit.addVerdict(
+      {
+        ...ref,
+        itemId: item.id,
+        reqHash: reqHash(item.text),
+        status: v.status,
+        reason,
+        evidence,
+        commitSha: await headSha(p.root),
+        touchedFiles: touched,
+        moduleGlobs: mod.globs,
+      },
+      { author: 'human', runId: null },
+    );
+    this.auditChanged(projectId);
+    return saved;
+  }
+
+  // --- findings (SPEC §4, Q9/Q23) ---
+
+  listFindings(projectId: string): Finding[] {
+    return this.store(projectId).audit.listFindings();
+  }
+
+  private cellLabel(s: ProjectStore, c: CellRef): CellLabel {
+    const item = s.audit.currentItem(c.requirementId) ?? s.audit.latestItem(c.requirementId);
+    return { ...c, moduleName: s.getModule(c.moduleId)?.name ?? null, key: item?.key ?? null, text: item?.text ?? null };
+  }
+
+  findingDetails(projectId: string, id: string): FindingDetails {
+    const s = this.store(projectId);
+    const a = s.audit;
+    const finding = a.getFinding(id);
+    if (!finding) throw new Error(`находка ${id} не найдена`);
+    const events = a.findingEvents(id);
+    const limit = this.projectSettings(projectId).findings.similar_limit;
+    const runIds = uniq([finding.runId, ...events.map((e) => e.runId)].filter((x): x is string => Boolean(x)));
+    const runs = uniq([...s.entityRuns(FINDING_ENTITY, id).map((r) => r.id), ...runIds])
+      .map((r) => s.getRun(r))
+      .filter((r): r is Run => Boolean(r))
+      .sort((x, y) => y.startedAt.localeCompare(x.startedAt));
+    return {
+      finding,
+      events,
+      cells: finding.cells.map((c) => this.cellLabel(s, c)),
+      similar: rankSimilar(finding, a.listFindings().filter((f) => f.id !== id), limit),
+      runs,
+    };
+  }
+
+  setFindingStatus(projectId: string, id: string, status: FindingStatus, reason: string): Finding {
+    if (!FINDING_STATUSES.includes(status)) throw new Error(`неизвестный статус ${status}`);
+    if ((status === 'false_positive' || status === 'accepted_risk') && !reason.trim()) throw new Error('укажите причину');
+    const f = this.store(projectId).audit.setFindingStatus(id, status, reason.trim() || null, { author: 'human', runId: null });
+    this.auditChanged(projectId);
+    return f;
+  }
+
+  mergeFinding(projectId: string, sourceId: string, targetId: string): Finding {
+    const f = this.store(projectId).audit.mergeFinding(sourceId, targetId, { author: 'human', runId: null });
+    this.auditChanged(projectId);
+    return f;
+  }
+
+  /** Manual finding linked to a cell; file references must exist in the working copy. */
+  createFinding(projectId: string, id: string, input: Omit<FindingInput, 'moduleId'>): Finding {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const ref = parseCellId(id);
+    if (!this.cellAlive(s, ref)) throw new Error('ячейка не найдена');
+    if (!input.title.trim()) throw new Error('укажите заголовок');
+    for (const e of input.files) {
+      const err = repoFileError(p.root, e.file);
+      if (err) throw new Error(err);
+    }
+    const f = s.audit.createFinding({ ...input, title: input.title.trim(), moduleId: ref.moduleId }, [ref], { author: 'human', runId: null });
+    this.auditChanged(projectId);
+    return f;
+  }
+
+  linkFinding(projectId: string, findingId: string, id: string): Finding {
+    const s = this.store(projectId);
+    const ref = parseCellId(id);
+    if (!this.cellAlive(s, ref)) throw new Error('ячейка не найдена');
+    const f = s.audit.linkFinding(findingId, ref, { author: 'human', runId: null });
+    this.auditChanged(projectId);
+    return f;
+  }
+
+  /** "Открыть сессию для фикса": interactive session in the working directory with the finding as the initial prompt. */
+  async openFixSession(projectId: string, findingId: string): Promise<string> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    let f = s.audit.getFinding(findingId);
+    if (!f) throw new Error(`находка ${findingId} не найдена`);
+    while (f.mergedInto) f = s.audit.getFinding(f.mergedInto)!;
+    const spec = this.taskSpec(projectId, 'fix');
+    const cfg = this.resolve(projectId, spec.role);
+    if (cfg.role.kind !== 'interactive') throw new ConfigError(`tasks.fix: роль ${spec.role} не интерактивная`);
+    const fl = f;
+    const vars = {
+      project: p.name,
+      finding_id: fl.id,
+      title: fl.title,
+      severity: fl.severity,
+      cwe: fl.cwe ?? '—',
+      description: fl.description,
+      files: fl.files.map((e) => `- ${e.file}${e.line ? `:${e.line}` : ''}${e.note ? ` — ${e.note}` : ''}`).join('\n'),
+      recommendation: fl.recommendation ?? '—',
+      cells: fl.cells.map((c) => this.cellLabel(s, c)).map((l) => `- ${l.key ?? l.requirementId}: ${l.text ?? ''} (модуль ${l.moduleName ?? l.moduleId})`).join('\n') || '—',
+    };
+    return this.spawnInteractive(projectId, {
+      role: spec.role,
+      sessionId: crypto.randomUUID(),
+      resume: false,
+      cwd: p.root,
+      commitSha: await headSha(p.root),
+      parentRunId: null,
+      entity: { type: FINDING_ENTITY, id: fl.id },
+      scope: [],
+      cfg,
+      prompt: renderTemplate(spec.template, vars, spec.file),
+      title: `✎ ${renderTemplate(spec.title, vars)}`,
+    });
+  }
+
   // --- background execution ---
 
   private async execute(job: Job, signal: AbortSignal): Promise<JobOutcome> {
     if (job.type !== AGENT_JOB) return { kind: 'failed', error: `неизвестный тип задачи ${job.type}` };
     const p = this.project(job.projectId);
     const s = this.store(job.projectId);
+    const prep = this.prepareJob(job);
+    if (!prep) return { kind: 'done' };
+    job = prep.job;
     const cfg = this.resolveForJob(job);
     const sha = String(job.payload.commit_sha);
-    const cwd = await this.worktreeCache(p).ensure(sha);
+    // Requirement extraction reads the stored document; everything else runs in a worktree at the job's commit.
+    const cwd = job.entityType === DOC_VERSION_ENTITY ? this.docDir(p.id, job.entityId) : await this.worktreeCache(p).ensure(sha);
     if (signal.aborted) return { kind: signal.reason === 'taken_over' ? 'taken_over' : 'cancelled' };
 
     const runId = crypto.randomUUID();
@@ -529,7 +1218,7 @@ export class Core extends EventEmitter {
     const dir = projectDataDir(this.paths, p.id);
     const logPath = path.join(dir, 'logs', `${runId}.jsonl`);
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    const scope: EntityRef[] = [{ type: job.entityType, id: job.entityId }];
+    const scope = prep.scope;
     const grant = this.tokens.issue({
       projectId: p.id,
       role: job.role,
@@ -549,6 +1238,7 @@ export class Core extends EventEmitter {
         author: `ai:${job.role}`,
         entityType: job.entityType,
         entityId: job.entityId,
+        scope,
         sessionId,
         cwd,
         commitSha: sha,
@@ -566,7 +1256,7 @@ export class Core extends EventEmitter {
     this.activeRuns.set(job.id, { runId, terminalId, done });
 
     try {
-      const res = await this.runClaudeProcess(cmd, cwd, String(job.payload.prompt), {
+      const res = await this.runClaudeProcess(cmd, cwd, prep.prompt, {
         signal,
         logPath,
         terminalId,
@@ -574,8 +1264,10 @@ export class Core extends EventEmitter {
       });
       this.finishRun(p.id, runId, res.status, res.usage, res.error);
       switch (res.status) {
-        case 'succeeded':
-          return { kind: 'done' };
+        case 'succeeded': {
+          const missing = this.missingOutputs(job);
+          return missing ? { kind: 'failed', error: missing } : { kind: 'done' };
+        }
         case 'cancelled':
           return { kind: 'cancelled' };
         case 'taken_over':
@@ -590,6 +1282,7 @@ export class Core extends EventEmitter {
       throw e;
     } finally {
       this.tokens.revoke(grant.token);
+      this.mcp.forgetRun(runId);
       fs.rmSync(mcpPath, { force: true });
       this.terminals.markEnded(terminalId);
       this.activeRuns.delete(job.id);
@@ -598,12 +1291,62 @@ export class Core extends EventEmitter {
     }
   }
 
-  /** Finalizes a run together with the entry point snapshots it was building (complete only on success). */
+  /**
+   * What a job's run covers. Matrix jobs are atomic per cell (SPEC §7): a re-run (after a crash, failure or retry)
+   * covers only the cells earlier runs of the job left without a result. Null when nothing is left to do.
+   */
+  private prepareJob(job: Job): { job: Job; scope: EntityRef[]; prompt: string } | null {
+    const mp = matrixPayload(job);
+    if (!mp) return { job, scope: [{ type: job.entityType, id: job.entityId }], prompt: String(job.payload.prompt) };
+    const s = this.store(job.projectId);
+    const covered = this.coveredCells(job, mp.stage);
+    const remaining = mp.cells.filter((c) => !covered.has(c) && this.cellAlive(s, parseCellId(c)));
+    if (!remaining.length) return null;
+    if (remaining.length !== mp.cells.length) {
+      const matrix = s.audit.getMatrix(mp.matrix_id);
+      if (!matrix) throw new Error(`матрица ${mp.matrix_id} не найдена`);
+      const t = this.renderMatrixTask(job.projectId, matrix, mp.stage, remaining.map(parseCellId));
+      s.setJobPayload(job.id, { ...job.payload, cells: remaining, prompt: t.prompt });
+      job = s.getJob(job.id)!;
+    }
+    return { job, scope: remaining.map((id) => ({ type: CELL_ENTITY, id })), prompt: String(job.payload.prompt) };
+  }
+
+  /** Cells that runs of a matrix job already wrote a result for (verdict, or triage mark for the triage stage). */
+  private coveredCells(job: Job, stage: MatrixStage): Set<string> {
+    const s = this.store(job.projectId);
+    const runIds = s.jobRuns(job.id).map((r) => r.id);
+    const rows = stage === 'triage' ? s.audit.triageOfRuns(runIds) : s.audit.verdictsOfRuns(runIds);
+    return new Set(rows.map((r) => cellId(r)));
+  }
+
+  private cellAlive(s: ProjectStore, c: CellRef): boolean {
+    return Boolean(s.getModule(c.moduleId) && s.audit.currentItem(c.requirementId));
+  }
+
+  /** A successful matrix run that left cells without a result fails, so "retry" re-runs only those cells. */
+  private missingOutputs(job: Job): string | null {
+    const mp = matrixPayload(job);
+    if (!mp) return null;
+    const covered = this.coveredCells(job, mp.stage);
+    const s = this.store(job.projectId);
+    const left = mp.cells.filter((c) => !covered.has(c) && this.cellAlive(s, parseCellId(c)));
+    return left.length ? `прогон завершился, но без результата осталось ячеек: ${left.length}; «Повторить» перезапустит только их` : null;
+  }
+
+  /** Finalizes a run together with what it was building: entry point snapshots, requirement extraction. */
   private finishRun(projectId: string, runId: string, status: RunStatus, usage: TokenUsage, error: string | null): void {
     const s = this.store(projectId);
     s.finishRun(runId, status, usage, error);
-    s.finalizeSnapshots(runId, status === 'succeeded' || status === 'exited');
+    const ok = status === 'succeeded' || status === 'exited';
+    s.finalizeSnapshots(runId, ok);
+    const run = s.getRun(runId);
+    if (run?.entityType === DOC_VERSION_ENTITY && run.entityId) {
+      const v = s.audit.getVersion(run.entityId);
+      if (v && (v.status === 'extracting' || v.status === 'failed')) s.audit.setVersionStatus(v.id, ok ? 'review' : 'failed');
+    }
     this.send({ type: 'modules-changed', projectId });
+    this.send({ type: 'audit-changed', projectId });
   }
 
   private writeMcpConfig(projectId: string, name: string, token: string): string {
@@ -713,8 +1456,20 @@ export class Core extends EventEmitter {
       commitSha: run.commitSha,
       parentRunId: run.id,
       entity: run.entityType && run.entityId ? { type: run.entityType, id: run.entityId } : null,
+      scope: run.scope,
+      cfg: this.resumeConfig(projectId, run),
       title: `↺ ${run.role} ${run.sessionId.slice(0, 8)}`,
     });
+  }
+
+  /** A resumed session gets the cascade levels of its job (module, matrix, item); falls back to the role. */
+  private resumeConfig(projectId: string, run: Run): EffectiveConfig | undefined {
+    const job = run.jobId ? this.store(projectId).getJob(run.jobId) : undefined;
+    try {
+      return job ? this.resolveForJob(job) : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** "Новая сессия": interactive claude in the user's working directory with the free-session role. */
@@ -742,21 +1497,22 @@ export class Core extends EventEmitter {
 
   private interactiveSetup(
     projectId: string,
-    o: { role: string; sessionId: string; resume: boolean; cwd: string; commitSha: string; parentRunId: string | null; entity: EntityRef | null },
+    o: InteractiveSpec,
     external: boolean,
   ): { runId: string; cmd: ClaudeCommand; token: string; mcpPath: string } {
-    const cfg = this.resolve(projectId, o.role);
+    const cfg = o.cfg ?? this.resolve(projectId, o.role);
     const runId = crypto.randomUUID();
+    const scope = o.scope ?? (o.entity ? [o.entity] : []);
     const grant = this.tokens.issue({
       projectId,
       role: o.role,
       access: cfg.role.mcp_access,
       sessionId: o.sessionId,
       runId,
-      scope: o.entity ? [o.entity] : [],
+      scope,
     });
     const mcpPath = this.writeMcpConfig(projectId, runId, grant.token);
-    const cmd = interactiveCommand(cfg, { sessionId: o.sessionId, resume: o.resume, mcpConfigPath: mcpPath });
+    const cmd = interactiveCommand(cfg, { sessionId: o.sessionId, resume: o.resume, mcpConfigPath: mcpPath, prompt: o.prompt });
     const s = this.store(projectId);
     s.startRun(
       {
@@ -766,6 +1522,7 @@ export class Core extends EventEmitter {
         author: 'human',
         entityType: o.entity?.type,
         entityId: o.entity?.id,
+        scope,
         sessionId: o.sessionId,
         cwd: o.cwd,
         commitSha: o.commitSha,
@@ -777,10 +1534,7 @@ export class Core extends EventEmitter {
     return { runId, cmd, token: grant.token, mcpPath };
   }
 
-  private spawnInteractive(
-    projectId: string,
-    o: { role: string; sessionId: string; resume: boolean; cwd: string; commitSha: string; parentRunId: string | null; entity: EntityRef | null; title: string },
-  ): string {
+  private spawnInteractive(projectId: string, o: InteractiveSpec & { title: string }): string {
     const { runId, cmd, token, mcpPath } = this.interactiveSetup(projectId, o, false);
     const p = this.project(projectId);
     const terminalId = this.terminals.openPty({
@@ -794,30 +1548,46 @@ export class Core extends EventEmitter {
       onExit: (code) => {
         this.liveSessions.delete(o.sessionId);
         this.tokens.revoke(token);
+        this.mcp.forgetRun(runId);
         fs.rmSync(mcpPath, { force: true });
         this.finishRun(projectId, runId, 'exited', zeroUsage(), code === 0 ? null : `код выхода ${code}`);
         this.send({ type: 'runs-changed', projectId });
-        if (o.cwd === p.root) void this.checkCommits(projectId, o.commitSha);
+        if (o.cwd === p.root) void this.checkCommits(projectId, o.commitSha, o.entity);
       },
     });
     this.liveSessions.set(o.sessionId, terminalId);
     return terminalId;
   }
 
-  /** After a session in the user's working directory: if it committed, offer re-checks (SPEC §1, Q22). */
-  private async checkCommits(projectId: string, before: string): Promise<void> {
+  /** After a session in the user's working directory: if it committed, offer re-checks of linked cells (SPEC §1, Q22). */
+  private async checkCommits(projectId: string, before: string, entity: EntityRef | null): Promise<void> {
     try {
       const after = await headSha(this.project(projectId).root);
-      if (after !== before) {
-        this.notice(
-          'info',
-          `Сессия изменила HEAD: ${before.slice(0, 8)} → ${after.slice(0, 8)}. Связанные проверки стоит перепроверить.`,
-          projectId,
-        );
-      }
+      if (after === before) return;
+      const text = `Сессия изменила HEAD: ${before.slice(0, 8)} → ${after.slice(0, 8)}.`;
+      const offer = await this.recheckOffer(projectId, before, after, entity?.type === FINDING_ENTITY ? entity.id : null);
+      if (offer) this.notice('info', `${text} ${offer.reason}`, projectId, offer);
+      else this.notice('info', `${text} Связанных ячеек матрицы нет.`, projectId);
     } catch {
       /* repository may be mid-rebase; nothing to report */
     }
+  }
+
+  /** Cells whose verdicts depend on files the commits changed, plus the cells of the fixed finding. */
+  private async recheckOffer(projectId: string, before: string, after: string, findingId: string | null): Promise<RecheckOffer | null> {
+    const s = this.store(projectId);
+    const diff = (await changedFiles(this.project(projectId).root, before, after)) ?? [];
+    const affected = [...s.audit.latestVerdicts().values()]
+      .filter((v) => affectingChanges(diff, v.touchedFiles, v.moduleGlobs).length > 0)
+      .map((v) => cellId(v));
+    const linked = findingId ? (s.audit.getFinding(findingId)?.cells ?? []).map(cellId) : [];
+    const cells = uniq([...linked, ...affected]).filter((c) => this.cellAlive(s, parseCellId(c)) && this.matricesOfCell(s, parseCellId(c)).length);
+    if (!cells.length) return null;
+    const parts = [
+      linked.length ? `связанных с находкой: ${linked.length}` : '',
+      affected.length ? `затронутых изменениями: ${affected.length}` : '',
+    ].filter(Boolean);
+    return { cells, reason: `Предлагается перепроверить ячейки матрицы (${parts.join(', ')}).` };
   }
 
   /** Opens the session in an external terminal (macOS). The token lives until the app exits. */
@@ -830,7 +1600,17 @@ export class Core extends EventEmitter {
     const entity = run.entityType && run.entityId ? { type: run.entityType, id: run.entityId } : null;
     const { runId: newRunId, cmd } = this.interactiveSetup(
       projectId,
-      { role: run.role, sessionId: run.sessionId, resume: true, cwd, commitSha: run.commitSha, parentRunId: run.id, entity },
+      {
+        role: run.role,
+        sessionId: run.sessionId,
+        resume: true,
+        cwd,
+        commitSha: run.commitSha,
+        parentRunId: run.id,
+        entity,
+        scope: run.scope,
+        cfg: this.resumeConfig(projectId, run),
+      },
       true,
     );
     // The external process is not tracked; its run record is finalized right away.
@@ -847,6 +1627,22 @@ export class Core extends EventEmitter {
       ),
     );
   }
+}
+
+interface InteractiveSpec {
+  role: string;
+  sessionId: string;
+  resume: boolean;
+  cwd: string;
+  commitSha: string;
+  parentRunId: string | null;
+  entity: EntityRef | null;
+  /** Entities the token may write; default: the entity. */
+  scope?: EntityRef[];
+  /** Config to run with; default: the role's. */
+  cfg?: EffectiveConfig;
+  /** Initial prompt of a new session. */
+  prompt?: string;
 }
 
 /** Used only by the synchronous MCP enqueue path; the UI resolves HEAD asynchronously. */

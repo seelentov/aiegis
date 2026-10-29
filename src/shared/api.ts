@@ -1,17 +1,34 @@
 import type {
   AppEvent,
+  CellDetails,
   ConfigFileInfo,
+  DocumentSummary,
+  DocVersionView,
   EffectiveConfigView,
   EntryPointMap,
+  Evidence,
+  Finding,
+  FindingDetails,
+  FindingInput,
+  FindingStatus,
   Job,
+  Matrix,
+  MatrixEstimate,
+  MatrixScope,
+  MatrixStage,
+  MatrixView,
   Module,
   ModuleRevision,
   ModuleSummary,
   ProjectInfo,
   QueueState,
+  RequirementItem,
   ResultRecord,
+  ReviewState,
   Run,
   TerminalInfo,
+  Verdict,
+  VerdictStatus,
 } from './types';
 
 /** Methods the renderer can call in the main process (one IPC channel per method). */
@@ -46,6 +63,36 @@ export interface AiegisApi {
   enqueueAllEntryPoints(projectId: string): Job[];
   entryPointMap(projectId: string, moduleId: string, snapshotId?: string): EntryPointMap;
 
+  listDocuments(projectId: string): DocumentSummary[];
+  /** File dialog for MD/PDF/DOCX; null if cancelled. */
+  pickDocumentFile(): string | null;
+  /** New document (title) or new version of `documentId`; queues requirement extraction. */
+  importDocument(projectId: string, file: string, o: { documentId?: string; title?: string }): DocVersionView;
+  docVersion(projectId: string, versionId: string): DocVersionView;
+  retryExtraction(projectId: string, versionId: string): Job;
+  setVersionState(projectId: string, versionId: string, status: 'review' | 'discarded'): void;
+  reviewItems(projectId: string, versionId: string, itemIds: string[], review: ReviewState): void;
+  saveItem(projectId: string, versionId: string, item: { key?: string | null; text: string; section: string; quote: string }): RequirementItem;
+  approveVersion(projectId: string, versionId: string): void;
+
+  listMatrices(projectId: string): Matrix[];
+  saveMatrix(projectId: string, m: { id?: string; name: string; documentIds: string[]; moduleIds: string[] }): Matrix;
+  matrixView(projectId: string, matrixId: string): MatrixView;
+  cellDetails(projectId: string, cellId: string, matrixId?: string): CellDetails;
+  estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): MatrixEstimate;
+  runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Job[];
+  estimateRecheck(projectId: string, cells: string[], matrixId?: string): MatrixEstimate;
+  recheckCells(projectId: string, cells: string[], matrixId?: string): Job[];
+  setVerdict(projectId: string, cellId: string, v: { status: VerdictStatus; reason: string; evidence: Evidence[] }): Verdict;
+
+  listFindings(projectId: string): Finding[];
+  findingDetails(projectId: string, findingId: string): FindingDetails;
+  setFindingStatus(projectId: string, findingId: string, status: FindingStatus, reason: string): Finding;
+  mergeFinding(projectId: string, sourceId: string, targetId: string): Finding;
+  createFinding(projectId: string, cellId: string, input: Omit<FindingInput, 'moduleId'>): Finding;
+  linkFinding(projectId: string, findingId: string, cellId: string): Finding;
+  openFixSession(projectId: string, findingId: string): string;
+
   listTerminals(): TerminalInfo[];
   terminalSnapshot(terminalId: string): string;
   terminalWrite(terminalId: string, data: string): void;
@@ -54,7 +101,7 @@ export interface AiegisApi {
 
   listRoles(projectId: string | null): { name: string; title: string; kind: string; mcp_access: string }[];
   defaultTaskRole(projectId: string | null): string;
-  effectiveConfig(projectId: string | null, role: string, module?: string): EffectiveConfigView;
+  effectiveConfig(projectId: string | null, role: string, module?: string, extra?: { matrix?: string; item?: string }): EffectiveConfigView;
   /** Role of app-started task kind `tasks.<kind>`. */
   taskRole(projectId: string, kind: string): string;
   listConfigFiles(projectId: string | null): ConfigFileInfo[];

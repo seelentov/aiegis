@@ -19,6 +19,7 @@ async function mcp(name, a) {
 if (!args.includes('-p')) {
   // Interactive mode: echo args, exit on "q".
   process.stdout.write(`fake interactive ${args.slice(0, 2).join(' ')}\r\n`);
+  if (!args[0].startsWith('--')) process.stdout.write(`initial prompt: ${args[0].split('\n')[0]}\r\n`);
   process.stdin.on('data', (d) => d.toString().includes('q') && process.exit(0));
 } else {
   let prompt = '';
@@ -53,6 +54,53 @@ if (!args.includes('-p')) {
         auth: 'none found', call_chain: [{ file: 'svc/Api.java', function: 'get', sink: 'SQL' }],
       });
       return done(r.content[0].text);
+    }
+    // Matrix prompts list cells as "- requirement_id `<id>` — <key> (<section>): <text>".
+    const reqLines = [...prompt.matchAll(/^- requirement_id `([^`]+)` — [^:]+: (.*)$/gm)].map((m) => ({ id: m[1], text: m[2] }));
+    const moduleOf = () => /module_id `([^`]+)`/.exec(prompt)[1];
+    if (prompt.includes('Extract the requirements')) {
+      const versionId = /document_version id `([^`]+)`/.exec(prompt)[1];
+      const file = /the file `([^`]+)`/.exec(prompt)[1];
+      let section = '';
+      const out = [];
+      for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+        if (line.startsWith('#')) section = line.replace(/^#+\s*/, '');
+        const m = /^([A-Z]+-\d+): (.+)$/.exec(line);
+        if (m) out.push((await mcp('add_requirement', { version_id: versionId, key: m[1], text: m[2], section, quote: m[2] })).content[0].text);
+      }
+      const bad = await mcp('add_requirement', { version_id: versionId, text: 'made up', section, quote: 'not in the document' });
+      return done(`${out.length} ${bad.content[0].text}`);
+    }
+    if (prompt.includes('Triage the applicability')) {
+      const module_id = moduleOf();
+      for (const r of reqLines) {
+        await mcp('triage_cell', { module_id, requirement_id: r.id, applicable: !r.text.includes('XSS'), reason: 'looked at the build file' });
+      }
+      return done('triaged');
+    }
+    if (prompt.includes('Check module')) {
+      const module_id = moduleOf();
+      for (const r of reqLines) {
+        // Leaves this cell without a verdict while it shares the session with others (cell-level atomicity).
+        if (r.text.includes('SKIP_ONCE') && reqLines.length > 1) continue;
+        const cell = { module_id, requirement_id: r.id };
+        const evidence = [{ file: 'svc/Api.java', line: 1, note: 'checked' }];
+        if (r.text.includes('IDOR')) {
+          const early = await mcp('set_verdict', { ...cell, status: 'finding', reason: 'no owner check', evidence });
+          const sim = JSON.parse((await mcp('find_similar', { module_id, files: ['svc/Api.java'], cwe: 'CWE-639', entry_point: 'http GET /api' })).content[0].text);
+          if (sim.candidates.length) await mcp('link_finding', { ...cell, finding_id: sim.candidates[0].finding_id });
+          else {
+            await mcp('create_finding', {
+              ...cell, check_id: sim.check_id, title: 'IDOR in /api', description: 'Object id is not checked against the caller',
+              severity: 'high', cwe: 'CWE-639', entry_point: 'http GET /api', files: evidence,
+            });
+          }
+          await mcp('set_verdict', { ...cell, status: 'finding', reason: `no owner check (${early.isError ? 'needed a finding first' : 'unexpected'})`, evidence });
+        } else {
+          await mcp('set_verdict', { ...cell, status: 'pass', reason: 'checked in code', evidence });
+        }
+      }
+      return done('verdicts');
     }
     const who = JSON.parse((await mcp('whoami', {})).content[0].text);
     const own = who.writable_entities[0];
