@@ -238,8 +238,13 @@ roles:
     mcp_access: scoped
     model: sonnet
     effort: low
+    # Methodology fragments are adapted from cloudflare/security-audit-skill (MIT), see instructions/methodology/README.md.
     instructions:
-      file: instructions/roles/matrix.md
+      file:
+        - instructions/roles/matrix.md
+        - instructions/methodology/verdict-discipline.md
+        - instructions/methodology/attack-classes.md
+        # For modules with HTTP/auth, add in the project config: instructions/methodology/web-and-auth.md
     permissions:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
