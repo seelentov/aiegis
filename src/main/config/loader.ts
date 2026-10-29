@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -309,15 +310,38 @@ export function addMissingDefaults(userText: string, defaultsText: string): { te
   return { text: added.length ? doc.toString() : userText, added };
 }
 
-/** Copies shipped defaults into the global dir without overwriting existing files; config.yaml gets new keys only. */
-export function ensureGlobalDefaults(defaultsDir: string, globalDir: string): string[] {
+/** Shipped-default hashes from the last sync, to tell untouched files from user edits. */
+const DEFAULTS_MANIFEST = '.defaults.json';
+
+export interface DefaultsSync {
+  /** config.yaml paths added from the defaults. */
+  added: string[];
+  /** Files replaced with a newer default (the user had not edited them). */
+  updated: string[];
+  /** Files the user edited while the default changed: to be merged by hand. */
+  outdated: string[];
+}
+
+/**
+ * Copies shipped defaults into the global dir; config.yaml gets new keys only. A file whose default changed is
+ * replaced only when it still equals the default recorded at the last sync; otherwise it is reported once as outdated.
+ */
+export function ensureGlobalDefaults(defaultsDir: string, globalDir: string): DefaultsSync {
   const cfg = globalConfigPath(globalDir);
-  let added: string[] = [];
+  const sync: DefaultsSync = { added: [], updated: [], outdated: [] };
   if (fs.existsSync(cfg)) {
     const r = addMissingDefaults(fs.readFileSync(cfg, 'utf8'), fs.readFileSync(globalConfigPath(defaultsDir), 'utf8'));
     if (r.added.length) fs.writeFileSync(cfg, r.text);
-    added = r.added;
+    sync.added = r.added;
   }
+  const manifestFile = path.join(globalDir, DEFAULTS_MANIFEST);
+  let manifest: Record<string, string> = {};
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, string>;
+  } catch {
+    // first sync or unreadable manifest: every differing file counts as edited
+  }
+  const hash = (file: string) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   const copy = (from: string, to: string) => {
     for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
       const src = path.join(from, entry.name);
@@ -325,12 +349,26 @@ export function ensureGlobalDefaults(defaultsDir: string, globalDir: string): st
       if (entry.isDirectory()) {
         fs.mkdirSync(dst, { recursive: true });
         copy(src, dst);
-      } else if (!fs.existsSync(dst)) {
-        fs.copyFileSync(src, dst);
+        continue;
       }
+      const rel = path.relative(defaultsDir, src).split(path.sep).join('/');
+      const shipped = hash(src);
+      if (!fs.existsSync(dst)) {
+        fs.copyFileSync(src, dst);
+      } else if (rel !== 'config.yaml' && manifest[rel] !== shipped) {
+        const current = hash(dst);
+        if (current === manifest[rel]) {
+          fs.copyFileSync(src, dst);
+          sync.updated.push(rel);
+        } else if (current !== shipped) {
+          sync.outdated.push(rel);
+        }
+      }
+      manifest[rel] = shipped;
     }
   };
   fs.mkdirSync(globalDir, { recursive: true });
   copy(defaultsDir, globalDir);
-  return added;
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
+  return sync;
 }

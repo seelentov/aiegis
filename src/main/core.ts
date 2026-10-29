@@ -279,8 +279,12 @@ export class Core extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    const added = ensureGlobalDefaults(this.paths.defaultsDir, this.paths.globalDir);
-    if (added.length) this.notice('info', `В глобальный конфиг добавлены новые настройки по умолчанию: ${added.join(', ')}`);
+    const sync = ensureGlobalDefaults(this.paths.defaultsDir, this.paths.globalDir);
+    if (sync.added.length) this.notice('info', `В глобальный конфиг добавлены новые настройки по умолчанию: ${sync.added.join(', ')}`);
+    if (sync.updated.length) this.notice('info', `Обновлены файлы по умолчанию: ${sync.updated.join(', ')}`);
+    if (sync.outdated.length) {
+      this.notice('warn', `В новой версии изменились файлы по умолчанию, которые вы правили, — перенесите изменения вручную (${this.paths.defaultsDir}): ${sync.outdated.join(', ')}`);
+    }
     await this.mcp.start();
     for (const p of this.registry.list()) {
       const s = this.store(p.id);

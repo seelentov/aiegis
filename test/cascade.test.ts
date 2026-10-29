@@ -117,12 +117,28 @@ describe('config files', () => {
     expect(effectiveAllow(task.level)).not.toContain('Edit');
   });
 
+  it('ensureGlobalDefaults updates untouched default files and reports edited ones once', () => {
+    const defaults = tmpDir();
+    const g = tmpDir();
+    write(path.join(defaults, 'config.yaml'), 'model: m\n');
+    write(path.join(defaults, 'a.md'), 'a1');
+    write(path.join(defaults, 'b.md'), 'b1');
+    expect(ensureGlobalDefaults(defaults, g)).toEqual({ added: [], updated: [], outdated: [] });
+    write(path.join(g, 'b.md'), 'mine');
+    write(path.join(defaults, 'a.md'), 'a2');
+    write(path.join(defaults, 'b.md'), 'b2');
+    expect(ensureGlobalDefaults(defaults, g)).toEqual({ added: [], updated: ['a.md'], outdated: ['b.md'] });
+    expect(fs.readFileSync(path.join(g, 'a.md'), 'utf8')).toBe('a2');
+    expect(fs.readFileSync(path.join(g, 'b.md'), 'utf8')).toBe('mine');
+    expect(ensureGlobalDefaults(defaults, g)).toEqual({ added: [], updated: [], outdated: [] });
+  });
+
   it('ensureGlobalDefaults never overwrites user values, only adds missing keys and roles/tasks entries', () => {
     const g = tmpDir();
     const file = path.join(g, 'config.yaml');
     write(file, '# mine\nmodel: mine\nroles:\n  task: { model: custom } # keep\n');
     write(path.join(g, 'instructions/roles/task.md'), 'my task prompt');
-    const added = ensureGlobalDefaults(DEFAULTS_DIR, g);
+    const { added } = ensureGlobalDefaults(DEFAULTS_DIR, g);
     expect(added).toEqual(expect.arrayContaining(['tasks', 'queue', 'roles.modules', 'roles.entry-points']));
     expect(added).not.toContain('model');
     expect(added).not.toContain('roles.task');
@@ -135,7 +151,7 @@ describe('config files', () => {
     expect(cfg.tasks!.modules.role).toBe('modules');
     expect(fs.readFileSync(path.join(g, 'instructions/roles/task.md'), 'utf8')).toBe('my task prompt');
     expect(fs.existsSync(path.join(g, 'instructions/tasks/entry-points.md'))).toBe(true);
-    expect(ensureGlobalDefaults(DEFAULTS_DIR, g)).toEqual([]);
+    expect(ensureGlobalDefaults(DEFAULTS_DIR, g).added).toEqual([]);
     expect(fs.readFileSync(file, 'utf8')).toBe(text);
   });
 
@@ -194,7 +210,7 @@ describe('config files', () => {
 
     const old = tmpDir();
     write(path.join(old, 'config.yaml'), 'scanners:\n  semgrep: { enabled: false }\n');
-    expect(ensureGlobalDefaults(DEFAULTS_DIR, old)).toEqual(expect.arrayContaining(['scanners.gitleaks', 'scanners.trivy', 'signals', 'suppressions']));
+    expect(ensureGlobalDefaults(DEFAULTS_DIR, old).added).toEqual(expect.arrayContaining(['scanners.gitleaks', 'scanners.trivy', 'signals', 'suppressions']));
     expect(parseConfigText(fs.readFileSync(path.join(old, 'config.yaml'), 'utf8'), 'x').scanners!.semgrep).toEqual({ enabled: false });
   });
 
