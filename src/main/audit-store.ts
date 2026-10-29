@@ -12,6 +12,7 @@ import type {
   FindingStatus,
   ItemChange,
   Matrix,
+  PocResult,
   RequirementItem,
   ScaItemRef,
   ReviewState,
@@ -607,6 +608,38 @@ export class AuditStore {
       for (const c of f.cells) out.set(cellId(c), (out.get(cellId(c)) ?? 0) + 1);
     }
     return out;
+  }
+
+  // --- PoC tester results ---
+
+  addPocResult(r: Omit<PocResult, 'id' | 'runId' | 'author' | 'createdAt'>, by: Authorship): PocResult {
+    const id = crypto.randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO poc_results (id, finding_id, outcome, summary, steps, base_url, commit_sha, run_id, author, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, r.findingId, r.outcome, r.summary, JSON.stringify(r.steps), r.baseUrl, r.commitSha, by.runId, by.author, now());
+    return this.pocResults({ id })[0];
+  }
+
+  /** Newest first. */
+  pocResults(q: { id?: string; findingId?: string; runIds?: string[] }): PocResult[] {
+    const runs = q.runIds ?? [];
+    const where = q.id ? 'id = ?' : q.findingId ? 'finding_id = ?' : `run_id IN (${runs.map(() => '?').join(',') || 'NULL'})`;
+    const args = q.id ? [q.id] : q.findingId ? [q.findingId] : runs;
+    return (this.db.prepare(`SELECT * FROM poc_results WHERE ${where} ORDER BY created_at DESC, rowid DESC`).all(...args) as Row[]).map((r) => ({
+      id: r.id as string,
+      findingId: r.finding_id as string,
+      outcome: r.outcome as PocResult['outcome'],
+      summary: r.summary as string,
+      steps: JSON.parse(r.steps as string),
+      baseUrl: r.base_url as string,
+      commitSha: r.commit_sha as string,
+      runId: (r.run_id as string) ?? null,
+      author: r.author as string,
+      createdAt: r.created_at as string,
+    }));
   }
 
   // --- validity ---

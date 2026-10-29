@@ -84,6 +84,7 @@ function api(): ApiImpl {
     createFinding: (pid, cell, input) => core.createFinding(pid, cell, input),
     linkFinding: (pid, id, cell) => core.linkFinding(pid, id, cell),
     openFixSession: (pid, id) => core.openFixSession(pid, id),
+    enqueuePoc: (pid, id) => core.enqueuePoc(pid, id),
 
     scannerStatus: (pid, refresh) => core.scannerStatus(pid, refresh),
     runScanners: (pid, o) => core.runScanners(pid, o),

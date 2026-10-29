@@ -112,6 +112,7 @@ import { TokenRegistry, type EntityRef } from './mcp/tokens';
 import { projectDataDir, type AppPaths } from './paths';
 import { ProjectRegistry, type Project } from './projects';
 import { diffEntryPoints, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, renderTemplate, repoFileError } from './modules';
+import { accountsText, pickEnv, PocInstance, POC_DIR, POC_ENTITY, pocEnvironment, resolveSecrets, testerSettings, type PocEnvironment } from './poc';
 import { JobQueue, type JobOutcome } from './queue';
 import {
   findImports,
@@ -1230,8 +1231,86 @@ export class Core extends EventEmitter {
       cells: finding.cells.map((c) => this.cellLabel(s, c)),
       scaItems: finding.scaItems.map((x) => ({ ...x, moduleName: s.getModule(x.moduleId)?.name ?? null })),
       similar: rankSimilar(finding, a.listFindings().filter((f) => f.id !== id), limit),
-      runs,
+      runs: uniq([...runs.map((r) => r.id), ...s.entityRuns(POC_ENTITY, id).map((r) => r.id)])
+        .map((r) => s.getRun(r)!)
+        .sort((x, y) => y.startedAt.localeCompare(x.startedAt)),
+      poc: { results: a.pocResults({ findingId: id }), ...this.pocAvailability(projectId), job: s.activeJobFor(POC_ENTITY, id) ?? null },
     };
+  }
+
+  // --- PoC tester (SPEC §4, Q14) ---
+
+  private pocAvailability(projectId: string): { available: boolean; reason: string | null; baseUrl: string | null } {
+    try {
+      const e = pocEnvironment(this.projectSettings(projectId).poc);
+      return 'env' in e ? { available: true, reason: null, baseUrl: e.env.base_url } : { available: false, reason: e.reason, baseUrl: null };
+    } catch (err) {
+      return { available: false, reason: (err as Error).message, baseUrl: null };
+    }
+  }
+
+  private pocEnv(projectId: string): PocEnvironment {
+    const e = pocEnvironment(this.projectSettings(projectId).poc);
+    if ('reason' in e) throw new ConfigError(`PoC-тестировщик недоступен: ${e.reason}`);
+    return e.env;
+  }
+
+  /** Queues the tester on a suspected finding at HEAD; the instance is started when the job runs. */
+  async enqueuePoc(projectId: string, findingId: string): Promise<Job> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const f = s.audit.getFinding(findingId);
+    if (!f) throw new Error(`находка ${findingId} не найдена`);
+    if (f.mergedInto) throw new Error('находка объединена с другой');
+    if (f.status !== 'suspected') throw new Error('PoC-тестировщик запускается только на предполагаемой (suspected) находке');
+    const env = this.pocEnv(projectId);
+    const entity = { type: POC_ENTITY, id: f.id };
+    this.assertNotQueued(projectId, entity);
+    const spec = this.taskSpec(projectId, 'poc');
+    const id = crypto.randomUUID();
+    const outDir = `${POC_DIR}/${id}`;
+    const vars = {
+      project: p.name,
+      finding_id: f.id,
+      title: f.title,
+      severity: f.severity,
+      cwe: f.cwe ?? '—',
+      description: f.description,
+      files: f.files.map((e) => `- ${e.file}${e.line ? `:${e.line}` : ''}${e.note ? ` — ${e.note}` : ''}`).join('\n') || '—',
+      recommendation: f.recommendation ?? '—',
+      entry_point: f.entryPoint ?? '—',
+      module_name: (f.moduleId && s.getModule(f.moduleId)?.name) || '—',
+      base_url: env.base_url,
+      accounts: accountsText(env.accounts),
+      out_dir: outDir,
+    };
+    const job = this.addAgentJob(
+      projectId,
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity, payload: { out_dir: outDir } },
+      await headSha(p.root),
+      id,
+    );
+    this.auditChanged(projectId);
+    return job;
+  }
+
+  /** Files of a tester session: `--settings` (sandbox, allowlist, hook) and the hook's auth header with the run token. */
+  private testerFiles(projectId: string, runId: string): { settings: string; header: string } {
+    const dir = path.join(projectDataDir(this.paths, projectId), 'mcp');
+    return { settings: path.join(dir, `${runId}.settings.json`), header: path.join(dir, `${runId}.hook-header`) };
+  }
+
+  private writeTesterSettings(projectId: string, runId: string, cfg: EffectiveConfig, baseUrl: string, token: string): string {
+    const f = this.testerFiles(projectId, runId);
+    fs.mkdirSync(path.dirname(f.settings), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(f.header, `Authorization: Bearer ${token}\n`, { mode: 0o600 });
+    const settings = testerSettings(cfg.settings.poc.claude_settings, baseUrl, { url: this.mcp.hookUrl(), headerFile: f.header });
+    fs.writeFileSync(f.settings, JSON.stringify(settings), { mode: 0o600 });
+    return f.settings;
+  }
+
+  private removeTesterFiles(projectId: string, runId: string): void {
+    for (const f of Object.values(this.testerFiles(projectId, runId))) fs.rmSync(f, { force: true });
   }
 
   setFindingStatus(projectId: string, id: string, status: FindingStatus, reason: string): Finding {
@@ -1360,7 +1439,12 @@ export class Core extends EventEmitter {
   private runnableJobs(projectId: string): Job[] {
     const s = this.store(projectId);
     const scanning = new Set(s.activeJobs().filter((j) => j.type === SCAN_JOB).map((j) => String(j.payload.commit_sha)));
-    return s.queuedJobs().filter((j) => !(scanning.size && matrixPayload(j)?.stage === 'verdicts' && scanning.has(String(j.payload.commit_sha))));
+    // One test instance per project (one base_url): tester jobs run one at a time.
+    let tester = s.activeJobs().some((j) => j.entityType === POC_ENTITY && j.status === 'running');
+    return s.queuedJobs().filter((j) => {
+      if (j.entityType === POC_ENTITY) return tester ? false : (tester = true);
+      return !(scanning.size && matrixPayload(j)?.stage === 'verdicts' && scanning.has(String(j.payload.commit_sha)));
+    });
   }
 
   /**
@@ -1825,6 +1909,17 @@ export class Core extends EventEmitter {
     let w = this.worktrees.get(key);
     if (!w) {
       w = new WorktreeCache(p.root, path.join(projectDataDir(this.paths, p.id), 'sca-worktrees'));
+      this.worktrees.set(key, w);
+    }
+    return w;
+  }
+
+  /** Separate worktrees for test instances: `start` builds and writes into the checkout. */
+  private pocWorktreeCache(p: Project): WorktreeCache {
+    const key = `poc:${p.id}`;
+    let w = this.worktrees.get(key);
+    if (!w) {
+      w = new WorktreeCache(p.root, path.join(projectDataDir(this.paths, p.id), 'poc-worktrees'));
       this.worktrees.set(key, w);
     }
     return w;
@@ -2300,8 +2395,14 @@ export class Core extends EventEmitter {
         ? this.docDir(p.id, job.entityId)
         : job.entityType === SCA_MODULE_ENTITY
           ? await this.scaWorktreeCache(p).ensure(sha)
-          : await this.worktreeCache(p).ensure(sha);
+          : job.entityType === POC_ENTITY
+            ? await this.pocWorktreeCache(p).ensure(sha)
+            : await this.worktreeCache(p).ensure(sha);
     if (job.entityType === SCA_MODULE_ENTITY) this.stageScaInputs(p.id, job, cwd);
+    // The tester's environment and account secrets (env variables of the instance and the session).
+    const poc = job.entityType === POC_ENTITY ? this.pocEnv(p.id) : null;
+    const pocVars = poc ? { ...(await resolveSecrets(poc.accounts)), AIEGIS_POC_BASE_URL: poc.base_url } : {};
+    if (poc) fs.mkdirSync(path.join(cwd, String(job.payload.out_dir)), { recursive: true });
     if (signal.aborted) return { kind: signal.reason === 'taken_over' ? 'taken_over' : 'cancelled' };
 
     const runId = crypto.randomUUID();
@@ -2317,9 +2418,16 @@ export class Core extends EventEmitter {
       sessionId,
       runId,
       scope,
+      baseUrl: poc?.base_url,
     });
     const mcpPath = this.writeMcpConfig(p.id, runId, grant.token);
     const cmd = backgroundCommand(cfg, { sessionId, mcpConfigPath: mcpPath });
+    const settingsPath = poc ? this.writeTesterSettings(p.id, runId, cfg, poc.base_url, grant.token) : null;
+    if (settingsPath) {
+      cmd.args.push('--settings', settingsPath);
+      cmd.inherit = cfg.settings.poc.env_passthrough;
+      Object.assign(cmd.env, pocVars);
+    }
 
     s.startRun(
       {
@@ -2346,7 +2454,26 @@ export class Core extends EventEmitter {
     const done = new Promise<void>((r) => (resolveDone = r));
     this.activeRuns.set(job.id, { runId, terminalId, done });
 
+    let instance: PocInstance | null = null;
     try {
+      if (poc) {
+        instance = new PocInstance(poc, {
+          cwd,
+          env: { ...pickEnv(cfg.settings.poc.env_passthrough), ...cmd.env },
+          startTimeoutSec: cfg.settings.poc.start_timeout_sec,
+          healthcheckIntervalSec: cfg.settings.poc.healthcheck_interval_sec,
+          stopTimeoutSec: cfg.settings.poc.stop_timeout_sec,
+          log: (t) => this.terminals.append(terminalId, `\x1b[2m${t.replace(/\r?\n/g, '\r\n')}\x1b[0m`),
+        });
+        try {
+          await instance.start(signal);
+        } catch (e) {
+          const status: RunStatus = !signal.aborted ? 'failed' : signal.reason === 'taken_over' ? 'taken_over' : 'cancelled';
+          const error = `тестовое окружение не поднялось: ${(e as Error).message}`;
+          this.finishRun(p.id, runId, status, zeroUsage(), status === 'failed' ? error : null);
+          return status === 'failed' ? { kind: 'failed', error } : { kind: status };
+        }
+      }
       const res = await this.runClaudeProcess(cmd, cwd, prep.prompt, {
         signal,
         logPath,
@@ -2372,9 +2499,11 @@ export class Core extends EventEmitter {
       this.finishRun(p.id, runId, 'failed', zeroUsage(), (e as Error).message);
       throw e;
     } finally {
+      await instance?.stop().catch(() => undefined);
       this.tokens.revoke(grant.token);
       this.mcp.forgetRun(runId);
       fs.rmSync(mcpPath, { force: true });
+      if (settingsPath) this.removeTesterFiles(p.id, runId);
       this.terminals.markEnded(terminalId);
       this.activeRuns.delete(job.id);
       resolveDone();
@@ -2450,6 +2579,8 @@ export class Core extends EventEmitter {
     const s0 = this.store(job.projectId);
     if (job.entityType === SCA_MODULE_ENTITY && s0.sca.inventoryOf(runId, job.entityId)?.status !== 'complete')
       return 'прогон завершился, но инвентаризация не записана: агент не вызвал set_inventory_summary';
+    if (job.entityType === POC_ENTITY && !s0.audit.pocResults({ runIds: [runId] }).length)
+      return 'прогон завершился, но результат PoC не записан: агент не вызвал set_poc_result';
     const sp = scaPayload(job);
     if (sp) {
       const left = this.openScaVulns(job, sp);
@@ -2494,7 +2625,7 @@ export class Core extends EventEmitter {
     o: { signal: AbortSignal; logPath: string; terminalId: string; maxTokens: number },
   ): Promise<{ status: RunStatus; usage: TokenUsage; error: string | null; rateLimitResetsAt?: number }> {
     return new Promise((resolve) => {
-      const child = spawn(cmd.binary, cmd.args, { cwd, env: { ...process.env, ...cmd.env }, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(cmd.binary, cmd.args, { cwd, env: { ...(cmd.inherit ? pickEnv(cmd.inherit) : process.env), ...cmd.env }, stdio: ['pipe', 'pipe', 'pipe'] });
       const log = fs.createWriteStream(o.logPath, { flags: 'a' });
       const tracker = new StreamTracker();
       const lines = new LineSplitter();
@@ -2621,7 +2752,7 @@ export class Core extends EventEmitter {
 
   private async ensureCwd(projectId: string, run: Run): Promise<string> {
     const p = this.project(projectId);
-    for (const wt of [this.worktreeCache(p), this.scaWorktreeCache(p)]) if (run.cwd === wt.pathFor(run.commitSha)) return wt.ensure(run.commitSha);
+    for (const wt of [this.worktreeCache(p), this.scaWorktreeCache(p), this.pocWorktreeCache(p)]) if (run.cwd === wt.pathFor(run.commitSha)) return wt.ensure(run.commitSha);
     return run.cwd;
   }
 
@@ -2633,6 +2764,8 @@ export class Core extends EventEmitter {
     const cfg = o.cfg ?? this.resolve(projectId, o.role);
     const runId = crypto.randomUUID();
     const scope = o.scope ?? (o.entity ? [o.entity] : []);
+    // A continued tester session keeps its sandbox and hook; the instance is not started again.
+    const baseUrl = o.entity?.type === POC_ENTITY ? this.pocEnv(projectId).base_url : undefined;
     const grant = this.tokens.issue({
       projectId,
       role: o.role,
@@ -2640,9 +2773,14 @@ export class Core extends EventEmitter {
       sessionId: o.sessionId,
       runId,
       scope,
+      baseUrl,
     });
     const mcpPath = this.writeMcpConfig(projectId, runId, grant.token);
     const cmd = interactiveCommand(cfg, { sessionId: o.sessionId, resume: o.resume, mcpConfigPath: mcpPath, prompt: o.prompt });
+    if (baseUrl) {
+      cmd.args.push('--settings', this.writeTesterSettings(projectId, runId, cfg, baseUrl, grant.token));
+      cmd.inherit = cfg.settings.poc.env_passthrough;
+    }
     const s = this.store(projectId);
     s.startRun(
       {
@@ -2675,11 +2813,13 @@ export class Core extends EventEmitter {
       binary: cmd.binary,
       args: cmd.args,
       env: cmd.env,
+      inherit: cmd.inherit,
       onExit: (code) => {
         this.liveSessions.delete(o.sessionId);
         this.tokens.revoke(token);
         this.mcp.forgetRun(runId);
         fs.rmSync(mcpPath, { force: true });
+        this.removeTesterFiles(projectId, runId);
         this.finishRun(projectId, runId, 'exited', zeroUsage(), code === 0 ? null : `код выхода ${code}`);
         this.send({ type: 'runs-changed', projectId });
         if (o.cwd === p.root) void this.checkCommits(projectId, o.commitSha, o.entity);
@@ -2745,7 +2885,9 @@ export class Core extends EventEmitter {
     );
     // The external process is not tracked; its run record is finalized right away.
     this.finishRun(projectId, newRunId, 'exited', zeroUsage(), null);
-    const envPart = Object.entries(cmd.env).map(([k, v]) => `${k}=${shellQuote(v)}`);
+    // A tester session gets only the passthrough variables, not the terminal's environment.
+    const env = cmd.inherit ? { ...pickEnv(cmd.inherit), ...cmd.env } : cmd.env;
+    const envPart = [...(cmd.inherit ? ['env', '-i'] : []), ...Object.entries(env).map(([k, v]) => `${k}=${shellQuote(v)}`)];
     const line = ['cd', shellQuote(cwd), '&&', ...envPart, shellQuote(cmd.binary), ...cmd.args.map(shellQuote)].join(' ');
     const app = this.resolve(projectId, run.role).settings.terminal.external_app;
     const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');

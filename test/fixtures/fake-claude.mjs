@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Stand-in for `claude` in core integration tests: emits stream-json and talks to the aiegis MCP server.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -172,6 +173,31 @@ if (!args.includes('-p')) {
         }
       }
       return done('verdicts');
+    }
+    if (prompt.includes('Reproduce suspected finding')) {
+      // Asks the app's PreToolUse hook (from --settings) about commands, then tests the instance it started.
+      const settings = JSON.parse(fs.readFileSync(arg('--settings'), 'utf8'));
+      const hook = settings.hooks.PreToolUse.at(-1).hooks[0];
+      const ask = async (command) => {
+        const out = execFileSync(hook.command, hook.args, { input: JSON.stringify({ tool_name: 'Bash', tool_input: { command } }), encoding: 'utf8' });
+        return JSON.parse(out).hookSpecificOutput?.permissionDecision ?? 'none';
+      };
+      const base = process.env.AIEGIS_POC_BASE_URL;
+      const findingId = /finding (\S+) of project/.exec(prompt)[1];
+      const body = await (await fetch(`${base}/orders/2`)).text();
+      if (prompt.includes('NO_RESULT')) return done('no result');
+      const out = [
+        `allowed=${settings.sandbox.network.allowedDomains.join(',')}`,
+        `hook base=${await ask(`curl -s ${base}/orders/2`)}`,
+        `hook other=${await ask('curl -s https://example.com/x')}`,
+        `secret=${process.env.AIEGIS_POC_ALICE_PASSWORD === 'pw-alice'}`,
+        `shell token=${process.env.TEST_POC_SHELL_TOKEN ?? 'absent'}`,
+        `scripts dir=${fs.existsSync(/Directory for your scripts: `([^`]+)\/`/.exec(prompt)[1])}`,
+      ];
+      const steps = [{ action: `curl -s ${base}/orders/2`, result: body }];
+      out.push((await mcp('set_poc_result', { finding_id: findingId, outcome: 'reproduced', summary: 'no steps' })).content[0].text);
+      out.push((await mcp('set_poc_result', { finding_id: findingId, outcome: 'reproduced', summary: 'alice reads order 2 of bob', steps })).content[0].text);
+      return done(out.join('\n'));
     }
     const who = JSON.parse((await mcp('whoami', {})).content[0].text);
     const own = who.writable_entities[0];

@@ -365,6 +365,30 @@ export interface FindingEvent {
   createdAt: string;
 }
 
+export const POC_OUTCOMES = ['reproduced', 'not_reproduced', 'inconclusive'] as const;
+export type PocOutcome = (typeof POC_OUTCOMES)[number];
+
+export interface PocStep {
+  /** Request or command that was run. */
+  action: string;
+  /** Excerpt of what came back. */
+  result: string;
+  note?: string;
+}
+
+export interface PocResult {
+  id: string;
+  findingId: string;
+  outcome: PocOutcome;
+  summary: string;
+  steps: PocStep[];
+  baseUrl: string;
+  commitSha: string;
+  runId: string | null;
+  author: string;
+  createdAt: string;
+}
+
 export interface SimilarFinding {
   finding: Finding;
   score: number;
@@ -387,6 +411,8 @@ export interface FindingDetails {
   similar: SimilarFinding[];
   /** Matrix cells and fix sessions that ran for this finding. */
   runs: Run[];
+  /** PoC tester: results (newest first), whether it can run and why not, its queued or running job. */
+  poc: { results: PocResult[]; available: boolean; reason: string | null; baseUrl: string | null; job: Job | null };
 }
 
 export interface CellDetails {

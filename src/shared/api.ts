@@ -106,6 +106,8 @@ export interface AiegisApi {
   createFinding(projectId: string, cellId: string, input: Omit<FindingInput, 'moduleId'>): Finding;
   linkFinding(projectId: string, findingId: string, cellId: string): Finding;
   openFixSession(projectId: string, findingId: string): string;
+  /** Queues the PoC tester on a suspected finding. */
+  enqueuePoc(projectId: string, findingId: string): Job;
 
   /** Configured scanners and their availability (checked at startup; `refresh` re-checks). */
   scannerStatus(projectId: string, refresh?: boolean): ScannerStatus[];

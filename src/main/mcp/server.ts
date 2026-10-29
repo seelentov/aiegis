@@ -9,6 +9,7 @@ import { z } from 'zod';
 import crypto from 'node:crypto';
 import {
   ENTRY_POINT_KINDS,
+  POC_OUTCOMES,
   SCA_STATUSES,
   SEVERITIES,
   SIGNAL_KINDS,
@@ -27,6 +28,7 @@ import { sha256File } from '../documents';
 import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
 import { fileInside, missingInReport, SCA_MODULE_ENTITY, SCA_PACKAGE_ENTITY, scaItemId, scaPackageEntityId, scaTouched } from '../sca';
+import { hookDecision, POC_ENTITY } from '../poc';
 import type { SignalQuery } from '../signals';
 import type { ProjectStore } from '../store';
 import { authorize, type Action, type Grant, type TokenRegistry } from './tokens';
@@ -935,6 +937,43 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   );
 
   server.registerTool(
+    'set_poc_result',
+    {
+      description:
+        'Result of the PoC test of the finding in your scope (poc:<finding_id>): reproduced / not_reproduced need the steps you ran with the responses you observed; inconclusive needs a summary of what is missing. Does not change the finding status.',
+      inputSchema: {
+        finding_id: z.string(),
+        outcome: z.enum(POC_OUTCOMES),
+        summary: z.string().min(1),
+        steps: z
+          .array(
+            z.object({
+              action: z.string().min(1).describe('Request or command that was run (no secret values)'),
+              result: z.string().min(1).describe('Excerpt of the response: status and the relevant part of the body'),
+              note: z.string().optional(),
+            }),
+          )
+          .optional(),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: POC_ENTITY, id: a.finding_id } }, () => {
+        const run = liveRun();
+        if (!grant.baseUrl) return fail('у прогона нет тестового окружения');
+        const steps = a.steps ?? [];
+        if (a.outcome !== 'inconclusive' && !steps.length) return fail('для reproduced/not_reproduced нужны шаги с наблюдаемыми ответами (steps)');
+        const s = svc.store(pid);
+        if (!s.audit.getFinding(a.finding_id)) return fail(`находка ${a.finding_id} не найдена`);
+        const r = s.audit.addPocResult(
+          { findingId: a.finding_id, outcome: a.outcome, summary: a.summary, steps, baseUrl: grant.baseUrl, commitSha: run.commitSha },
+          by,
+        );
+        svc.onWrite(pid);
+        return ok({ saved: r.id, outcome: r.outcome });
+      }),
+  );
+
+  server.registerTool(
     'recheck_cells',
     {
       description: 'Queue verdict re-checks of matrix cells (requires management access); a dry-run estimate is not shown here.',
@@ -1013,6 +1052,11 @@ export class AiegisMcpServer {
     return `http://127.0.0.1:${this.port}/mcp`;
   }
 
+  /** PreToolUse HTTP hook of tester sessions. */
+  hookUrl(): string {
+    return `http://127.0.0.1:${this.port}${HOOK_PATH}`;
+  }
+
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
       this.handle(req, res).catch((e) => {
@@ -1031,6 +1075,7 @@ export class AiegisMcpServer {
   }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (req.url === HOOK_PATH) return this.handleHook(req, res);
     if (!req.url?.startsWith('/mcp')) {
       res.writeHead(404).end();
       return;
@@ -1054,7 +1099,21 @@ export class AiegisMcpServer {
     await server.connect(transport);
     await transport.handleRequest(req, res, body);
   }
+
+  /** Hook verdict for a tool call of a tester session; a revoked or unknown token blocks (onFailure: block). */
+  private async handleHook(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const grant = this.tokens.fromHeader(req.headers.authorization);
+    if (!grant?.baseUrl || req.method !== 'POST') {
+      res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'invalid token' }));
+      return;
+    }
+    const reason = hookDecision(grant.baseUrl, ((await readBody(req)) ?? {}) as Parameters<typeof hookDecision>[1]);
+    const out = reason ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } } : {};
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out));
+  }
 }
+
+const HOOK_PATH = '/hooks/pre-tool-use';
 
 /** Content of the --mcp-config file handed to claude. */
 export function mcpConfigJson(url: string, token: string): string {

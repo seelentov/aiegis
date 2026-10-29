@@ -7,6 +7,8 @@ export interface ClaudeCommand {
   binary: string;
   args: string[];
   env: Record<string, string>;
+  /** Variables of the app's environment the process inherits; all when unset. */
+  inherit?: string[];
 }
 
 function levelArgs(cfg: EffectiveConfig): string[] {

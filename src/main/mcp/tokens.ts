@@ -17,6 +17,8 @@ export interface Grant {
   runId: string;
   /** Entities this token may write. */
   scope: EntityRef[];
+  /** PoC tester runs: the only origin its commands may address (checked by the PreToolUse hook). */
+  baseUrl?: string;
 }
 
 export type Action = { kind: 'read' } | { kind: 'write'; entity: EntityRef } | { kind: 'manage' };

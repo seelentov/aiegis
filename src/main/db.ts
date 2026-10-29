@@ -504,6 +504,26 @@ const MIGRATIONS: string[] = [
   ALTER TABLE finding_events ADD COLUMN package_key TEXT;
   ALTER TABLE finding_events ADD COLUMN vuln_id TEXT;
   `,
+  `
+  -- PoC tester results of findings (SPEC §4, Q14): append-only, latest = current; the status stays a human decision.
+  CREATE TABLE poc_results (
+    id TEXT PRIMARY KEY,
+    finding_id TEXT NOT NULL REFERENCES findings(id),
+    outcome TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    steps TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    run_id TEXT,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX poc_results_finding ON poc_results(finding_id);
+  CREATE TRIGGER poc_results_no_update BEFORE UPDATE ON poc_results
+  BEGIN SELECT RAISE(ABORT, 'poc results are append-only'); END;
+  CREATE TRIGGER poc_results_no_delete BEFORE DELETE ON poc_results
+  BEGIN SELECT RAISE(ABORT, 'poc results are append-only'); END;
+  `,
 ];
 
 export function migrate(db: DB): void {
