@@ -128,6 +128,42 @@ sca:
   # Tool reports larger than this are rejected (the inventory agent must narrow the scan).
   report_max_mb: 50
 
+poc:
+  # PoC tester (SPEC §4, Q14). The app starts the test instance from a separate worktree of the commit
+  # (`start` may stay in the foreground or exit after starting it), waits until `healthcheck` exits 0,
+  # runs the tester, then runs `stop` and kills what is left of the `start` process group.
+  start_timeout_sec: 600
+  healthcheck_interval_sec: 5
+  stop_timeout_sec: 120
+  # The tester session and the instance commands inherit only these variables of the app's environment (tokens and
+  # passwords of the user's shell stay out of reach); add what the build needs (JAVA_HOME, ...) in the project config.
+  # The cascade `env` level, account secrets and AIEGIS_POC_BASE_URL are added on top.
+  env_passthrough: [PATH, HOME, USER, LOGNAME, SHELL, LANG, LC_ALL, TMPDIR]
+  # Claude Code settings (`--settings`) of tester sessions. The app adds the host:port of base_url to
+  # sandbox.network.allowedDomains and a PreToolUse hook that rejects commands addressing other hosts.
+  # The OS sandbox confines every command and script the tester runs: network to the allowlist, writes to the worktree.
+  claude_settings:
+    sandbox:
+      enabled: true
+      failIfUnavailable: true
+      allowUnsandboxedCommands: false
+      network:
+        strictAllowlist: true
+        # macOS: lets commands connect to the instance on localhost directly (Claude Code bypasses its proxy for
+        # local addresses). It opens every localhost port to scripts; curl URLs are still limited to base_url by the hook.
+        allowLocalBinding: true
+  # Test environment: describe it in the project config (.aiegis/config.yaml); without it the tester is unavailable.
+  # Commands run with `sh -c` in the worktree; they and the tester get the account secrets as env variables
+  # AIEGIS_POC_<ACCOUNT>_<SECRET> (secret values come from the app's env or the macOS keychain, never from the file).
+  # environment:
+  #   start: ./gradlew bootRun
+  #   healthcheck: curl -sf http://127.0.0.1:8080/actuator/health
+  #   stop: ""
+  #   base_url: http://127.0.0.1:8080
+  #   accounts:
+  #     alice: { username: alice, role: user, tenant: a, secrets: { password: { env: POC_ALICE_PASSWORD } } }
+  #     admin: { username: admin, role: admin, tenant: a, secrets: { password: { keychain: { service: aiegis-poc, account: admin } } } }
+
 # Background tasks the app starts itself. `prompt` is a template file (relative to this config's directory);
 # {{placeholders}} are filled by the app, an unknown placeholder is a configuration error.
 tasks:
@@ -175,6 +211,13 @@ tasks:
     role: sca
     title: "SCA: {{module_name}} × {{package}}"
     prompt: instructions/tasks/sca-reachability.md
+  # PoC tester run on a suspected finding against the test instance.
+  # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, entry_point,
+  # module_name, base_url, accounts, out_dir (the run's directory for scripts inside the checkout).
+  poc:
+    role: tester
+    title: "PoC: {{title}}"
+    prompt: instructions/tasks/poc.md
   # "Открыть сессию для фикса" (interactive, user's working directory).
   # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, cells.
   fix:
@@ -332,6 +375,8 @@ roles:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
+  # PoC tester: reproduces a suspected finding against the test instance (poc.environment) at base_url only.
+  # Commands run in the OS sandbox (poc.claude_settings); scripts may be written only into `.aiegis-poc/`.
   tester:
     title: PoC-тестировщик
     kind: background
@@ -341,5 +386,19 @@ roles:
     instructions:
       file: instructions/roles/tester.md
     permissions:
-      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)", "Bash(curl:*)"]
-      deny: ["Edit", "NotebookEdit", "WebFetch", "WebSearch"]
+      allow:
+        - Read
+        - Grep
+        - Glob
+        - mcp__aiegis
+        - Edit(./.aiegis-poc/**)
+        - Write(./.aiegis-poc/**)
+        - Bash(git log:*)
+        - Bash(git show:*)
+        - Bash(ls:*)
+        - Bash(mkdir:*)
+        - Bash(curl:*)
+        - Bash(jq:*)
+        - Bash(python3:*)
+        - Bash(node:*)
+      deny: ["NotebookEdit", "WebFetch", "WebSearch"]

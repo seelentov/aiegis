@@ -63,6 +63,20 @@ export const SignalFilterSchema = z.looseObject({
   rules: z.array(z.string()).optional(),
 });
 
+/** Secret of a test account: an env variable of the app or a macOS keychain item. */
+export const SecretRefSchema = z.union([
+  z.strictObject({ env: z.string().min(1) }),
+  z.strictObject({ keychain: z.strictObject({ service: z.string().min(1), account: z.string().min(1) }) }),
+]);
+
+export const PocAccountSchema = z.looseObject({
+  username: z.string().optional(),
+  role: z.string().optional(),
+  tenant: z.string().optional(),
+  notes: z.string().optional(),
+  secrets: z.record(z.string(), SecretRefSchema).optional(),
+});
+
 export const ConfigFileSchema = z.looseObject({
   ...LevelShape,
   claude: z
@@ -113,6 +127,24 @@ export const ConfigFileSchema = z.looseObject({
       report_max_mb: z.number().int().min(1).optional(),
     })
     .optional(),
+  poc: z
+    .looseObject({
+      start_timeout_sec: z.number().int().min(1).optional(),
+      healthcheck_interval_sec: z.number().int().min(1).optional(),
+      stop_timeout_sec: z.number().int().min(1).optional(),
+      env_passthrough: z.array(z.string()).optional(),
+      claude_settings: z.record(z.string(), z.unknown()).optional(),
+      environment: z
+        .looseObject({
+          start: z.string().optional(),
+          healthcheck: z.string().optional(),
+          stop: z.string().optional(),
+          base_url: z.string().optional(),
+          accounts: z.record(z.string(), PocAccountSchema).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   tasks: z.record(z.string(), TaskSchema).optional(),
   roles: z.record(z.string(), RoleSchema).optional(),
   modules: z.record(z.string(), LevelSchema).optional(),
@@ -141,4 +173,5 @@ export const SETTINGS_KEYS = [
   'signals',
   'suppressions',
   'sca',
+  'poc',
 ] as const;

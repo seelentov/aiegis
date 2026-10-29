@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import { ConfigFileSchema, SETTINGS_KEYS, type ConfigFile, type Level } from './schema';
+import type { PocAccount } from '../poc';
 import { mergeSettings, resolveLevels, type EffectiveLevel, type Layer, type ReadText, type SourceMap } from './cascade';
 
 export class ConfigError extends Error {}
@@ -94,6 +95,17 @@ export interface Settings {
     prefilter_max_file_kb: number;
     report_max_mb: number;
   };
+  poc: {
+    start_timeout_sec: number;
+    healthcheck_interval_sec: number;
+    stop_timeout_sec: number;
+    /** The only variables of the app's environment the tester session and the instance inherit. */
+    env_passthrough: string[];
+    /** Claude Code settings (`--settings`) of tester sessions: the OS sandbox. */
+    claude_settings: Record<string, unknown>;
+    /** Test environment (project config); without it the tester is unavailable. */
+    environment?: { start?: string; healthcheck?: string; stop?: string; base_url?: string; accounts?: Record<string, PocAccount> };
+  };
 }
 
 export interface ScannerSettings {
@@ -118,7 +130,7 @@ export function scannerSettings(settings: Settings, name: string): ScannerSettin
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
@@ -172,6 +184,11 @@ const REQUIRED_SETTINGS: string[] = [
   'sca.scanner_hints_limit',
   'sca.prefilter_max_file_kb',
   'sca.report_max_mb',
+  'poc.start_timeout_sec',
+  'poc.healthcheck_interval_sec',
+  'poc.stop_timeout_sec',
+  'poc.env_passthrough',
+  'poc.claude_settings',
   ...TASK_KINDS.flatMap((t) => ['role', 'title', 'prompt'].map((k) => `tasks.${t}.${k}`)),
 ];
 
