@@ -51,6 +51,8 @@ beforeAll(async () => {
   const doc = YAML.parseDocument(fs.readFileSync(cfgFile, 'utf8'));
   doc.setIn(['claude', 'binary'], FAKE);
   doc.setIn(['queue', 'parallelism'], 1);
+  // Scanners are covered by scan-core.test.ts; real ones must not run here.
+  doc.setIn(['signals', 'auto_scan'], false);
   fs.writeFileSync(cfgFile, doc.toString());
 
   core = new Core({ globalDir: home, dataDir: data, defaultsDir: DEFAULTS_DIR });
@@ -145,7 +147,7 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     const runs = core.store(pid).jobRuns(jobs[0].id);
     expect(runs).toHaveLength(2);
     expect(runs[1].scope).toHaveLength(1);
-    expect(String(job(jobs[0].id).payload.prompt).match(/requirement_id/g)).toHaveLength(1);
+    expect(String(job(jobs[0].id).payload.prompt).match(/^- requirement_id/gm)).toHaveLength(1);
 
     const v = await core.matrixView(pid, matrixId);
     expect(v.requirements.map((r) => byKey(v, r.key).status)).toEqual(['pass', 'finding', 'n/a', 'pass', 'pass']);

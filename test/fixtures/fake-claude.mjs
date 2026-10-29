@@ -80,6 +80,12 @@ if (!args.includes('-p')) {
     }
     if (prompt.includes('Check module')) {
       const module_id = moduleOf();
+      let signals = '';
+      if (prompt.includes('get_signals') && reqLines.length) {
+        const res = await mcp('get_signals', { module_id, requirement_id: reqLines[0].id });
+        const slice = JSON.parse(res.content[0].text);
+        signals = ` (signals: ${slice.total}, suppressed: ${slice.suppressed})`;
+      }
       for (const r of reqLines) {
         // Leaves this cell without a verdict while it shares the session with others (cell-level atomicity).
         if (r.text.includes('SKIP_ONCE') && reqLines.length > 1) continue;
@@ -97,7 +103,7 @@ if (!args.includes('-p')) {
           }
           await mcp('set_verdict', { ...cell, status: 'finding', reason: `no owner check (${early.isError ? 'needed a finding first' : 'unexpected'})`, evidence });
         } else {
-          await mcp('set_verdict', { ...cell, status: 'pass', reason: 'checked in code', evidence });
+          await mcp('set_verdict', { ...cell, status: 'pass', reason: `checked in code${signals}`, evidence });
         }
       }
       return done('verdicts');

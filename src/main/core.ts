@@ -2,6 +2,7 @@ import { execFile, execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type {
   AppEvent,
@@ -28,18 +29,28 @@ import type {
   ModuleRevision,
   ModuleSummary,
   ProjectInfo,
+  RawFinding,
   RecheckOffer,
   RequirementItem,
   ResultRecord,
   ReviewState,
   Run,
   RunStatus,
+  Scan,
+  ScannerStatus,
+  Severity,
+  SignalDetails,
+  SignalRow,
+  SignalsView,
   StaleReason,
+  Suppression,
+  SuppressionInput,
+  SuppressionView,
   TokenUsage,
   Verdict,
   VerdictStatus,
 } from '../shared/types';
-import { FINDING_STATUSES, VERDICT_STATUSES } from '../shared/types';
+import { FINDING_STATUSES, SUPPRESSION_SCOPES, VERDICT_STATUSES } from '../shared/types';
 import { backgroundCommand, interactiveCommand, shellQuote, type ClaudeCommand } from './claude/args';
 import { billableTokens, formatEvent, LineSplitter, StreamTracker } from './claude/stream';
 import { effectiveAllow } from './config/cascade';
@@ -54,9 +65,11 @@ import {
   projectConfigPath,
   resolveConfig,
   resolveSettings,
+  scannerSettings,
   SOURCE_PROJECT,
   type EffectiveConfig,
   type RoleInfo,
+  type ScannerSettings,
   type Settings,
 } from './config/loader';
 import { openDb } from './db';
@@ -69,6 +82,7 @@ import {
   DOC_VERSION_ENTITY,
   FINDING_ENTITY,
   MATRIX_BATCH_ENTITY,
+  matchesGlobs,
   parseCellId,
   planBatches,
   rankSimilar,
@@ -85,12 +99,33 @@ import { projectDataDir, type AppPaths } from './paths';
 import { ProjectRegistry, type Project } from './projects';
 import { diffEntryPoints, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, renderTemplate, repoFileError } from './modules';
 import { JobQueue, type JobOutcome } from './queue';
+import { NORMALIZERS, type NormalizedFinding } from './scanners/normalize';
+import { buildInvocations, checkScanner, runProcess } from './scanners/run';
+import {
+  covers,
+  globTargets,
+  matchesRequirement,
+  minimalTargets,
+  REPO_TARGET,
+  SCAN_ENTITY,
+  scanEntityId,
+  SEVERITY_RANK,
+  suppressionApplies,
+  suppressionLabel,
+  suppressionMatches,
+  suppressionRelevant,
+  suppressionState,
+  SUPPRESSION_VALIDITY,
+  type SignalQuery,
+} from './signals';
 import { ProjectStore } from './store';
 import { Terminals } from './terminals';
 import { WorktreeCache } from './worktrees';
 
 /** Job type for a background claude run. */
 export const AGENT_JOB = 'agent';
+/** Job type for a scanner run (no AI): one scanner at a commit over a set of paths. */
+export const SCAN_JOB = 'scan';
 /** Entity type of ad-hoc background tasks (scope of their token). */
 export const TASK_ENTITY = 'task';
 
@@ -108,6 +143,17 @@ interface MatrixPayload {
 
 const matrixPayload = (job: Job): MatrixPayload | null =>
   job.entityType === MATRIX_BATCH_ENTITY ? (job.payload as unknown as MatrixPayload) : null;
+
+/** Payload of a scan job. */
+interface ScanPayload {
+  scanner: string;
+  commit_sha: string;
+  targets: string[];
+}
+
+const scanPayload = (job: Job): ScanPayload | null => (job.type === SCAN_JOB ? (job.payload as unknown as ScanPayload) : null);
+
+const today = () => new Date().toISOString().slice(0, 10);
 
 const uniq = <T,>(xs: T[]) => [...new Set(xs)];
 
@@ -140,6 +186,11 @@ export class Core extends EventEmitter {
   private readonly activeRuns = new Map<string, { runId: string; terminalId: string; done: Promise<void> }>();
   /** sessionId -> live interactive terminal (one claude process per session). */
   private readonly liveSessions = new Map<string, string>();
+  /** jobId -> completion of a running scan job. */
+  private readonly activeScans = new Map<string, Promise<void>>();
+  /** Availability checks by binary + version args (SPEC §4: checked at startup). */
+  private readonly scannerChecks = new Map<string, Promise<{ available: boolean; version: string | null; error: string | null }>>();
+  private readonly authors = new Map<string, string>();
   private lastSettings: Settings | null = null;
 
   constructor(readonly paths: AppPaths) {
@@ -156,6 +207,7 @@ export class Core extends EventEmitter {
       cellDetails: (pid, c) => this.cellDetails(pid, cellId(c)),
       recheckCells: (pid, cells) => this.recheckCells(pid, cells.map(cellId)),
       similarLimit: (pid) => this.projectSettings(pid).findings.similar_limit,
+      signals: (pid, q) => this.signalSlice(pid, q),
       onWrite: (pid) => {
         this.send({ type: 'runs-changed', projectId: pid });
         this.send({ type: 'modules-changed', projectId: pid });
@@ -167,7 +219,7 @@ export class Core extends EventEmitter {
         queued: () =>
           this.registry
             .list()
-            .flatMap((p) => this.store(p.id).queuedJobs())
+            .flatMap((p) => this.runnableJobs(p.id))
             .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
         setStatus: (job, status, error) => {
           this.store(job.projectId).setJobStatus(job.id, status, error ?? null);
@@ -193,14 +245,17 @@ export class Core extends EventEmitter {
       const s = this.store(p.id);
       s.recoverRuns();
       s.recoverSnapshots();
+      s.signals.recoverScans();
       s.recoverJobs();
     }
     this.queue.pump();
+    void this.reportScanners();
   }
 
   async shutdown(): Promise<void> {
     for (const job of this.allRunningJobs()) this.queue.stop(job, 'cancelled');
     await Promise.all([...this.activeRuns.values()].map((r) => r.done));
+    await Promise.all(this.activeScans.values());
     this.terminals.killAll();
     await this.mcp.stop();
     for (const s of this.stores.values()) s.db.close();
@@ -1018,18 +1073,31 @@ export class Core extends EventEmitter {
 
   private async enqueueBatches(projectId: string, matrix: Matrix, stage: MatrixStage, batches: Batch[]): Promise<Job[]> {
     const sha = await headSha(this.project(projectId).root);
-    const jobs = batches.map((b) => {
-      const t = this.renderMatrixTask(projectId, matrix, stage, b.cells);
+    if (stage === 'verdicts' && batches.length && this.projectSettings(projectId).signals.auto_scan) {
+      // Verdict sessions read scanner signals: missing scans of their modules are queued first (SPEC §4, Q10).
+      const s = this.store(projectId);
+      const globs = uniq(batches.map((b) => b.moduleId)).flatMap((id) => s.getModule(id)?.globs ?? []);
+      if (globs.length) await this.ensureScans(projectId, sha, globTargets(globs));
+    }
+    const rendered: { role: string; title: string; prompt: string }[] = [];
+    for (const b of batches) rendered.push(await this.renderMatrixTask(projectId, matrix, stage, b.cells, sha));
+    const jobs = batches.map((b, i) => {
       const id = crypto.randomUUID();
       const payload: MatrixPayload = { matrix_id: matrix.id, stage, cells: b.cells.map(cellId) };
-      return this.addAgentJob(projectId, { ...t, entity: { type: MATRIX_BATCH_ENTITY, id }, payload: { ...payload } }, sha, id);
+      return this.addAgentJob(projectId, { ...rendered[i], entity: { type: MATRIX_BATCH_ENTITY, id }, payload: { ...payload } }, sha, id);
     });
     this.auditChanged(projectId);
     return jobs;
   }
 
   /** Title and prompt of a matrix job from `tasks.matrix_triage` / `tasks.matrix_verdicts`; all cells share a module. */
-  private renderMatrixTask(projectId: string, matrix: Matrix, stage: MatrixStage, cells: CellRef[]): { role: string; title: string; prompt: string } {
+  private async renderMatrixTask(
+    projectId: string,
+    matrix: Matrix,
+    stage: MatrixStage,
+    cells: CellRef[],
+    sha: string,
+  ): Promise<{ role: string; title: string; prompt: string }> {
     const s = this.store(projectId);
     const spec = this.taskSpec(projectId, STAGE_TASK[stage]);
     const mod = s.getModule(cells[0].moduleId);
@@ -1048,6 +1116,7 @@ export class Core extends EventEmitter {
       module_description: mod.description || '(none)',
       group: stage === 'verdicts' ? items[0].section || '—' : '',
       requirements: items.map((i) => `- requirement_id \`${i.requirementId}\` — ${i.key}${i.section ? ` (${i.section})` : ''}: ${i.text}`).join('\n'),
+      suppressions: stage === 'verdicts' ? await this.fewShotSuppressions(projectId, mod, items, sha) : '',
     };
     return { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file) };
   }
@@ -1198,13 +1267,508 @@ export class Core extends EventEmitter {
     });
   }
 
+  // --- scanners and signals (SPEC §4, Q10/Q18) ---
+
+  private checkBinary(s: Pick<ScannerSettings, 'binary' | 'version_args'>, refresh = false) {
+    const key = JSON.stringify([s.binary, s.version_args]);
+    let c = this.scannerChecks.get(key);
+    if (!c || refresh) {
+      c = checkScanner(s);
+      this.scannerChecks.set(key, c);
+    }
+    return c;
+  }
+
+  /** Configured scanners with the result of their availability check (global config if no project). */
+  async scannerStatus(projectId: string | null, refresh = false): Promise<ScannerStatus[]> {
+    const settings = projectId ? this.projectSettings(projectId) : this.globalSettings();
+    const out: ScannerStatus[] = [];
+    for (const [name, raw] of Object.entries(settings.scanners)) {
+      const base = { name, binary: String(raw.binary ?? ''), format: String(raw.format ?? ''), enabled: raw.enabled !== false };
+      let sc: ScannerSettings;
+      try {
+        sc = scannerSettings(settings, name);
+        if (!NORMALIZERS[sc.format]) throw new ConfigError(`scanners.${name}.format: неизвестный формат ${sc.format}, доступны: ${Object.keys(NORMALIZERS).join(', ')}`);
+      } catch (e) {
+        out.push({ ...base, available: false, version: null, error: (e as Error).message });
+        continue;
+      }
+      if (!sc.enabled) {
+        out.push({ ...base, available: false, version: null, error: 'выключен в конфигурации' });
+        continue;
+      }
+      const c = await this.checkBinary(sc, refresh);
+      out.push({ ...base, ...c });
+    }
+    return out;
+  }
+
+  /** Startup check (SPEC §4): enabled scanners that cannot run are reported once. */
+  private async reportScanners(): Promise<void> {
+    try {
+      const bad = (await this.scannerStatus(null)).filter((s) => s.enabled && !s.available);
+      if (bad.length) this.notice('warn', `Сканеры недоступны и будут пропущены: ${bad.map((s) => `${s.name} (${s.error})`).join('; ')}`);
+    } catch (e) {
+      this.notice('error', `Проверка сканеров: ${(e as Error).message}`);
+    }
+  }
+
+  /** Queued jobs that may start now: verdict sessions wait while scans of their commit are queued or running. */
+  private runnableJobs(projectId: string): Job[] {
+    const s = this.store(projectId);
+    const scanning = new Set(s.activeJobs().filter((j) => j.type === SCAN_JOB).map((j) => String(j.payload.commit_sha)));
+    return s.queuedJobs().filter((j) => !(scanning.size && matrixPayload(j)?.stage === 'verdicts' && scanning.has(String(j.payload.commit_sha))));
+  }
+
+  /**
+   * Queues scans of `targets` at `sha` for every enabled and available scanner (or the given ones) that has no
+   * complete scan covering them and no queued/running one (SPEC §4: once per commit, cached by commit).
+   */
+  async ensureScans(projectId: string, sha: string, targets: string[], only?: string[]): Promise<{ jobs: Job[]; cached: string[]; unavailable: string[] }> {
+    const s = this.store(projectId);
+    const want = minimalTargets(targets);
+    const out = { jobs: [] as Job[], cached: [] as string[], unavailable: [] as string[] };
+    const complete = s.signals.completeScans(sha);
+    const active = s.activeJobs().map(scanPayload).filter((x): x is ScanPayload => Boolean(x));
+    for (const st of await this.scannerStatus(projectId)) {
+      if (only ? !only.includes(st.name) : !st.enabled) continue;
+      if (!st.available) {
+        out.unavailable.push(st.name);
+        continue;
+      }
+      const done = complete.some((x) => x.scanner === st.name && covers(x.targets, want));
+      const queued = active.some((x) => x.scanner === st.name && x.commit_sha === sha && covers(x.targets, want));
+      if (done || queued) {
+        out.cached.push(st.name);
+        continue;
+      }
+      const job = s.addJob({
+        type: SCAN_JOB,
+        role: st.name,
+        title: `Сканер ${st.name}: ${want.join(', ')} @ ${sha.slice(0, 8)}`,
+        entityType: SCAN_ENTITY,
+        entityId: scanEntityId(st.name, sha, want),
+        payload: { scanner: st.name, commit_sha: sha, targets: want } satisfies ScanPayload,
+      });
+      out.jobs.push(job);
+    }
+    if (out.unavailable.length) this.notice('warn', `Сканеры недоступны, пропущены: ${out.unavailable.join(', ')}`, projectId);
+    if (out.jobs.length) {
+      this.send({ type: 'jobs-changed', projectId });
+      this.send({ type: 'signals-changed', projectId });
+      queueMicrotask(() => this.queue.pump());
+    }
+    return out;
+  }
+
+  /** "Сканировать": modules (null = whole repository) at HEAD. */
+  async runScanners(projectId: string, o: { moduleIds: string[] | null }): Promise<{ jobs: Job[]; cached: string[]; unavailable: string[] }> {
+    const s = this.store(projectId);
+    let targets = [REPO_TARGET];
+    if (o.moduleIds) {
+      const mods = o.moduleIds.length ? o.moduleIds.map((id) => s.getModule(id)).filter((m): m is Module => Boolean(m)) : s.listModules();
+      if (!mods.length) throw new Error('нет модулей для сканирования');
+      targets = globTargets(mods.flatMap((m) => m.globs));
+    }
+    return this.ensureScans(projectId, await headSha(this.project(projectId).root), targets);
+  }
+
+  private async executeScanJob(job: Job, signal: AbortSignal): Promise<JobOutcome> {
+    let resolveDone!: () => void;
+    this.activeScans.set(job.id, new Promise<void>((r) => (resolveDone = r)));
+    try {
+      return await this.executeScan(job, signal);
+    } finally {
+      this.activeScans.delete(job.id);
+      resolveDone();
+      this.send({ type: 'signals-changed', projectId: job.projectId });
+    }
+  }
+
+  /**
+   * Runs one scanner in the worktree of the job's commit and stores normalized results (SPEC §4, Q10).
+   * Raw reports may contain secrets: they live in a private temp directory and are deleted after normalization.
+   */
+  private async executeScan(job: Job, signal: AbortSignal): Promise<JobOutcome> {
+    const p = this.project(job.projectId);
+    const s = this.store(job.projectId);
+    const { scanner, commit_sha: sha, targets } = scanPayload(job)!;
+    const sc = scannerSettings(this.projectSettings(p.id), scanner);
+    const normalize = NORMALIZERS[sc.format];
+    if (!normalize) return { kind: 'failed', error: `scanners.${scanner}.format: неизвестный формат ${sc.format}` };
+    const check = await this.checkBinary(sc);
+    if (!check.available) return { kind: 'failed', error: `сканер ${scanner} недоступен: ${check.error}` };
+    const cwd = await this.worktreeCache(p).ensure(sha);
+    if (signal.aborted) return { kind: 'cancelled' };
+    const scan = s.signals.startScan({ scanner, format: sc.format, commitSha: sha, targets, jobId: job.id });
+    this.send({ type: 'signals-changed', projectId: p.id });
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aiegis-scan-'));
+    fs.chmodSync(tmp, 0o700);
+    const commands: string[][] = [];
+    const warnings = new Set<string>();
+    const finish = (status: 'complete' | 'failed', error: string | null) =>
+      s.signals.finishScan(scan.id, status, { toolVersion: check.version, commands, error, warnings: [...warnings] });
+    try {
+      const rows: NormalizedFinding[] = [];
+      const exists = (rel: string) => fs.existsSync(path.join(cwd, rel));
+      for (const inv of buildInvocations(scanner, sc.args, targets, (i) => path.join(tmp, `report-${i}.json`))) {
+        commands.push([sc.binary, ...inv.args]);
+        const r = await runProcess(sc.binary, inv.args, cwd, sc.timeout_sec * 1000, signal);
+        if (r.killed === 'aborted') {
+          finish('failed', 'отменено');
+          return { kind: 'cancelled' };
+        }
+        if (r.killed === 'timeout') throw new Error(`${scanner}: превышено время ${sc.timeout_sec} с`);
+        if (r.code === null || !sc.ok_exit_codes.includes(r.code)) throw new Error(`${scanner}: код выхода ${r.code}: ${r.stderr.trim().slice(-1500)}`);
+        const output = inv.report ? (fs.existsSync(inv.report) ? fs.readFileSync(inv.report, 'utf8') : '') : r.stdout;
+        rows.push(...normalize(output, { root: cwd, target: inv.target, exists, args: inv.args, warn: (w) => warnings.add(w) }));
+      }
+      s.signals.addFindings(scan.id, rows);
+      finish('complete', null);
+      return { kind: 'done' };
+    } catch (e) {
+      finish('failed', (e as Error).message);
+      return { kind: 'failed', error: (e as Error).message };
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  listScans(projectId: string): Scan[] {
+    return this.store(projectId).signals.listScans(200);
+  }
+
+  /** Raw findings of complete scans at a commit (per scanner: union of its scans, newest wins per fingerprint). */
+  private rowsAt(projectId: string, sha: string, scanner?: string): { rows: RawFinding[]; scans: Scan[] } {
+    const sig = this.store(projectId).signals;
+    const scans = sig.completeScans(sha).filter((x) => !scanner || x.scanner === scanner);
+    const seen = new Set<string>();
+    const rows: RawFinding[] = [];
+    for (const scan of scans) {
+      for (const f of sig.scanFindings(scan.id)) {
+        const k = `${f.scanner}\0${f.fingerprint}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        rows.push(f);
+      }
+    }
+    return { rows, scans };
+  }
+
+  private suppressionNames(s: ProjectStore, x: Suppression): { module: string | null; requirement: string | null } {
+    return {
+      module: x.moduleId ? (s.getModule(x.moduleId)?.name ?? null) : null,
+      requirement: x.requirementId ? ((s.audit.currentItem(x.requirementId) ?? s.audit.latestItem(x.requirementId))?.key ?? null) : null,
+    };
+  }
+
+  /** State of a suppression at a commit: revoked, expired, or stale when code it depends on changed (SPEC §5). */
+  private async suppressionView(projectId: string, x: Suppression, sha: string): Promise<SuppressionView> {
+    const v = await this.validityOf(projectId, SUPPRESSION_VALIDITY, x.id, x.commitSha, x.touchedFiles, x.moduleGlobs, sha);
+    const state = suppressionState(x, v.valid, today());
+    return { ...x, state, changedFiles: state === 'stale' ? v.changedFiles : [], label: suppressionLabel(x, this.suppressionNames(this.store(projectId), x)) };
+  }
+
+  /** Suppressions of the project with their state at HEAD. */
+  async listSuppressions(projectId: string): Promise<SuppressionView[]> {
+    const head = await headSha(this.project(projectId).root);
+    const out: SuppressionView[] = [];
+    for (const x of this.store(projectId).signals.listSuppressions()) out.push(await this.suppressionView(projectId, x, head));
+    return out;
+  }
+
+  /** Suppression views at `sha` keyed by id (signal lists check many rows against few suppressions). */
+  private async suppressionViews(projectId: string, sha: string): Promise<SuppressionView[]> {
+    const out: SuppressionView[] = [];
+    for (const x of this.store(projectId).signals.listSuppressions()) if (!x.revokedAt) out.push(await this.suppressionView(projectId, x, sha));
+    return out;
+  }
+
+  /** The suppression that decides a row: an applying one first, else a stale/expired one for information. */
+  private rowSuppression(views: SuppressionView[], f: RawFinding, applyStale: boolean): SuppressionView | null {
+    const m = views.filter((v) => v.scope !== 'requirement_module' && suppressionMatches(v, f));
+    return m.find((v) => suppressionApplies(v.state, applyStale)) ?? m[0] ?? null;
+  }
+
+  /** "Сигналы": normalized results at a commit (default: HEAD if scanned, else the newest scanned commit). */
+  async signalsView(projectId: string, commit?: string | null): Promise<SignalsView> {
+    const s = this.store(projectId);
+    const head = await headSha(this.project(projectId).root);
+    const commits = new Map<string, { sha: string; scans: number; finishedAt: string }>();
+    for (const x of s.signals.completeScans()) {
+      const c = commits.get(x.commitSha) ?? { sha: x.commitSha, scans: 0, finishedAt: x.finishedAt ?? x.startedAt };
+      c.scans++;
+      commits.set(x.commitSha, c);
+    }
+    const list = [...commits.values()];
+    const sha = commit && commits.has(commit) ? commit : commits.has(head) ? head : (list[0]?.sha ?? null);
+    if (!sha) return { head, commits: list, commit: null, scans: [], signals: [] };
+    const { rows, scans } = this.rowsAt(projectId, sha);
+    const views = await this.suppressionViews(projectId, sha);
+    const applyStale = this.projectSettings(projectId).suppressions.apply_stale;
+    const mods = s.listModules();
+    const signals: SignalRow[] = rows.map((f) => {
+      const sup = this.rowSuppression(views, f, applyStale);
+      return {
+        ...f,
+        commitSha: sha,
+        moduleIds: mods.filter((m) => matchesGlobs(f.file, m.globs)).map((m) => m.id),
+        suppression: sup ? { id: sup.id, state: sup.state, reason: sup.reason } : null,
+      };
+    });
+    signals.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.file.localeCompare(b.file) || (a.line ?? 0) - (b.line ?? 0));
+    return { head, commits: list, commit: sha, scans, signals };
+  }
+
+  async signalDetails(projectId: string, id: string): Promise<SignalDetails> {
+    const s = this.store(projectId);
+    const f = s.signals.getFinding(id);
+    if (!f) throw new Error(`сигнал ${id} не найден`);
+    const scan = s.signals.getScan(f.scanId)!;
+    const all: SuppressionView[] = [];
+    for (const x of s.signals.listSuppressions()) {
+      if (x.scope !== 'requirement_module' && suppressionMatches(x, f)) all.push(await this.suppressionView(projectId, x, scan.commitSha));
+    }
+    const applyStale = this.projectSettings(projectId).suppressions.apply_stale;
+    const sup = all.find((v) => suppressionApplies(v.state, applyStale)) ?? all.find((v) => v.state !== 'revoked') ?? null;
+    return {
+      signal: {
+        ...f,
+        commitSha: scan.commitSha,
+        moduleIds: s.listModules().filter((m) => matchesGlobs(f.file, m.globs)).map((m) => m.id),
+        suppression: sup ? { id: sup.id, state: sup.state, reason: sup.reason } : null,
+      },
+      scan,
+      suppressions: all,
+    };
+  }
+
+  /**
+   * Slice of signals for a matrix verdict agent (MCP get_signals): complete scans covering the module at the run's
+   * commit (else the newest commit with such scans), module files only, minus suppressed signals.
+   */
+  async signalSlice(projectId: string, q: SignalQuery): Promise<Record<string, unknown>> {
+    const s = this.store(projectId);
+    const settings = this.projectSettings(projectId);
+    const mod = s.getModule(q.moduleId);
+    if (!mod) throw new Error(`модуль ${q.moduleId} не найден`);
+    const item = q.requirementId ? s.audit.currentItem(q.requirementId) : undefined;
+    if (q.requirementId && !item) throw new Error(`требование ${q.requirementId} не найдено среди утверждённых`);
+    const commit = q.commit ?? (await headSha(this.project(projectId).root));
+    const need = globTargets(mod.globs);
+    const scanners = await this.scannerStatus(projectId);
+    const scanInfo: Record<string, unknown>[] = [];
+    let rows: (RawFinding & { commitSha: string })[] = [];
+    const names = uniq([...scanners.filter((x) => x.enabled).map((x) => x.name), ...s.signals.completeScans().map((x) => x.scanner)]);
+    for (const name of names) {
+      if (q.scanner && q.scanner !== name) continue;
+      const st = scanners.find((x) => x.name === name);
+      const covering = s.signals.completeScans().filter((x) => x.scanner === name && covers(x.targets, need));
+      const at = covering.find((x) => x.commitSha === commit) ?? covering[0];
+      if (!at) {
+        scanInfo.push({ scanner: name, scanned: false, note: st && !st.available ? `недоступен: ${st.error}` : 'модуль не сканировался' });
+        continue;
+      }
+      const unparsed = at.warnings.filter((w) => matchesGlobs(w.match(/(\S+?\.\w+):\d+/)?.[1] ?? '', mod.globs)).length;
+      scanInfo.push({
+        scanner: name,
+        scanned: true,
+        commit_sha: at.commitSha,
+        at_run_commit: at.commitSha === commit,
+        finished_at: at.finishedAt,
+        ...(unparsed ? { warnings_in_module: unparsed, warnings_note: 'the scanner could not fully analyse some module files; review them yourself' } : {}),
+      });
+      rows.push(...this.rowsAt(projectId, at.commitSha, name).rows.map((f) => ({ ...f, commitSha: at.commitSha })));
+    }
+    const minRank = q.minSeverity ? SEVERITY_RANK[q.minSeverity] : 0;
+    rows = rows.filter(
+      (f) =>
+        matchesGlobs(f.file, mod.globs) &&
+        !settings.signals.exclude_kinds.includes(f.kind) &&
+        (!q.kind || f.kind === q.kind) &&
+        SEVERITY_RANK[f.severity] >= minRank &&
+        (!q.filePrefix || f.file.startsWith(q.filePrefix)),
+    );
+    const filter = item ? settings.signals.requirements[item.key] : undefined;
+    if (filter) rows = rows.filter((f) => matchesRequirement(f, filter));
+
+    // Suppressions filter signals before AI (SPEC §4, Q18); evaluated at the commit of each scan.
+    const applyStale = settings.suppressions.apply_stale;
+    const viewsBySha = new Map<string, SuppressionView[]>();
+    const viewsAt = async (sha: string) => {
+      let v = viewsBySha.get(sha);
+      if (!v) viewsBySha.set(sha, (v = await this.suppressionViews(projectId, sha)));
+      return v;
+    };
+    const cellSup = item ? (await viewsAt(commit)).filter((v) => v.scope === 'requirement_module' && v.moduleId === mod.id && v.requirementId === item.requirementId) : [];
+    const cellApplies = cellSup.find((v) => suppressionApplies(v.state, applyStale));
+    let suppressed = 0;
+    const kept: Record<string, unknown>[] = [];
+    for (const f of rows) {
+      const sup = cellApplies ?? this.rowSuppression(await viewsAt(f.commitSha), f, applyStale);
+      if (sup && suppressionApplies(sup.state, applyStale)) {
+        suppressed++;
+        continue;
+      }
+      kept.push({
+        signal_id: f.id,
+        scanner: f.scanner,
+        kind: f.kind,
+        rule: f.ruleId,
+        severity: f.severity,
+        title: f.title,
+        message: f.message.slice(0, 400),
+        file: f.file,
+        line: f.line,
+        cwe: f.cwe,
+        ...(f.snippet ? { snippet: f.snippet.slice(0, 300) } : {}),
+        ...(sup ? { suppression_not_applied: { state: sup.state, reason: sup.reason } } : {}),
+      });
+    }
+    kept.sort((a, b) => SEVERITY_RANK[b.severity as Severity] - SEVERITY_RANK[a.severity as Severity]);
+    const limit = Math.min(q.limit ?? settings.signals.max_per_call, settings.signals.max_per_call);
+    return {
+      note: 'Scanner signals are hints, not a complete list: verify each in the code. Scanners do not find IDOR, authorization gaps, privilege leaks or business-logic flaws.',
+      module_id: mod.id,
+      requirement_id: item?.requirementId ?? null,
+      filtered_by_requirement: Boolean(filter),
+      run_commit: commit,
+      scans: scanInfo,
+      excluded_kinds: settings.signals.exclude_kinds,
+      suppressed,
+      ...(cellSup.length ? { cell_suppression: cellSup.map((v) => ({ state: v.state, reason: v.reason, author: v.author })) } : {}),
+      total: kept.length,
+      returned: Math.min(limit, kept.length),
+      truncated: kept.length > limit,
+      signals: kept.slice(0, limit),
+    };
+  }
+
+  /** Few-shot for a verdict prompt: relevant applying suppressions (requirement × module first, newest first). */
+  private async fewShotSuppressions(projectId: string, mod: Module, items: RequirementItem[], sha: string): Promise<string> {
+    const settings = this.projectSettings(projectId);
+    const limit = settings.suppressions.few_shot_limit;
+    const s = this.store(projectId);
+    const relevant = s.signals.listSuppressions().filter((x) => !x.revokedAt && suppressionRelevant(x, mod, items.map((i) => i.requirementId)));
+    const picked: Suppression[] = [];
+    for (const x of relevant) {
+      if (picked.length >= limit) break;
+      if (suppressionApplies((await this.suppressionView(projectId, x, sha)).state, settings.suppressions.apply_stale)) picked.push(x);
+    }
+    picked.sort((a, b) => Number(b.scope === 'requirement_module') - Number(a.scope === 'requirement_module'));
+    if (!picked.length) return '(none)';
+    return picked
+      .map((x) => {
+        const what =
+          x.scope === 'finding'
+            ? `${x.scanner} rule \`${x.ruleId}\` at ${x.file}${x.line ? `:${x.line}` : ''}`
+            : x.scope === 'rule_glob'
+              ? `${x.scanner} rule \`${x.ruleId}\` in files ${x.globs.join(', ')}`
+              : `all signals for requirement ${items.find((i) => i.requirementId === x.requirementId)?.key ?? x.requirementId} in this module`;
+        return `- ${what} — suppressed by ${x.author} at commit ${x.commitSha.slice(0, 8)}: ${x.reason.replace(/\s+/g, ' ').trim()}`;
+      })
+      .join('\n');
+  }
+
+  /** Author of manual decisions: git user of the project, else the OS user. */
+  private async authorName(projectId: string): Promise<string> {
+    const cached = this.authors.get(projectId);
+    if (cached) return cached;
+    const root = this.project(projectId).root;
+    const get = (k: string) =>
+      new Promise<string>((resolve) => execFile('git', ['config', k], { cwd: root }, (err, out) => resolve(err ? '' : out.trim())));
+    const [name, email] = await Promise.all([get('user.name'), get('user.email')]);
+    const author = name ? (email ? `${name} <${email}>` : name) : os.userInfo().username;
+    this.authors.set(projectId, author);
+    return author;
+  }
+
+  /** Files of signals of a rule matching globs at a commit: what a rule × glob suppression depends on (SPEC §5). */
+  private ruleFiles(projectId: string, sha: string, scanner: string, ruleId: string, globs: string[]): string[] {
+    return uniq(this.rowsAt(projectId, sha, scanner).rows.filter((f) => f.ruleId === ruleId && matchesGlobs(f.file, globs)).map((f) => f.file)).sort();
+  }
+
+  /** Manual suppression (SPEC §4, Q18): reason, author and commit are mandatory, expiry optional. */
+  async createSuppression(projectId: string, input: SuppressionInput, replaces: string | null = null): Promise<Suppression> {
+    const s = this.store(projectId);
+    if (!SUPPRESSION_SCOPES.includes(input.scope)) throw new Error(`неизвестный scope ${input.scope}`);
+    const reason = input.reason.trim();
+    if (!reason) throw new Error('укажите причину подавления');
+    const expiresAt = input.expiresAt?.trim() || null;
+    if (expiresAt && (!/^\d{4}-\d{2}-\d{2}$/.test(expiresAt) || expiresAt < today())) throw new Error('срок — дата в будущем в формате ГГГГ-ММ-ДД');
+    const author = await this.authorName(projectId);
+    const base = { reason, author, expiresAt, replaces, scanner: null, ruleId: null, fingerprint: null, globs: [], file: null, line: null, requirementId: null, moduleId: null, touchedFiles: [], moduleGlobs: [] };
+    let rec: Omit<Suppression, 'id' | 'createdAt' | 'revokedAt' | 'revokedBy' | 'revokeReason'>;
+    if (input.scope === 'requirement_module') {
+      const item = input.requirementId ? s.audit.currentItem(input.requirementId) : undefined;
+      const mod = input.moduleId ? s.getModule(input.moduleId) : undefined;
+      if (!item || !mod) throw new Error('выберите утверждённое требование и модуль');
+      rec = { ...base, scope: 'requirement_module', requirementId: item.requirementId, moduleId: mod.id, moduleGlobs: mod.globs, commitSha: await headSha(this.project(projectId).root) };
+    } else {
+      const f = input.signalId ? s.signals.getFinding(input.signalId) : undefined;
+      if (!f) throw new Error('подавление правила или находки создаётся из сигнала');
+      const sha = s.signals.getScan(f.scanId)!.commitSha;
+      if (input.scope === 'finding') {
+        rec = { ...base, scope: 'finding', scanner: f.scanner, ruleId: f.ruleId, fingerprint: f.fingerprint, file: f.file, line: f.line, touchedFiles: [f.file], commitSha: sha };
+      } else {
+        const globs = (input.globs ?? []).map((g) => g.trim()).filter(Boolean);
+        const err = globsError(globs);
+        if (err) throw new Error(err);
+        if (!matchesGlobs(f.file, globs)) throw new Error(`globs не покрывают файл сигнала ${f.file}`);
+        rec = { ...base, scope: 'rule_glob', scanner: f.scanner, ruleId: f.ruleId, globs, touchedFiles: this.ruleFiles(projectId, sha, f.scanner, f.ruleId, globs), commitSha: sha };
+      }
+    }
+    const saved = s.signals.addSuppression(rec);
+    this.send({ type: 'signals-changed', projectId });
+    return saved;
+  }
+
+  async revokeSuppression(projectId: string, id: string, reason: string): Promise<Suppression> {
+    if (!reason.trim()) throw new Error('укажите причину отзыва');
+    const x = this.store(projectId).signals.revokeSuppression(id, await this.authorName(projectId), reason.trim());
+    this.send({ type: 'signals-changed', projectId });
+    return x;
+  }
+
+  /** Re-confirms a (stale or expiring) suppression at HEAD: a new record replaces the old one, which is revoked. */
+  async renewSuppression(projectId: string, id: string, expiresAt?: string | null): Promise<Suppression> {
+    const s = this.store(projectId);
+    const old = s.signals.getSuppression(id);
+    if (!old) throw new Error(`подавление ${id} не найдено`);
+    if (old.revokedAt) throw new Error('подавление отозвано');
+    const head = await headSha(this.project(projectId).root);
+    const author = await this.authorName(projectId);
+    const exp = expiresAt === undefined ? (old.expiresAt && old.expiresAt >= today() ? old.expiresAt : null) : expiresAt?.trim() || null;
+    if (exp && (!/^\d{4}-\d{2}-\d{2}$/.test(exp) || exp < today())) throw new Error('срок — дата в будущем в формате ГГГГ-ММ-ДД');
+    let touched = old.touchedFiles;
+    let moduleGlobs = old.moduleGlobs;
+    if (old.scope === 'rule_glob' && s.signals.completeScans(head).some((x) => x.scanner === old.scanner)) touched = this.ruleFiles(projectId, head, old.scanner!, old.ruleId!, old.globs);
+    if (old.scope === 'requirement_module') {
+      const mod = old.moduleId ? s.getModule(old.moduleId) : undefined;
+      if (!mod || !old.requirementId || !s.audit.currentItem(old.requirementId)) throw new Error('модуль удалён или требование выведено');
+      moduleGlobs = mod.globs;
+    }
+    const { id: _i, createdAt: _c, revokedAt: _r, revokedBy: _b, revokeReason: _x, ...rest } = old;
+    const saved = s.signals.addSuppression({ ...rest, author, commitSha: head, touchedFiles: touched, moduleGlobs, expiresAt: exp, replaces: old.id });
+    s.signals.revokeSuppression(old.id, author, `подтверждено заново на ${head.slice(0, 8)}`);
+    this.send({ type: 'signals-changed', projectId });
+    return saved;
+  }
+
+  /** Current requirements of all documents (suppression scope "пункт × модуль"). */
+  currentRequirements(projectId: string): (RequirementItem & { documentTitle: string })[] {
+    const a = this.store(projectId).audit;
+    return a.currentItems(a.listDocuments().map((d) => d.id));
+  }
+
   // --- background execution ---
 
   private async execute(job: Job, signal: AbortSignal): Promise<JobOutcome> {
+    if (job.type === SCAN_JOB) return this.executeScanJob(job, signal);
     if (job.type !== AGENT_JOB) return { kind: 'failed', error: `неизвестный тип задачи ${job.type}` };
     const p = this.project(job.projectId);
     const s = this.store(job.projectId);
-    const prep = this.prepareJob(job);
+    const prep = await this.prepareJob(job);
     if (!prep) return { kind: 'done' };
     job = prep.job;
     const cfg = this.resolveForJob(job);
@@ -1295,7 +1859,7 @@ export class Core extends EventEmitter {
    * What a job's run covers. Matrix jobs are atomic per cell (SPEC §7): a re-run (after a crash, failure or retry)
    * covers only the cells earlier runs of the job left without a result. Null when nothing is left to do.
    */
-  private prepareJob(job: Job): { job: Job; scope: EntityRef[]; prompt: string } | null {
+  private async prepareJob(job: Job): Promise<{ job: Job; scope: EntityRef[]; prompt: string } | null> {
     const mp = matrixPayload(job);
     if (!mp) return { job, scope: [{ type: job.entityType, id: job.entityId }], prompt: String(job.payload.prompt) };
     const s = this.store(job.projectId);
@@ -1305,7 +1869,7 @@ export class Core extends EventEmitter {
     if (remaining.length !== mp.cells.length) {
       const matrix = s.audit.getMatrix(mp.matrix_id);
       if (!matrix) throw new Error(`матрица ${mp.matrix_id} не найдена`);
-      const t = this.renderMatrixTask(job.projectId, matrix, mp.stage, remaining.map(parseCellId));
+      const t = await this.renderMatrixTask(job.projectId, matrix, mp.stage, remaining.map(parseCellId), String(job.payload.commit_sha));
       s.setJobPayload(job.id, { ...job.payload, cells: remaining, prompt: t.prompt });
       job = s.getJob(job.id)!;
     }

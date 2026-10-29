@@ -13,6 +13,7 @@ const tokens = new TokenRegistry();
 const store = new ProjectStore('p1', openDb(':memory:'));
 const enqueued: string[] = [];
 let docText: string | null = null;
+const signalQueries: unknown[] = [];
 const server = new AiegisMcpServer(tokens, {
   store: () => store,
   projectName: () => 'demo',
@@ -27,6 +28,10 @@ const server = new AiegisMcpServer(tokens, {
   cellDetails: () => Promise.reject(new Error('n/a')),
   recheckCells: () => Promise.resolve([]),
   similarLimit: () => 5,
+  signals: (_pid, q) => {
+    signalQueries.push(q);
+    return Promise.resolve({ signals: [{ rule: 'r1' }] });
+  },
   onWrite: () => undefined,
 });
 
@@ -85,6 +90,17 @@ describe('MCP server with run tokens', () => {
     await c.close();
     tokens.revoke(g.token);
     await expect(connect(g.token)).rejects.toThrow();
+  });
+
+  it('get_signals is a read tool bound to the commit of the token run', async () => {
+    const r = store.startRun({ kind: 'background', role: 'matrix', author: 'ai:matrix', sessionId: 's3', cwd: '/', commitSha: 'sig-sha', configSnapshot: {} });
+    const g = tokens.issue({ projectId: 'p1', role: 'matrix', access: 'scoped', sessionId: 's3', runId: r.id, scope: [] });
+    const c = await connect(g.token);
+    const res = await c.callTool({ name: 'get_signals', arguments: { module_id: 'm1', requirement_id: 'q1', min_severity: 'medium', limit: 5 } });
+    expect(JSON.parse(text(res))).toEqual({ signals: [{ rule: 'r1' }] });
+    expect(signalQueries.at(-1)).toEqual({ moduleId: 'm1', requirementId: 'q1', commit: 'sig-sha', kind: null, scanner: null, minSeverity: 'medium', filePrefix: null, limit: 5 });
+    expect((await c.callTool({ name: 'get_signals', arguments: { module_id: 'm1', kind: 'nope' } })).isError).toBe(true);
+    await c.close();
   });
 
   it('mcp config file format', () => {

@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import {
   ENTRY_POINT_KINDS,
   SEVERITIES,
+  SIGNAL_KINDS,
   VERDICT_STATUSES,
   type CellDetails,
   type Evidence,
@@ -18,6 +19,7 @@ import {
 } from '../../shared/types';
 import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
+import type { SignalQuery } from '../signals';
 import type { ProjectStore } from '../store';
 import { authorize, type Action, type Grant, type TokenRegistry } from './tokens';
 
@@ -35,6 +37,8 @@ export interface McpServices {
   recheckCells(projectId: string, cells: CellRef[]): Promise<Job[]>;
   /** Max candidates of find_similar. */
   similarLimit(projectId: string): number;
+  /** Scanner signals of a module for get_signals (suppressed ones are filtered out). */
+  signals(projectId: string, q: SignalQuery): Promise<Record<string, unknown>>;
   /** Called after an agent wrote something, so the UI can refresh. */
   onWrite(projectId: string): void;
 }
@@ -584,6 +588,40 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         svc.onWrite(pid);
         return ok({ finding_id: f.id, cells: f.cells.length });
       }),
+  );
+
+  // --- scanner signals ---
+
+  server.registerTool(
+    'get_signals',
+    {
+      description:
+        "Scanner signals (Semgrep, Gitleaks, Trivy, normalized) in a module's files, from scans at your run's commit (or the newest scanned one); signals suppressed by humans are filtered out. Hints to verify, not a complete list.",
+      inputSchema: {
+        module_id: z.string(),
+        requirement_id: z.string().optional().describe('The requirement you are checking: applies its suppressions and configured relevance'),
+        kind: z.enum(SIGNAL_KINDS).optional(),
+        scanner: z.string().optional(),
+        min_severity: z.enum(SEVERITIES).optional(),
+        file_prefix: z.string().optional().describe('Only files under this path (relative to the repository root)'),
+        limit: z.number().int().min(1).max(500).optional(),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'read' }, async () =>
+        ok(
+          await svc.signals(pid, {
+            moduleId: a.module_id,
+            requirementId: a.requirement_id ?? null,
+            commit: svc.store(pid).getRun(grant.runId)?.commitSha ?? null,
+            kind: a.kind ?? null,
+            scanner: a.scanner ?? null,
+            minSeverity: a.min_severity ?? null,
+            filePrefix: a.file_prefix ?? null,
+            limit: a.limit ?? null,
+          }),
+        ),
+      ),
   );
 
   server.registerTool(
