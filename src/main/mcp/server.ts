@@ -203,7 +203,9 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
 
   const epIdentity = {
     module_id: z.string(),
-    kind: z.enum(ENTRY_POINT_KINDS),
+    kind: z
+      .enum(ENTRY_POINT_KINDS)
+      .describe('plugin = a method the host platform/framework calls (SPI implementation, listener, hook), not a route of the module itself'),
     method: z.string().optional().describe('HTTP method or similar qualifier'),
     name: z.string().min(1).describe('Route, RPC method, topic, job or command name'),
   };

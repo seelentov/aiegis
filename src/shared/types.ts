@@ -98,7 +98,8 @@ export interface ModuleRevision {
   createdAt: string;
 }
 
-export const ENTRY_POINT_KINDS = ['http', 'grpc', 'graphql', 'queue', 'cron', 'cli', 'websocket'] as const;
+/** `plugin`: a method the host platform/framework calls with user-influenced data (SPI, listeners, hooks), not a route. */
+export const ENTRY_POINT_KINDS = ['http', 'grpc', 'graphql', 'queue', 'cron', 'cli', 'websocket', 'plugin'] as const;
 export type EntryPointKind = (typeof ENTRY_POINT_KINDS)[number];
 
 export interface EntryPointInput {

@@ -150,6 +150,10 @@ describe('MCP module and entry point tools', () => {
       arguments: { ...args, params: [{ name: 'user', source: 'body' }], call_chain: [{ file: 'svc/Repo.java', function: 'find', sink: 'SQL' }] },
     });
     expect(JSON.parse(text(okRes))).toMatchObject({ saved: 'http POST /login', entries_in_snapshot: 1 });
+    // Platform callbacks (SPI) are their own kind, not HTTP routes.
+    const plugin = await c.callTool({ name: 'upsert_entry_point', arguments: { ...args, kind: 'plugin', method: undefined, name: 'AuthPlugin.authenticate' } });
+    expect(JSON.parse(text(plugin))).toMatchObject({ saved: 'plugin  AuthPlugin.authenticate', entries_in_snapshot: 2 });
+    await c.callTool({ name: 'remove_entry_point', arguments: { module_id: mod.id, kind: 'plugin', name: 'AuthPlugin.authenticate' } });
     const missing = await c.callTool({ name: 'upsert_entry_point', arguments: { ...args, handler_file: 'svc/Nope.java' } });
     expect(text(missing)).toMatch(/не найден/);
     const foreign = await c.callTool({ name: 'upsert_entry_point', arguments: { ...args, module_id: other.id } });
