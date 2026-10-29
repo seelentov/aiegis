@@ -70,8 +70,19 @@ export interface Settings {
   limits: { max_tokens_per_run: number };
   terminal: { external_app: string };
   sessions: { free_role: string; default_task_role: string };
+  matrix: {
+    batch_size: number;
+    triage_batch_size: number;
+    estimate_history_runs: number;
+    estimate_tokens_per_cell: { triage: number; verdicts: number };
+  };
+  findings: { similar_limit: number };
   tasks: Record<string, TaskSettings>;
 }
+
+/** App-started task kinds that must be configured. */
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix'] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
   role: string;
@@ -90,6 +101,10 @@ export interface EffectiveConfig {
 export interface ResolveTarget {
   role: string;
   module?: string;
+  /** Matrix name (`matrices.<name>`). */
+  matrix?: string;
+  /** Requirement key (`requirements.<key>`). */
+  item?: string;
 }
 
 const REQUIRED_SETTINGS: string[] = [
@@ -102,7 +117,13 @@ const REQUIRED_SETTINGS: string[] = [
   'terminal.external_app',
   'sessions.free_role',
   'sessions.default_task_role',
-  ...['modules', 'entry_points'].flatMap((t) => ['role', 'title', 'prompt'].map((k) => `tasks.${t}.${k}`)),
+  'matrix.batch_size',
+  'matrix.triage_batch_size',
+  'matrix.estimate_history_runs',
+  'matrix.estimate_tokens_per_cell.triage',
+  'matrix.estimate_tokens_per_cell.verdicts',
+  'findings.similar_limit',
+  ...TASK_KINDS.flatMap((t) => ['role', 'title', 'prompt'].map((k) => `tasks.${t}.${k}`)),
 ];
 
 function getPath(obj: Record<string, unknown>, dotted: string): unknown {
@@ -147,7 +168,7 @@ function levelOf(obj: Level | undefined): Level {
   return { model, effort, instructions, permissions, env };
 }
 
-/** Builds cascade layers: global -> project -> role (global, project) -> module. */
+/** Builds cascade layers: global -> project -> role (global, project) -> module -> matrix -> requirement. */
 export function buildLayers(target: ResolveTarget, global: LoadedFile, project?: LoadedFile): Layer[] {
   const layers: Layer[] = [{ source: SOURCE_GLOBAL, baseDir: global.baseDir, level: levelOf(global.data) }];
   if (project) layers.push({ source: SOURCE_PROJECT, baseDir: project.baseDir, level: levelOf(project.data) });
@@ -158,6 +179,14 @@ export function buildLayers(target: ResolveTarget, global: LoadedFile, project?:
   if (target.module && project) {
     const m = project.data.modules?.[target.module];
     if (m) layers.push({ source: `модуль ${target.module}`, baseDir: project.baseDir, level: levelOf(m) });
+  }
+  if (target.matrix && project) {
+    const m = project.data.matrices?.[target.matrix];
+    if (m) layers.push({ source: `матрица ${target.matrix}`, baseDir: project.baseDir, level: levelOf(m) });
+  }
+  if (target.item && project) {
+    const r = project.data.requirements?.[target.item];
+    if (r) layers.push({ source: `пункт ${target.item}`, baseDir: project.baseDir, level: levelOf(r) });
   }
   return layers;
 }

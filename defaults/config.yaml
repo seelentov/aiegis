@@ -2,6 +2,7 @@
 # Copied here on first start; edit freely. Project overrides live in <repo>/.aiegis/config.yaml.
 #
 # Cascade: global -> project -> role -> module -> matrix/standard -> item.
+# Project config may add levels `modules.<name>`, `matrices.<name>` and `requirements.<key>`.
 # Level fields: model, effort, instructions, permissions, env.
 #   model, effort         - lower level replaces;
 #   instructions          - concatenated top-down; `mode: replace` drops everything above;
@@ -42,6 +43,22 @@ sessions:
   # Role preselected for ad-hoc background tasks.
   default_task_role: task
 
+matrix:
+  # Max cells (requirements of one module and group) in one verdict session.
+  batch_size: 6
+  # Max cells in one n/a triage session (one module).
+  triage_batch_size: 40
+  # Dry-run estimate: average billable tokens per cell over this many recent successful runs of the role...
+  estimate_history_runs: 20
+  # ...or these values when there is no history yet.
+  estimate_tokens_per_cell:
+    triage: 2000
+    verdicts: 30000
+
+findings:
+  # Max candidates returned by find_similar.
+  similar_limit: 5
+
 # Background tasks the app starts itself. `prompt` is a template file (relative to this config's directory);
 # {{placeholders}} are filled by the app, an unknown placeholder is a configuration error.
 tasks:
@@ -55,6 +72,30 @@ tasks:
     role: entry-points
     title: "Точки входа: {{module_name}}"
     prompt: instructions/tasks/entry-points.md
+  # Requirement extraction from one document version.
+  # Placeholders: project, document_title, version_id, version_n, file, format, previous.
+  requirements:
+    role: requirements
+    title: "Требования: {{document_title}} v{{version_n}}"
+    prompt: instructions/tasks/requirements.md
+  # Cheap n/a triage of a module against matrix requirements.
+  # Placeholders: project, matrix, module_id, module_name, module_globs, module_description, requirements.
+  matrix_triage:
+    role: matrix-triage
+    title: "Отсев n/a: {{matrix}} × {{module_name}}"
+    prompt: instructions/tasks/matrix-triage.md
+  # Verdicts for a batch of cells (one module, one requirement group).
+  # Placeholders: project, matrix, module_id, module_name, module_globs, module_description, group, requirements.
+  matrix_verdicts:
+    role: matrix
+    title: "Вердикты: {{matrix}} × {{module_name}} / {{group}}"
+    prompt: instructions/tasks/matrix-verdicts.md
+  # "Открыть сессию для фикса" (interactive, user's working directory).
+  # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, cells.
+  fix:
+    role: assistant
+    title: "Фикс: {{title}}"
+    prompt: instructions/tasks/fix.md
 
 roles:
   # Free interactive session ("Новая сессия", "Открыть сессию для фикса").
@@ -80,6 +121,30 @@ roles:
       file: instructions/roles/task.md
     permissions:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  requirements:
+    title: Извлечение требований
+    kind: background
+    mcp_access: scoped
+    model: haiku
+    effort: low
+    instructions:
+      file: instructions/roles/requirements.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash"]
+
+  matrix-triage:
+    title: Отсев n/a
+    kind: background
+    mcp_access: scoped
+    model: haiku
+    effort: low
+    instructions:
+      file: instructions/roles/matrix-triage.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git ls-files:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
   matrix:

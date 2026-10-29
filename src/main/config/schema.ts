@@ -59,9 +59,24 @@ export const ConfigFileSchema = z.looseObject({
   limits: z.looseObject({ max_tokens_per_run: z.number().int().min(1).optional() }).optional(),
   terminal: z.looseObject({ external_app: z.string().optional() }).optional(),
   sessions: z.looseObject({ free_role: z.string().optional(), default_task_role: z.string().optional() }).optional(),
+  matrix: z
+    .looseObject({
+      batch_size: z.number().int().min(1).optional(),
+      triage_batch_size: z.number().int().min(1).optional(),
+      estimate_history_runs: z.number().int().min(1).optional(),
+      estimate_tokens_per_cell: z
+        .looseObject({ triage: z.number().int().min(1).optional(), verdicts: z.number().int().min(1).optional() })
+        .optional(),
+    })
+    .optional(),
+  findings: z.looseObject({ similar_limit: z.number().int().min(1).optional() }).optional(),
   tasks: z.record(z.string(), TaskSchema).optional(),
   roles: z.record(z.string(), RoleSchema).optional(),
   modules: z.record(z.string(), LevelSchema).optional(),
+  /** Cascade level of a matrix, by matrix name. */
+  matrices: z.record(z.string(), LevelSchema).optional(),
+  /** Cascade level of a requirement, by its key. */
+  requirements: z.record(z.string(), LevelSchema).optional(),
 });
 
 export type Instructions = z.infer<typeof InstructionsSchema>;
@@ -70,4 +85,4 @@ export type RoleConfig = z.infer<typeof RoleSchema>;
 export type ConfigFile = z.infer<typeof ConfigFileSchema>;
 
 /** Settings that are not cascade levels; merged global -> project. */
-export const SETTINGS_KEYS = ['claude', 'queue', 'limits', 'terminal', 'sessions', 'tasks'] as const;
+export const SETTINGS_KEYS = ['claude', 'queue', 'limits', 'terminal', 'sessions', 'matrix', 'findings', 'tasks'] as const;
