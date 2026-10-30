@@ -224,6 +224,11 @@ export function SettingsTab({ project, run, notify }: Props) {
             </thead>
             <tbody>
               <tr>
+                <td>agent</td>
+                <td>{view.agent?.value ?? '—'}</td>
+                <td className="muted">{view.agent?.source}</td>
+              </tr>
+              <tr>
                 <td>model</td>
                 <td>{view.model?.value ?? '—'}</td>
                 <td className="muted">{view.model?.source}</td>

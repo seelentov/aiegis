@@ -3,7 +3,7 @@ import type { CellDetails, Evidence, Finding, FindingDetails, FindingStatus, Pro
 import { FINDING_STATUSES, SEVERITIES, VERDICT_STATUSES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
-import { CELL_STATUS, FINDING_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
+import { CELL_STATUS, FINDING_STATUS, JOB_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
 import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { IconButton } from './Icon';
@@ -344,6 +344,8 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
 
   if (!d) return null;
   const f = d.finding;
+  const setup = d.poc.setup;
+  const setupActive = setup?.status === 'queued' || setup?.status === 'running';
   const merge = async (src: string, dst: string, title: string) => {
     if (!confirm(tr('Merge the finding “{title}”? Its cells move to the target finding, and it becomes a link.', { title }))) return;
     const r = await run(api.mergeFinding(project.id, src, dst));
@@ -432,11 +434,30 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
             title={!d.poc.available ? (d.poc.reason ?? tr('PoC unavailable')) : f.status !== 'suspected' ? tr('only for findings in the “suspected” status') : tr('Run the PoC tester')}
             onClick={() => void run(api.enqueuePoc(project.id, f.id))}
           />
+          <IconButton
+            icon="wand"
+            label={tr('Environment')}
+            disabled={setupActive}
+            title={d.poc.available ? tr('Re-run env-setup: the agent revises how the test environment starts') : tr('Run env-setup: the agent works out how to start the project for the PoC')}
+            onClick={() => void run(api.enqueuePocSetup(project.id))}
+          />
           {d.poc.job && <span className="muted small">{tr('job queued: {status}', { status: d.poc.job.status })}</span>}
           {d.poc.baseUrl && <span className="muted small mono">{d.poc.baseUrl}</span>}
         </div>
       )}
       {!d.poc.available && <div className="muted small">{d.poc.reason}</div>}
+      {setup && (
+        <div className="muted small">
+          env-setup: {JOB_STATUS[setup.status]} · {time(setup.updatedAt)}
+          {setup.lastRunId && (
+            <>
+              {' '}
+              · <a onClick={() => onSelect({ kind: 'run', id: setup.lastRunId! })}>{tr('run')}</a>
+            </>
+          )}
+          {setup.status === 'failed' && setup.error && <div className="prewrap">{setup.error}</div>}
+        </div>
+      )}
       {d.poc.results.map((r) => (
         <div key={r.id} className="result">
           <div className="muted small">

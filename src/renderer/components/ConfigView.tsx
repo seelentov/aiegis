@@ -9,6 +9,14 @@ export function ConfigView({ config, title }: { config: EffectiveConfigView; tit
       <dl>
         <dt>{tr('Role')}</dt>
         <dd>{config.role.name}</dd>
+        {config.agent && (
+          <>
+            <dt>agent</dt>
+            <dd>
+              {config.agent.value} <span className="muted">← {config.agent.source}</span>
+            </dd>
+          </>
+        )}
         {config.model && (
           <>
             <dt>model</dt>
