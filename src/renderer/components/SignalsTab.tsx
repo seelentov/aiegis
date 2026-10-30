@@ -7,6 +7,7 @@ import { JOB_STATUS, SCAN_STATUS, SEVERITY, SIGNAL_KIND, SUPPRESSION_SCOPE, SUPP
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
 import { IconButton } from './Icon';
+import { tr } from '../i18n';
 
 interface Props {
   project: ProjectInfo;
@@ -35,23 +36,23 @@ function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 
     const r = await run(api.runScanners(project.id, { moduleIds }));
     if (!r) return;
     const parts = [
-      r.jobs.length ? `в очереди: ${r.jobs.map((j) => j.role).join(', ')}` : '',
-      r.cached.length ? `уже есть для этого коммита: ${r.cached.join(', ')}` : '',
-      r.unavailable.length ? `недоступны: ${r.unavailable.join(', ')}` : '',
+      r.jobs.length ? tr('queued: {list}', { list: r.jobs.map((j) => j.role).join(', ') }) : '',
+      r.cached.length ? tr('already done for this commit: {list}', { list: r.cached.join(', ') }) : '',
+      r.unavailable.length ? tr('unavailable: {list}', { list: r.unavailable.join(', ') }) : '',
     ].filter(Boolean);
-    notify(r.jobs.length ? 'info' : 'warn', `Сканирование: ${parts.join('; ') || 'нет включённых сканеров'}`);
+    notify(r.jobs.length ? 'info' : 'warn', tr('Scan: {result}', { result: parts.join('; ') || tr('no scanners enabled') }));
   };
   return (
     <div className="toolbar">
       {status.map((s) => (
         <span key={s.name} className={`status ${s.available ? 'r-succeeded' : s.enabled ? 'r-failed' : ''}`} title={s.error ?? `${s.binary} · ${s.format}`}>
-          {s.name} {s.available ? (s.version ?? '') : s.enabled ? 'недоступен' : 'выключен'}
+          {s.name} {s.available ? (s.version ?? '') : s.enabled ? tr('unavailable|scanner') : tr('disabled')}
         </span>
       ))}
-      <IconButton icon="recheck" title="Проверить доступность сканеров снова" onClick={() => void run(api.scannerStatus(project.id, true)).then((s) => s && setStatus(s))} />
+      <IconButton icon="recheck" title={tr('Check scanner availability again')} onClick={() => void run(api.scannerStatus(project.id, true)).then((s) => s && setStatus(s))} />
       <span className="toolbar-group">
-        <IconButton icon="scan" className="primary" title="Сканировать файлы всех модулей" label="Модули" onClick={() => void scan([])} />
-        <IconButton icon="scan" title="Сканировать весь репозиторий" label="Репозиторий" onClick={() => void scan(null)} />
+        <IconButton icon="scan" className="primary" title={tr('Scan the files of all modules')} label={tr('Modules')} onClick={() => void scan([])} />
+        <IconButton icon="scan" title={tr('Scan the whole repository')} label={tr('Repository')} onClick={() => void scan(null)} />
       </span>
       {jobs.map((j) => (
         <span key={j.id} className={`status s-${j.status}`} title={j.title}>
@@ -77,37 +78,37 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
     (view?.signals ?? []).filter((s) => suppressed || s.suppression?.state !== 'active'),
     [
       { key: 'severity', title: 'Severity', text: (s) => SEVERITY[s.severity], sort: (s) => -SEV_RANK[s.severity], filter: 'enum' },
-      { key: 'signal', title: 'Сигнал', text: (s) => `${s.title} ${s.message}`, sort: (s) => s.title },
-      { key: 'kind', title: 'Вид', text: (s) => SIGNAL_KIND[s.kind], filter: 'enum' },
-      { key: 'file', title: 'Файл', text: (s) => `${s.file}${s.line ? `:${s.line}` : ''}`, sort: (s) => s.file },
-      { key: 'module', title: 'Модуль', text: (s) => s.moduleIds.map(moduleName).join(', ') || 'вне модулей', filter: 'enum' },
-      { key: 'scanner', title: 'Сканер', text: (s) => s.scanner, filter: 'enum' },
+      { key: 'signal', title: tr('Signal'), text: (s) => `${s.title} ${s.message}`, sort: (s) => s.title },
+      { key: 'kind', title: tr('Kind'), text: (s) => SIGNAL_KIND[s.kind], filter: 'enum' },
+      { key: 'file', title: tr('File'), text: (s) => `${s.file}${s.line ? `:${s.line}` : ''}`, sort: (s) => s.file },
+      { key: 'module', title: tr('Module'), text: (s) => s.moduleIds.map(moduleName).join(', ') || tr('outside modules'), filter: 'enum' },
+      { key: 'scanner', title: tr('Scanner'), text: (s) => s.scanner, filter: 'enum' },
     ],
   );
 
   if (!view) return null;
-  if (!view.commit) return <div className="empty">Сканов ещё нет. Запустите сканеры кнопкой выше или вердикты матрицы (сканы ставятся автоматически).</div>;
+  if (!view.commit) return <div className="empty">{tr('No scans yet. Run the scanners with the button above or matrix verdicts (scans are queued automatically).')}</div>;
 
   return (
     <>
       <div className="toolbar">
         <label>
-          Коммит{' '}
+          {tr('Commit')}{' '}
           <select value={view.commit} onChange={(e) => setCommit(e.target.value)}>
             {view.commits.map((c) => (
               <option key={c.sha} value={c.sha}>
                 {c.sha.slice(0, 8)}
-                {c.sha === view.head ? ' (HEAD)' : ''} · сканов {c.scans}
+                {c.sha === view.head ? ' (HEAD)' : ''} · {tr('scans {n}', { n: c.scans })}
               </option>
             ))}
           </select>
         </label>
-        {view.commit !== view.head && <span className="warn">не HEAD: строки в редакторе могут не совпадать</span>}
+        {view.commit !== view.head && <span className="warn">{tr('not HEAD: lines in the editor may differ')}</span>}
         <label className="check">
-          <input type="checkbox" checked={suppressed} onChange={(e) => setSuppressed(e.target.checked)} /> подавленные
+          <input type="checkbox" checked={suppressed} onChange={(e) => setSuppressed(e.target.checked)} /> {tr('show suppressed')}
         </label>
         <span className="muted">
-          {g.rows.length} из {view.signals.length}
+          {tr('{n} of {total}', { n: g.rows.length, total: view.signals.length })}
         </span>
         {g.count}
       </div>
@@ -116,7 +117,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
         <tbody>
           {g.rows.length === 0 && (
             <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
-              Сигналов нет
+              {tr('No signals')}
             </EmptyRow>
           )}
           {g.rows.map((s) => (
@@ -133,7 +134,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
                 <div className="small muted clip">{s.message}</div>
                 {s.suppression && (
                   <span className={`status sup-${s.suppression.state}`} title={s.suppression.reason}>
-                    подавлено: {SUPPRESSION_STATE[s.suppression.state]}
+                    {tr('suppressed: {state}', { state: SUPPRESSION_STATE[s.suppression.state] })}
                   </span>
                 )}
               </td>
@@ -173,7 +174,7 @@ function RequirementModuleForm({ project, run, modules, onDone }: { project: Pro
   return (
     <div className="form">
       <label>
-        Пункт
+        {tr('Item')}
         <select value={requirementId} onChange={(e) => setRequirementId(e.target.value)}>
           <option value="">—</option>
           {reqs.map((r) => (
@@ -184,7 +185,7 @@ function RequirementModuleForm({ project, run, modules, onDone }: { project: Pro
         </select>
       </label>
       <label>
-        Модуль
+        {tr('Module')}
         <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
           <option value="">—</option>
           {modules.map((m) => (
@@ -195,16 +196,16 @@ function RequirementModuleForm({ project, run, modules, onDone }: { project: Pro
         </select>
       </label>
       <label className="wide">
-        Причина (обязательно)
+        {tr('Reason (required)')}
         <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
       </label>
       <label>
-        Срок (необязательно)
+        {tr('Expires (optional)')}
         <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
       </label>
       <div className="row">
-        <IconButton icon="suppress" className="primary" title="Подавить сигналы пункта в модуле" label="Подавить" disabled={!requirementId || !moduleId || !reason.trim()} onClick={() => void save()} />
-        <button onClick={onDone}>Отмена</button>
+        <IconButton icon="suppress" className="primary" title={tr('Suppress the signals of the item in the module')} label={tr('Suppress')} disabled={!requirementId || !moduleId || !reason.trim()} onClick={() => void save()} />
+        <button onClick={onDone}>{tr('Cancel')}</button>
       </div>
     </div>
   );
@@ -221,21 +222,21 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
     'suppressions',
     list.filter((s) => revoked || s.state !== 'revoked'),
     [
-      { key: 'state', title: 'Состояние', text: (s) => SUPPRESSION_STATE[s.state], filter: 'enum' },
+      { key: 'state', title: tr('State'), text: (s) => SUPPRESSION_STATE[s.state], filter: 'enum' },
       { key: 'scope', title: 'Scope', text: (s) => `${SUPPRESSION_SCOPE[s.scope]} ${s.label}`, sort: (s) => s.label },
-      { key: 'reason', title: 'Причина', text: (s) => s.reason },
-      { key: 'author', title: 'Автор, коммит', text: (s) => `${s.author} ${s.commitSha.slice(0, 8)}`, sort: (s) => s.createdAt },
-      { key: 'expires', title: 'Срок', text: (s) => s.expiresAt ?? '—' },
+      { key: 'reason', title: tr('Reason'), text: (s) => s.reason },
+      { key: 'author', title: tr('Author, commit'), text: (s) => `${s.author} ${s.commitSha.slice(0, 8)}`, sort: (s) => s.createdAt },
+      { key: 'expires', title: tr('Expires'), text: (s) => s.expiresAt ?? '—' },
     ],
   );
   return (
     <>
       <div className="toolbar">
-        <IconButton icon="plus" title="Подавить пункт требований в модуле" label="Пункт × модуль" aria-pressed={form} onClick={() => setForm(!form)} />
+        <IconButton icon="plus" title={tr('Suppress a requirement item in a module')} label={tr('Item × module')} aria-pressed={form} onClick={() => setForm(!form)} />
         <label className="check">
-          <input type="checkbox" checked={revoked} onChange={(e) => setRevoked(e.target.checked)} /> отозванные
+          <input type="checkbox" checked={revoked} onChange={(e) => setRevoked(e.target.checked)} /> {tr('show revoked')}
         </label>
-        <span className="muted">Подавления находки и правила × glob создаются из сигнала (панель справа). Состояние — на HEAD.</span>
+        <span className="muted">{tr('Finding and rule × glob suppressions are created from a signal (right panel). State is at HEAD.')}</span>
         {g.count}
       </div>
       {form && (
@@ -248,7 +249,7 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
         <tbody>
           {g.rows.length === 0 && (
             <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
-              Подавлений нет
+              {tr('No suppressions')}
             </EmptyRow>
           )}
           {g.rows.map((s) => (
@@ -282,12 +283,12 @@ function ScansList({ project, revision, run }: Pick<Props, 'project' | 'revision
     void run(api.listScans(project.id)).then((s) => s && setScans(s));
   }, [project.id, revision, run]);
   const g = useGrid('scans', scans, [
-    { key: 'status', title: 'Статус', text: (s) => SCAN_STATUS[s.status], filter: 'enum' },
-    { key: 'scanner', title: 'Сканер', text: (s) => s.scanner, filter: 'enum' },
-    { key: 'commit', title: 'Коммит', text: (s) => s.commitSha.slice(0, 8) },
-    { key: 'targets', title: 'Пути', text: (s) => s.targets.join(' ') },
-    { key: 'count', title: 'Результатов', text: (s) => String(s.findingCount), sort: (s) => s.findingCount },
-    { key: 'time', title: 'Время', text: (s) => time(s.startedAt), sort: (s) => s.startedAt },
+    { key: 'status', title: tr('Status'), text: (s) => SCAN_STATUS[s.status], filter: 'enum' },
+    { key: 'scanner', title: tr('Scanner'), text: (s) => s.scanner, filter: 'enum' },
+    { key: 'commit', title: tr('Commit'), text: (s) => s.commitSha.slice(0, 8) },
+    { key: 'targets', title: tr('Paths'), text: (s) => s.targets.join(' ') },
+    { key: 'count', title: tr('Results'), text: (s) => String(s.findingCount), sort: (s) => s.findingCount },
+    { key: 'time', title: tr('Time'), text: (s) => time(s.startedAt), sort: (s) => s.startedAt },
   ]);
   return (
     <>
@@ -297,7 +298,7 @@ function ScansList({ project, revision, run }: Pick<Props, 'project' | 'revision
       <tbody>
         {g.rows.length === 0 && (
           <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
-            Запусков нет
+            {tr('No scanner runs')}
           </EmptyRow>
         )}
         {g.rows.map((s) => (
@@ -307,7 +308,7 @@ function ScansList({ project, revision, run }: Pick<Props, 'project' | 'revision
               {s.error && <div className="error-text small">{s.error.slice(0, 300)}</div>}
               {s.warnings.length > 0 && (
                 <details className="small" onClick={(e) => e.stopPropagation()}>
-                  <summary className="warn">предупреждений: {s.warnings.length}</summary>
+                  <summary className="warn">{tr('warnings: {n}', { n: s.warnings.length })}</summary>
                   <ul className="evidence">
                     {s.warnings.map((w) => (
                       <li key={w} className="mono">
@@ -347,9 +348,9 @@ export function SignalsTab(props: Props) {
       <nav className="subtabs">
         {(
           [
-            ['signals', 'Сигналы'],
-            ['suppressions', 'Подавления'],
-            ['scans', 'Запуски сканеров'],
+            ['signals', tr('Signals')],
+            ['suppressions', tr('Suppressions')],
+            ['scans', tr('Scanner runs')],
           ] as const
         ).map(([id, title]) => (
           <button key={id} className={view === id ? 'tab active' : 'tab'} onClick={() => setView(id)}>

@@ -1,4 +1,5 @@
 import { useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { tr } from '../i18n';
 
 /** A layout size remembered in this viewer's browser; storage may be unavailable, the default then holds. */
 export function usePersisted<T>(key: string, def: T): [T, (v: T) => void] {
@@ -72,7 +73,7 @@ export function Splitter({ axis, value, onChange, min, max, invert, reset, label
       aria-valuenow={value}
       aria-valuemin={min}
       aria-valuemax={max}
-      title={`${label}: тяните, двойной щелчок — по умолчанию`}
+      title={tr('{label}: drag, double-click to reset', { label })}
       tabIndex={0}
       onPointerDown={start}
       onDoubleClick={() => onChange(reset)}

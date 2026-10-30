@@ -6,6 +6,7 @@ import { JOB_STATUS, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
 import { IconButton } from './Icon';
+import { tr } from '../i18n';
 
 interface FormProps {
   project: ProjectInfo;
@@ -30,30 +31,30 @@ export function ModuleForm({ project, run, module, onDone }: FormProps) {
   return (
     <div className="form module-form">
       <label>
-        Имя
+        {tr('Name')}
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <label className="wide">
-        Globs (по одному в строке, «!» исключает)
+        {tr('Globs (one per line, “!” excludes)')}
         <textarea rows={3} value={globs} onChange={(e) => (setGlobs(e.target.value), setPreview(null))} placeholder="service-a/**" />
       </label>
       <label className="wide">
-        Описание
+        {tr('Description')}
         <input value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
       <div className="wide row">
         <button className="primary" disabled={!name.trim() || !list().length} onClick={() => void save()}>
-          Сохранить
+          {tr('Save')}
         </button>
         <IconButton
           icon="search"
-          title="Показать файлы, которые попадут в модуль"
-          label="Проверить globs"
+          title={tr('Show the files the module will contain')}
+          label={tr('Check globs')}
           disabled={!list().length}
           onClick={() => void run(api.previewGlobs(project.id, list())).then((p) => p && setPreview(p))}
         />
-        <button onClick={() => onDone(undefined)}>Отмена</button>
-        {preview && <span className="muted">файлов: {preview.count}</span>}
+        <button onClick={() => onDone(undefined)}>{tr('Cancel')}</button>
+        {preview && <span className="muted">{tr('files: {n}', { n: preview.count })}</span>}
       </div>
       {preview && preview.sample.length > 0 && (
         <pre className="wide muted small">
@@ -89,13 +90,13 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
   }, [project.id, revision, run]);
 
   const g = useGrid('modules', modules, [
-    { key: 'name', title: 'Модуль', text: (m) => m.name },
+    { key: 'name', title: tr('Module'), text: (m) => m.name },
     { key: 'globs', title: 'Globs', text: (m) => m.globs.join(' ') },
-    { key: 'description', title: 'Описание', text: (m) => m.description },
+    { key: 'description', title: tr('Description'), text: (m) => m.description },
     {
       key: 'map',
-      title: 'Карта точек входа',
-      text: (m) => (m.latestSnapshot ? (m.snapshotStale ? 'устарела' : 'есть') : 'нет'),
+      title: tr('Entry point map'),
+      text: (m) => (m.latestSnapshot ? (m.snapshotStale ? tr('stale|map') : tr('yes')) : tr('no')),
       sort: (m) => m.latestSnapshot?.entryCount ?? -1,
       filter: 'enum',
     },
@@ -110,21 +111,21 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
   return (
     <div className="modules-tab">
       <div className="toolbar">
-        <IconButton icon="plus" title="Добавить модуль вручную" label="Модуль" aria-pressed={creating} onClick={() => setCreating((c) => !c)} />
+        <IconButton icon="plus" title={tr('Add a module manually')} label={tr('Module')} aria-pressed={creating} onClick={() => setCreating((c) => !c)} />
         <IconButton
           icon="route"
-          title="Построить карты точек входа всех модулей"
-          label="Карты всех"
+          title={tr('Build entry point maps of all modules')}
+          label={tr('Map all')}
           disabled={!modules.length}
           onClick={() => void run(api.enqueueAllEntryPoints(project.id))}
         />
         {markupJob && (
           <span className="muted">
-            Разметка: {JOB_STATUS[markupJob.status]}
+            {tr('Markup: {status}', { status: JOB_STATUS[markupJob.status] })}
             {markupJob.lastRunId && (
               <>
                 {' '}
-                <IconButton icon="output" title="Смотреть вывод" onClick={() => void run(api.openRun(project.id, markupJob.lastRunId!)).then(onTerminal)} />
+                <IconButton icon="output" title={tr('Watch output')} onClick={() => void run(api.openRun(project.id, markupJob.lastRunId!)).then(onTerminal)} />
               </>
             )}
           </span>
@@ -133,7 +134,7 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
 
       {creating && (
         <div className="card">
-          <strong>Новый модуль</strong>
+          <strong>{tr('New module')}</strong>
           <ModuleForm
             project={project}
             run={run}
@@ -146,13 +147,13 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
       )}
 
       <details className="card" open={modules.length === 0}>
-        <summary>Разметка модулей ИИ</summary>
+        <summary>{tr('AI module markup')}</summary>
         <div className="form">
           <label className="wide">
-            Указания (необязательно): какие части репозитория размечать, как именовать
+            {tr('Hints (optional): which parts of the repository to mark up, how to name them')}
             <textarea rows={2} value={hint} onChange={(e) => setHint(e.target.value)} />
           </label>
-          <IconButton icon="wand" className="primary" title="Разметить модули с помощью ИИ" label="Разметить" disabled={Boolean(markupJob)} onClick={() => void markup()} />
+          <IconButton icon="wand" className="primary" title={tr('Mark up modules with AI')} label={tr('Mark up')} disabled={Boolean(markupJob)} onClick={() => void markup()} />
         </div>
       </details>
 
@@ -162,7 +163,7 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
         <tbody>
           {g.rows.length === 0 && (
             <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
-              Модулей нет. Запустите разметку или добавьте модуль.
+              {tr('No modules. Run the markup or add a module.')}
             </EmptyRow>
           )}
           {g.rows.map((m) => (
@@ -178,26 +179,26 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
               <td>{m.description}</td>
               <td>
                 {m.latestSnapshot ? (
-                  <span title={`прогон ${m.latestSnapshot.runId}`}>
+                  <span title={tr('run {id}', { id: m.latestSnapshot.runId })}>
                     {m.latestSnapshot.entryCount} · <span className="mono">{m.latestSnapshot.commitSha.slice(0, 8)}</span> ·{' '}
                     {time(m.latestSnapshot.createdAt)}
                     {m.snapshotStale && (
-                      <span className="status stale" title="код модуля или цепочек вызовов изменился после снимка">
+                      <span className="status stale" title={tr('module or call chain code changed after the snapshot')}>
                         {' '}
-                        устарела
+                        {tr('stale|map')}
                       </span>
                     )}
                   </span>
                 ) : (
-                  <span className="muted">нет</span>
+                  <span className="muted">{tr('no')}</span>
                 )}
                 {m.activeJob && <span className={`status s-${m.activeJob.status}`}> {JOB_STATUS[m.activeJob.status]}</span>}
               </td>
               <td className="actions" onClick={(e) => e.stopPropagation()}>
-                <IconButton icon="map" title="Открыть карту" disabled={!m.latestSnapshot} onClick={() => onOpenMap(m.id)} />
+                <IconButton icon="map" title={tr('Open map')} disabled={!m.latestSnapshot} onClick={() => onOpenMap(m.id)} />
                 <IconButton
                   icon={m.latestSnapshot ? 'recheck' : 'route'}
-                  title={m.latestSnapshot ? 'Перестроить карту' : 'Построить карту'}
+                  title={m.latestSnapshot ? tr('Rebuild map') : tr('Build map')}
                   disabled={Boolean(m.activeJob)}
                   onClick={() => void run(api.enqueueEntryPoints(project.id, m.id))}
                 />

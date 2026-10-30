@@ -6,6 +6,7 @@ import type { RunFn } from '../App';
 import { FINDING_STATUS, SEVERITY, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
+import { tr } from '../i18n';
 
 interface Props {
   project: ProjectInfo;
@@ -30,13 +31,13 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
     'findings',
     findings.filter((f) => merged || !f.mergedInto),
     [
-      { key: 'title', title: 'Находка', text: (f) => `${f.title} ${f.entryPoint ?? ''}` , sort: (f) => f.title },
+      { key: 'title', title: tr('Finding'), text: (f) => `${f.title} ${f.entryPoint ?? ''}` , sort: (f) => f.title },
       { key: 'severity', title: 'Severity', text: (f) => SEVERITY[f.severity], sort: (f) => SEVERITIES.indexOf(f.severity), filter: 'enum' },
-      { key: 'status', title: 'Статус', text: (f) => FINDING_STATUS[f.status], filter: 'enum' },
+      { key: 'status', title: tr('Status'), text: (f) => FINDING_STATUS[f.status], filter: 'enum' },
       { key: 'cwe', title: 'CWE', text: (f) => f.cwe ?? '' },
-      { key: 'module', title: 'Модуль', text: (f) => moduleName(f.moduleId), filter: 'enum' },
-      { key: 'links', title: 'Связи' },
-      { key: 'created', title: 'Создана', text: (f) => `${time(f.createdAt)} ${f.author}`, sort: (f) => f.createdAt },
+      { key: 'module', title: tr('Module'), text: (f) => moduleName(f.moduleId), filter: 'enum' },
+      { key: 'links', title: tr('Links') },
+      { key: 'created', title: tr('Created'), text: (f) => `${time(f.createdAt)} ${f.author}`, sort: (f) => f.createdAt },
     ],
   );
 
@@ -44,7 +45,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
     <div className="findings-tab">
       <div className="toolbar">
         <label className="check">
-          <input type="checkbox" checked={merged} onChange={(e) => setMerged(e.target.checked)} /> показывать объединённые
+          <input type="checkbox" checked={merged} onChange={(e) => setMerged(e.target.checked)} /> {tr('show merged')}
         </label>
         {g.count}
       </div>
@@ -53,7 +54,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
         <tbody>
           {g.rows.length === 0 && (
             <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
-              Находок нет: они появляются из вердиктов матрицы, SCA и ручного ввода
+              {tr('No findings: they come from matrix verdicts, SCA and manual input')}
             </EmptyRow>
           )}
           {g.rows.map((f) => (
@@ -61,7 +62,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
               <td>
                 <strong>{f.title}</strong>
                 {f.entryPoint && <div className="mono small muted">{f.entryPoint}</div>}
-                {f.mergedInto && <div className="muted small">объединена</div>}
+                {f.mergedInto && <div className="muted small">{tr('merged')}</div>}
               </td>
               <td>
                 <span className={`status sev-${f.severity}`}>{SEVERITY[f.severity]}</span>
@@ -72,7 +73,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
               <td className="mono">{f.cwe ?? ''}</td>
               <td>{moduleName(f.moduleId)}</td>
               <td className="small">
-                {f.cells.length > 0 && <div>ячеек {f.cells.length}</div>}
+                {f.cells.length > 0 && <div>{tr('cells {n}', { n: f.cells.length })}</div>}
                 {f.scaItems.length > 0 && <div>SCA {f.scaItems.length}</div>}
               </td>
               <td className="small">

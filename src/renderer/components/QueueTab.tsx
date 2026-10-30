@@ -6,6 +6,7 @@ import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
 import { IconButton } from './Icon';
+import { locale, tr } from '../i18n';
 
 interface Props {
   project: ProjectInfo;
@@ -49,20 +50,20 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
 
   const sel = (kind: Selection['kind'], id: string) => selection?.kind === kind && selection.id === id;
   const jobGrid = useGrid('queue.jobs', jobs, [
-    { key: 'status', title: 'Статус', text: (j) => JOB_STATUS[j.status], filter: 'enum' },
-    { key: 'title', title: 'Задача', text: (j) => j.title },
-    { key: 'role', title: 'Роль', text: (j) => j.role, filter: 'enum' },
-    { key: 'created', title: 'Создана', text: (j) => time(j.createdAt), sort: (j) => j.createdAt },
+    { key: 'status', title: tr('Status'), text: (j) => JOB_STATUS[j.status], filter: 'enum' },
+    { key: 'title', title: tr('Job'), text: (j) => j.title },
+    { key: 'role', title: tr('Role'), text: (j) => j.role, filter: 'enum' },
+    { key: 'created', title: tr('Created'), text: (j) => time(j.createdAt), sort: (j) => j.createdAt },
     { key: 'actions', title: '', className: 'actions' },
   ]);
   const runGrid = useGrid('queue.runs', runs, [
-    { key: 'started', title: 'Начало', text: (r) => time(r.startedAt), sort: (r) => r.startedAt },
-    { key: 'kind', title: 'Тип', text: (r) => (r.kind === 'background' ? 'фон' : 'интерактив'), filter: 'enum' },
-    { key: 'role', title: 'Роль', text: (r) => r.role, filter: 'enum' },
-    { key: 'status', title: 'Статус', text: (r) => RUN_STATUS[r.status], filter: 'enum' },
-    { key: 'session', title: 'Сессия', text: (r) => r.sessionId },
-    { key: 'tokens', title: 'Токены', text: (r) => (r.kind === 'background' ? tokens(r.usage) : '—'), sort: (r) => r.usage.input + r.usage.cacheCreation + r.usage.output },
-    { key: 'cost', title: 'Стоимость', text: (r) => cost(r.usage), sort: (r) => r.usage.costUsd ?? 0 },
+    { key: 'started', title: tr('Started'), text: (r) => time(r.startedAt), sort: (r) => r.startedAt },
+    { key: 'kind', title: tr('Type'), text: (r) => (r.kind === 'background' ? tr('background') : tr('interactive')), filter: 'enum' },
+    { key: 'role', title: tr('Role'), text: (r) => r.role, filter: 'enum' },
+    { key: 'status', title: tr('Status'), text: (r) => RUN_STATUS[r.status], filter: 'enum' },
+    { key: 'session', title: tr('Session'), text: (r) => r.sessionId },
+    { key: 'tokens', title: tr('Tokens'), text: (r) => (r.kind === 'background' ? tokens(r.usage) : '—'), sort: (r) => r.usage.input + r.usage.cacheCreation + r.usage.output },
+    { key: 'cost', title: tr('Cost'), text: (r) => cost(r.usage), sort: (r) => r.usage.costUsd ?? 0 },
   ]);
 
   return (
@@ -71,18 +72,18 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
         <IconButton
           icon="terminal"
           className="primary"
-          title="Интерактивная сессия claude в терминале"
-          label="Новая сессия"
+          title={tr('Interactive claude session in the terminal')}
+          label={tr('New session')}
           onClick={() => void run(api.newSession(project.id)).then(onTerminal)}
         />
         {queue && (
           <span className="muted">
-            Параллельность {queue.parallelism} · выполняется {queue.running}
+            {tr('Parallelism {n} · running {running}', { n: queue.parallelism, running: queue.running })}
             {queue.pausedUntil && (
               <>
                 {' '}
-                · <span className="warn">пауза (rate limit) до {new Date(queue.pausedUntil).toLocaleTimeString('ru-RU')}</span>{' '}
-                <IconButton icon="play" title="Снять паузу" label="Продолжить" onClick={() => void run(api.resumeQueue())} />
+                · <span className="warn">{tr('paused (rate limit) until {time}', { time: new Date(queue.pausedUntil).toLocaleTimeString(locale) })}</span>{' '}
+                <IconButton icon="play" title={tr('Resume')} label={tr('Continue')} onClick={() => void run(api.resumeQueue())} />
               </>
             )}
           </span>
@@ -90,10 +91,10 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
       </div>
 
       <details className="card" open>
-        <summary>Фоновая задача</summary>
+        <summary>{tr('Background task')}</summary>
         <div className="form">
           <label>
-            Роль
+            {tr('Role')}
             <select value={role} onChange={(e) => setRole(e.target.value)}>
               {roles.map((r) => (
                 <option key={r.name} value={r.name}>
@@ -103,19 +104,19 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
             </select>
           </label>
           <label>
-            Название
-            <input value={title} placeholder="необязательно" onChange={(e) => setTitle(e.target.value)} />
+            {tr('Title')}
+            <input value={title} placeholder={tr('optional')} onChange={(e) => setTitle(e.target.value)} />
           </label>
           <label className="wide">
-            Промпт
+            {tr('Prompt')}
             <textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
           </label>
-          <IconButton icon="plus" className="primary" title="Поставить задачу в очередь" label="В очередь" disabled={!prompt.trim() || !role} onClick={() => void enqueue()} />
+          <IconButton icon="plus" className="primary" title={tr('Enqueue the job')} label={tr('Enqueue')} disabled={!prompt.trim() || !role} onClick={() => void enqueue()} />
         </div>
       </details>
 
       <div className="grid-title">
-        <h3>Очередь</h3>
+        <h3>{tr('Queue')}</h3>
         {jobGrid.count}
       </div>
       <table className="grid">
@@ -123,7 +124,7 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
         <tbody>
           {jobGrid.rows.length === 0 && (
             <EmptyRow colSpan={jobGrid.colSpan} filtered={jobGrid.filtered}>
-              Задач нет
+              {tr('No jobs')}
             </EmptyRow>
           )}
           {jobGrid.rows.map((j) => (
@@ -137,18 +138,18 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
               <td className="actions" onClick={(e) => e.stopPropagation()}>
                 {j.status === 'running' && j.lastRunId && (
                   <>
-                    <IconButton icon="output" title="Смотреть вывод" onClick={() => void run(api.openRun(project.id, j.lastRunId!)).then(onTerminal)} />
-                    <IconButton icon="takeover" title="Перехватить в интерактивную сессию" onClick={() => void run(api.takeOver(project.id, j.id)).then(onTerminal)} />
+                    <IconButton icon="output" title={tr('Watch output')} onClick={() => void run(api.openRun(project.id, j.lastRunId!)).then(onTerminal)} />
+                    <IconButton icon="takeover" title={tr('Take over into an interactive session')} onClick={() => void run(api.takeOver(project.id, j.id)).then(onTerminal)} />
                   </>
                 )}
                 {(j.status === 'queued' || j.status === 'running') && (
-                  <IconButton icon="stop" className="danger" title="Отменить" onClick={() => void run(api.cancelJob(project.id, j.id))} />
+                  <IconButton icon="stop" className="danger" title={tr('Cancel|action')} onClick={() => void run(api.cancelJob(project.id, j.id))} />
                 )}
                 {(j.status === 'failed' || j.status === 'cancelled') && (
-                  <IconButton icon="retry" title="Повторить" onClick={() => void run(api.retryJob(project.id, j.id))} />
+                  <IconButton icon="retry" title={tr('Retry')} onClick={() => void run(api.retryJob(project.id, j.id))} />
                 )}
                 {j.status !== 'running' && j.lastRunId && (
-                  <IconButton icon="terminal" title="Открыть сессию" onClick={() => void run(api.openRun(project.id, j.lastRunId!)).then(onTerminal)} />
+                  <IconButton icon="terminal" title={tr('Open session')} onClick={() => void run(api.openRun(project.id, j.lastRunId!)).then(onTerminal)} />
                 )}
               </td>
             </tr>
@@ -157,7 +158,7 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
       </table>
 
       <div className="grid-title">
-        <h3>Сессии и прогоны</h3>
+        <h3>{tr('Sessions and runs')}</h3>
         {runGrid.count}
       </div>
       <table className="grid">
@@ -165,13 +166,13 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
         <tbody>
           {runGrid.rows.length === 0 && (
             <EmptyRow colSpan={runGrid.colSpan} filtered={runGrid.filtered}>
-              Прогонов нет
+              {tr('No runs')}
             </EmptyRow>
           )}
           {runGrid.rows.map((r) => (
             <tr key={r.id} className={sel('run', r.id) ? 'selected' : ''} onClick={() => onSelect({ kind: 'run', id: r.id })}>
               <td>{time(r.startedAt)}</td>
-              <td>{r.kind === 'background' ? 'фон' : 'интерактив'}</td>
+              <td>{r.kind === 'background' ? tr('background') : tr('interactive')}</td>
               <td>{r.role}</td>
               <td>
                 <span className={`status r-${r.status}`}>{RUN_STATUS[r.status]}</span>

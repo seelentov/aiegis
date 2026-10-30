@@ -6,6 +6,7 @@ import { CELL_STATUS, JOB_STATUS, kTokens, STALE_REASON } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid, type Col } from './Grid';
 import { Icon, IconButton } from './Icon';
+import { tr } from '../i18n';
 
 interface Props {
   project: ProjectInfo;
@@ -33,21 +34,21 @@ function MatrixForm({ project, run, matrix, onDone }: { project: ProjectInfo; ru
   return (
     <div className="form">
       <label>
-        Название
+        {tr('Title')}
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <div />
       <fieldset>
-        <legend>Документы (утверждённые версии)</legend>
+        <legend>{tr('Documents (approved versions)')}</legend>
         {allDocs.map((d) => (
           <label key={d.id} className="check">
             <input type="checkbox" checked={docs.includes(d.id)} disabled={!d.current} onChange={() => toggle(docs, setDocs, d.id)} />
-            {d.title} {d.current ? <span className="muted">v{d.current.n}</span> : <span className="muted">(нет утверждённой версии)</span>}
+            {d.title} {d.current ? <span className="muted">v{d.current.n}</span> : <span className="muted">{tr('(no approved version)')}</span>}
           </label>
         ))}
       </fieldset>
       <fieldset>
-        <legend>Модули (ничего не выбрано — все)</legend>
+        <legend>{tr('Modules (none selected means all)')}</legend>
         {allMods.map((m) => (
           <label key={m.id} className="check">
             <input type="checkbox" checked={mods.includes(m.id)} onChange={() => toggle(mods, setMods, m.id)} />
@@ -57,15 +58,15 @@ function MatrixForm({ project, run, matrix, onDone }: { project: ProjectInfo; ru
       </fieldset>
       <div className="wide row">
         <button className="primary" disabled={!name.trim() || !docs.length} onClick={() => void save()}>
-          Сохранить
+          {tr('Save')}
         </button>
-        <button onClick={() => onDone()}>Отмена</button>
+        <button onClick={() => onDone()}>{tr('Cancel')}</button>
       </div>
     </div>
   );
 }
 
-const STAGE_TITLE: Record<MatrixStage, string> = { triage: 'Отсев n/a', verdicts: 'Вердикты' };
+const STAGE_TITLE: Record<MatrixStage, string> = { triage: tr('n/a triage'), verdicts: tr('Verdicts') };
 
 /** Dry-run estimate shown before queuing a matrix stage (SPEC §7). */
 export function EstimatePanel({ estimate, title, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; onRun: () => void; onCancel: () => void }) {
@@ -73,20 +74,25 @@ export function EstimatePanel({ estimate, title, onRun, onCancel }: { estimate: 
   return (
     <div className="card estimate">
       <strong>
-        Оценка: {title ?? STAGE_TITLE[estimate.stage]} (роль {estimate.role})
+        {tr('Estimate: {title} (role {role})', { title: title ?? STAGE_TITLE[estimate.stage], role: estimate.role })}
       </strong>
       <div>
-        Сессий: {estimate.sessions} · ячеек: {estimate.cells} · ≈{kTokens(estimate.tokens)} токенов ({kTokens(estimate.tokensPerCell)} на ячейку,{' '}
-        {estimate.tokensPerCellSource === 'history' ? 'по истории прогонов' : 'по конфигу'})
-        {estimate.busy > 0 && <span className="muted"> · уже в очереди: {estimate.busy}</span>}
+        {tr('Sessions: {sessions} · cells: {cells} · ≈{tokens} tokens ({perCell} per cell, {source})', {
+          sessions: estimate.sessions,
+          cells: estimate.cells,
+          tokens: kTokens(estimate.tokens),
+          perCell: kTokens(estimate.tokensPerCell),
+          source: estimate.tokensPerCellSource === 'history' ? tr('from run history') : tr('from config'),
+        })}
+        {estimate.busy > 0 && <span className="muted"> · {tr('already queued: {n}', { n: estimate.busy })}</span>}
       </div>
       {over.length > 0 && (
         <div className="warn">
-          {over.length} сессий могут превысить лимит {kTokens(estimate.maxTokensPerRun)} токенов на прогон — уменьшите matrix.batch_size или поднимите limits.max_tokens_per_run.
+          {tr('{n} sessions may exceed the limit of {limit} tokens per run: lower matrix.batch_size or raise limits.max_tokens_per_run.', { n: over.length, limit: kTokens(estimate.maxTokensPerRun) })}
         </div>
       )}
       <details>
-        <summary>Сессии</summary>
+        <summary>{tr('Sessions')}</summary>
         <table className="grid compact">
           <tbody>
             {estimate.batches.map((b, i) => (
@@ -101,8 +107,8 @@ export function EstimatePanel({ estimate, title, onRun, onCancel }: { estimate: 
         </table>
       </details>
       <div className="row">
-        <IconButton icon="play" className="primary" title="Поставить сессии в очередь" label="Запустить" disabled={!estimate.cells} onClick={onRun} />
-        <button onClick={onCancel}>Отмена</button>
+        <IconButton icon="play" className="primary" title={tr('Enqueue the sessions')} label={tr('Run')} disabled={!estimate.cells} onClick={onRun} />
+        <button onClick={onCancel}>{tr('Cancel')}</button>
       </div>
     </div>
   );
@@ -114,11 +120,11 @@ function CellBadge({ c }: { c: Cell }) {
       <span className={`status cs-${c.status.replace('/', '')}`}>{cellLabel(c)}</span>
       {c.stale && (
         <span className="status stale" title={c.staleReasons.map((r) => STALE_REASON[r]).join(', ')}>
-          устарело
+          {tr('stale')}
         </span>
       )}
       {c.findingCount > 0 && (
-        <span className="status cs-finding" title={`находок: ${c.findingCount}`}>
+        <span className="status cs-finding" title={tr('findings: {n}', { n: c.findingCount })}>
           <Icon name="finding" size={12} /> {c.findingCount}
         </span>
       )}
@@ -134,7 +140,7 @@ type Pending =
 type RowFilter = 'all' | 'stale' | 'finding' | 'not_checked';
 type Req = MatrixView['requirements'][number];
 
-const cellLabel = (c: Cell) => (c.status === 'not_checked' && c.triaged ? 'применимо' : CELL_STATUS[c.status]);
+const cellLabel = (c: Cell) => (c.status === 'not_checked' && c.triaged ? tr('applicable') : CELL_STATUS[c.status]);
 // Sorting a module column puts work first: unchecked, then findings, then the rest.
 const CELL_RANK: Record<string, number> = { not_checked: 0, needs_human: 1, finding: 2, pass: 3, 'n/a': 4 };
 
@@ -184,7 +190,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
     const ids = (todo.length ? todo : cells).map((c) => `${c.moduleId}/${c.requirementId}`);
     if (!ids.length) return;
     const e = await run(api.estimateRecheck(project.id, ids, matrixId));
-    if (e) setPending({ kind: 'cells', cells: ids, title: `вердикты, ${title}`, estimate: e });
+    if (e) setPending({ kind: 'cells', cells: ids, title: tr('verdicts, {scope}', { scope: title }), estimate: e });
   };
 
   const modules = view?.modules ?? [];
@@ -195,7 +201,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
       return c && (filter === 'stale' ? c.stale : filter === 'finding' ? c.findingCount > 0 || c.status === 'finding' : c.status === 'not_checked');
     });
   const cols: Col<Req>[] = [
-    { key: 'req', title: 'Требование', text: (r) => `${r.key} ${r.text}`, sort: (r) => r.key, className: 'req-col' },
+    { key: 'req', title: tr('Requirement'), text: (r) => `${r.key} ${r.text}`, sort: (r) => r.key, className: 'req-col' },
     ...modules.map(
       (m): Col<Req> => ({
         key: m.id,
@@ -213,8 +219,8 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
           <IconButton
             icon="play"
             className="ghost col-run"
-            title={`Вердикты по модулю ${m.name}: непроверенные и устаревшие ячейки`}
-            onClick={() => void runSlice(`модуль ${m.name}`, (view?.requirements ?? []).map((r) => [m.id, r.requirementId]))}
+            title={tr('Verdicts for module {name}: unchecked and stale cells', { name: m.name })}
+            onClick={() => void runSlice(tr('module {name}', { name: m.name }), (view?.requirements ?? []).map((r) => [m.id, r.requirementId]))}
           />
         ),
       }),
@@ -241,30 +247,30 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
   return (
     <div className="matrix-tab">
       <div className="toolbar">
-        <select aria-label="Матрица" value={matrixId ?? ''} onChange={(e) => (setMatrixId(e.target.value), setPending(null))}>
-          {matrices.length === 0 && <option value="">нет матриц</option>}
+        <select aria-label={tr('Matrix')} value={matrixId ?? ''} onChange={(e) => (setMatrixId(e.target.value), setPending(null))}>
+          {matrices.length === 0 && <option value="">{tr('no matrices')}</option>}
           {matrices.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
           ))}
         </select>
-        <IconButton icon="plus" title="Новая матрица" aria-pressed={form === 'new'} onClick={() => setForm(form === 'new' ? null : 'new')} />
-        {matrix && <IconButton icon="edit" title="Изменить состав матрицы" aria-pressed={form === 'edit'} onClick={() => setForm(form === 'edit' ? null : 'edit')} />}
+        <IconButton icon="plus" title={tr('New matrix')} aria-pressed={form === 'new'} onClick={() => setForm(form === 'new' ? null : 'new')} />
+        {matrix && <IconButton icon="edit" title={tr('Edit the matrix')} aria-pressed={form === 'edit'} onClick={() => setForm(form === 'edit' ? null : 'edit')} />}
         {matrix && (
           <span className="toolbar-group">
-            <IconButton icon="triage" title="Этап 1: отсеять неприменимые ячейки (дешёвая модель)" label="Отсев n/a" onClick={() => void estimate('triage', 'pending')} />
+            <IconButton icon="triage" title={tr('Stage 1: filter out inapplicable cells (cheap model)')} label={tr('n/a triage')} onClick={() => void estimate('triage', 'pending')} />
             <IconButton
               icon="play"
               className="primary"
-              title="Этап 2: вердикты для всех непроверенных ячеек матрицы"
-              label="Вердикты"
+              title={tr('Stage 2: verdicts for all unchecked cells of the matrix')}
+              label={tr('Verdicts')}
               onClick={() => void estimate('verdicts', 'pending')}
             />
             <IconButton
               icon="recheck"
-              title="Перепроверить устаревшие ячейки"
-              label={`Устаревшие ${counts?.stale ?? 0}`}
+              title={tr('Recheck stale cells')}
+              label={`${tr('Stale')} ${counts?.stale ?? 0}`}
               disabled={!counts?.stale}
               onClick={() => void estimate('verdicts', 'stale')}
             />
@@ -289,11 +295,11 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
         <EstimatePanel estimate={pending.estimate} title={pending.kind === 'cells' ? pending.title : undefined} onRun={() => void start()} onCancel={() => setPending(null)} />
       )}
       {!matrix ? (
-        <div className="empty">Матриц нет. Загрузите и утвердите документ на вкладке «Документы», затем создайте матрицу.</div>
+        <div className="empty">{tr('No matrices. Upload and approve a document on the “Documents” tab, then create a matrix.')}</div>
       ) : !view ? null : (
         <>
-          <div className="toolbar legend" role="group" aria-label="Строки">
-            <span className="mono muted" title="коммит, на котором показаны вердикты">
+          <div className="toolbar legend" role="group" aria-label={tr('Rows')}>
+            <span className="mono muted" title={tr('the commit the verdicts are shown for')}>
               HEAD {view.head.slice(0, 8)}
             </span>
             {counts!.byStatus.map(([k, n]) => {
@@ -304,7 +310,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
                 </>
               );
               return f ? (
-                <button key={k} className="chip" aria-pressed={filter === f} title="Показать строки с такими ячейками" onClick={() => setFilter(filter === f ? 'all' : f)}>
+                <button key={k} className="chip" aria-pressed={filter === f} title={tr('Show rows with such cells')} onClick={() => setFilter(filter === f ? 'all' : f)}>
                   {chip}
                 </button>
               ) : (
@@ -313,8 +319,8 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
                 </span>
               );
             })}
-            <button className="chip" aria-pressed={filter === 'stale'} title="Показать строки с устаревшими ячейками" onClick={() => setFilter(filter === 'stale' ? 'all' : 'stale')}>
-              <span className="status stale">устарело</span> {counts!.stale}
+            <button className="chip" aria-pressed={filter === 'stale'} title={tr('Show rows with stale cells')} onClick={() => setFilter(filter === 'stale' ? 'all' : 'stale')}>
+              <span className="status stale">{tr('stale')}</span> {counts!.stale}
             </button>
             {g.count}
           </div>
@@ -335,8 +341,8 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
                         <IconButton
                           icon="play"
                           className="ghost row-run"
-                          title={`Вердикты по разделу: ${sec.items.length} требований`}
-                          onClick={() => void runSlice(`раздел ${sec.key}`, sec.items.flatMap(rowPairs))}
+                          title={tr('Verdicts for the section: {n} requirements', { n: sec.items.length })}
+                          onClick={() => void runSlice(tr('section {key}', { key: sec.key }), sec.items.flatMap(rowPairs))}
                         />
                       </td>
                     </tr>
@@ -347,7 +353,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
                             <span>
                               <span className="mono">{r.key}</span> {r.text}
                             </span>
-                            <IconButton icon="play" className="ghost row-run" title={`Вердикты по требованию ${r.key}`} onClick={() => void runSlice(`требование ${r.key}`, rowPairs(r))} />
+                            <IconButton icon="play" className="ghost row-run" title={tr('Verdicts for requirement {key}', { key: r.key })} onClick={() => void runSlice(tr('requirement {key}', { key: r.key }), rowPairs(r))} />
                           </div>
                         </td>
                         {modules.map((m) => {
