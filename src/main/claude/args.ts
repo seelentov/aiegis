@@ -11,7 +11,12 @@ export interface ClaudeCommand {
   inherit?: string[];
 }
 
-function levelArgs(cfg: EffectiveConfig): string[] {
+/** Directories outside the working directory: the role's `permissions.dirs` (`~/` = home) plus `extra`. */
+export function dirsOf(cfg: EffectiveConfig, extra: string[] = []): string[] {
+  return [...cfg.level.permissions.dirs.map((d) => (d.value.startsWith('~/') ? path.join(os.homedir(), d.value.slice(2)) : d.value)), ...extra];
+}
+
+function levelArgs(cfg: EffectiveConfig, dirs: string[] = []): string[] {
   const args: string[] = [];
   const { level } = cfg;
   if (level.model) args.push('--model', level.model.value);
@@ -22,16 +27,16 @@ function levelArgs(cfg: EffectiveConfig): string[] {
   if (allow.length) args.push('--allowedTools', allow.join(','));
   const deny = level.permissions.deny.map((d) => d.value);
   if (deny.length) args.push('--disallowedTools', deny.join(','));
-  for (const d of level.permissions.dirs) args.push('--add-dir', d.value.startsWith('~/') ? path.join(os.homedir(), d.value.slice(2)) : d.value);
+  for (const d of dirsOf(cfg, dirs)) args.push('--add-dir', d);
   return args;
 }
 
-function envOf(cfg: EffectiveConfig): Record<string, string> {
+export function envOf(cfg: EffectiveConfig): Record<string, string> {
   return Object.fromEntries(Object.entries(cfg.level.env).map(([k, v]) => [k, v.value]));
 }
 
 /** Non-interactive run; the prompt is written to stdin. */
-export function backgroundCommand(cfg: EffectiveConfig, o: { sessionId: string; mcpConfigPath: string }): ClaudeCommand {
+export function backgroundCommand(cfg: EffectiveConfig, o: { sessionId: string; mcpConfigPath: string; dirs?: string[] }): ClaudeCommand {
   return {
     binary: cfg.settings.claude.binary,
     args: [
@@ -43,7 +48,7 @@ export function backgroundCommand(cfg: EffectiveConfig, o: { sessionId: string; 
       o.sessionId,
       '--mcp-config',
       o.mcpConfigPath,
-      ...levelArgs(cfg),
+      ...levelArgs(cfg, o.dirs),
       ...cfg.settings.claude.background_args,
     ],
     env: envOf(cfg),
@@ -53,7 +58,7 @@ export function backgroundCommand(cfg: EffectiveConfig, o: { sessionId: string; 
 /** Interactive session: new (`--session-id`) or continued (`--resume`), optionally with an initial prompt. */
 export function interactiveCommand(
   cfg: EffectiveConfig,
-  o: { sessionId: string; resume: boolean; mcpConfigPath: string; prompt?: string },
+  o: { sessionId: string; resume: boolean; mcpConfigPath: string; prompt?: string; dirs?: string[] },
 ): ClaudeCommand {
   return {
     binary: cfg.settings.claude.binary,
@@ -64,7 +69,7 @@ export function interactiveCommand(
       o.sessionId,
       '--mcp-config',
       o.mcpConfigPath,
-      ...levelArgs(cfg),
+      ...levelArgs(cfg, o.dirs),
       ...cfg.settings.claude.interactive_args,
     ],
     env: envOf(cfg),

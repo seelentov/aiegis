@@ -139,3 +139,57 @@ describe('PoC tester with a fake claude', () => {
     await expect(core.enqueuePoc(pid, f.id)).rejects.toThrow('suspected');
   });
 });
+
+describe('env-setup with a fake claude', () => {
+  it('saves the environment the session describes, fails when it does not start and hands the failure to a re-run', async () => {
+    process.env.TEST_POC_PORT = String(port);
+    const passthrough = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TEST_POC_PORT'];
+    projectConfig({ env_passthrough: passthrough, environment: { accounts: { alice: { username: 'alice', secrets: { password: { env: 'TEST_POC_ALICE' } } } } } });
+    const f = finding('needs env');
+    expect(core.findingDetails(pid, f.id).poc).toMatchObject({ available: false, setup: null });
+
+    const first = await core.enqueuePocSetup(pid);
+    expect(String(first.payload.prompt)).toContain('`$AIEGIS_POC_ALICE_PASSWORD`');
+    // The tester's failed start (previous test) is the context of the first env-setup.
+    expect(String(first.payload.prompt)).toContain('start command exited with code 7');
+    await expect(core.enqueuePocSetup(pid)).rejects.toThrow('already has a queued job');
+    const failed = await settled(first);
+    expect(failed.status).toBe('failed');
+    expect(failed.error).toContain('the test environment did not start');
+    const run = core.store(pid).getRun(failed.lastRunId!)!;
+    expect(run.cwd).toBe(path.join(data, pid, 'poc-worktrees', run.commitSha));
+    const log = fs.readFileSync(run.logPath!, 'utf8');
+    expect(log).toContain('invalid script name');
+    expect(log).toContain('secret=absent');
+    expect(log).toContain('shell token=absent');
+    expect(log).toContain(`scripts=${path.join(repo, '.aiegis', 'poc')}`);
+    expect(log).toContain(`add-dir=${repo}`);
+    expect(log).toContain('check1=failed saw=true');
+    expect(fs.existsSync(path.join(repo, '.aiegis', 'escape.sh'))).toBe(false);
+    expect(core.findingDetails(pid, f.id).poc).toMatchObject({ available: true, setup: { status: 'failed' } });
+
+    const retry = await core.enqueuePocSetup(pid);
+    expect(String(retry.payload.prompt)).toContain('local config is missing');
+    expect((await settled(retry)).status).toBe('done');
+    const cfg = YAML.parse(fs.readFileSync(path.join(repo, '.aiegis', 'config.yaml'), 'utf8')).poc;
+    expect(cfg.env_passthrough).toEqual(passthrough);
+    expect(cfg.environment).toMatchObject({ start: 'sh "$AIEGIS_POC_SCRIPTS/start.sh"', base_url: `http://127.0.0.1:${port}`, accounts: { alice: { username: 'alice' } } });
+    expect(fs.existsSync(path.join(data, pid, 'poc-env-failure.log'))).toBe(false);
+    await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+  });
+
+  it('lets the session fix the environment after its own failed start', async () => {
+    const cfg = YAML.parse(fs.readFileSync(path.join(repo, '.aiegis', 'config.yaml'), 'utf8')).poc;
+    projectConfig({ ...cfg, environment: { ...cfg.environment, stop: 'echo stopped', accounts: { alice: { ...cfg.environment.accounts.alice, notes: 'FIX_IN_SESSION' } } } });
+    const j = await settled(await core.enqueuePocSetup(pid));
+    expect(j.status).toBe('done');
+    const log = fs.readFileSync(core.store(pid).getRun(j.lastRunId!)!.logPath!, 'utf8');
+    expect(log).toContain('check1=failed saw=true');
+    expect(log).toContain('after save=idle');
+    expect(log).toContain('check2=ready');
+    // The session saved no stop: the configured one stays.
+    expect(YAML.parse(fs.readFileSync(path.join(repo, '.aiegis', 'config.yaml'), 'utf8')).poc.environment.stop).toBe('echo stopped');
+    expect(fs.existsSync(path.join(data, pid, 'poc-env-failure.log'))).toBe(false);
+    await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+  });
+});

@@ -174,6 +174,42 @@ if (!args.includes('-p')) {
       }
       return done('verdicts');
     }
+    if (prompt.includes('Set up the PoC test environment')) {
+      // Saves a start script that fails and checks it; with FIX_IN_SESSION it then fixes and re-checks it itself,
+      // otherwise a re-run sees the failure in its prompt and saves the fixed script without checking.
+      const base = `http://127.0.0.1:${process.env.TEST_POC_PORT}`;
+      const good = `#!/bin/sh\nPORT=${process.env.TEST_POC_PORT} exec node srv.js\n`;
+      const bad = '#!/bin/sh\necho local config is missing >&2\nexit 3\n';
+      const env = { start: 'sh "$AIEGIS_POC_SCRIPTS/start.sh"', healthcheck: `curl -sf ${base}/`, base_url: base };
+      const save = (content) => mcp('set_poc_environment', { ...env, files: [{ name: 'start.sh', content }] });
+      const check = async (action, wait_sec) => JSON.parse((await mcp('check_poc_environment', { action, wait_sec })).content[0].text);
+      const started = async () => {
+        await check('start');
+        for (;;) {
+          const st = await check('status', 5);
+          if (st.state !== 'starting') return st;
+        }
+      };
+      const out = [(await mcp('set_poc_environment', { ...env, files: [{ name: '../escape.sh', content: 'x' }] })).content[0].text];
+      if (prompt.includes('local config is missing')) out.push((await save(good)).content[0].text);
+      else {
+        await save(bad);
+        const first = await started();
+        out.push(`check1=${first.state} saw=${first.output.includes('local config is missing')}`);
+        if (prompt.includes('FIX_IN_SESSION')) {
+          await save(good);
+          out.push(`after save=${(await check('status')).state}`);
+          out.push(`check2=${(await started()).state}`);
+        }
+      }
+      out.push(
+        `secret=${process.env.AIEGIS_POC_ALICE_PASSWORD ?? 'absent'}`,
+        `shell token=${process.env.TEST_POC_SHELL_TOKEN ?? 'absent'}`,
+        `scripts=${process.env.AIEGIS_POC_SCRIPTS}`,
+        `add-dir=${arg('--add-dir')}`,
+      );
+      return done(out.join('\n'));
+    }
     if (prompt.includes('Reproduce suspected finding')) {
       // Asks the app's PreToolUse hook (from --settings) about commands, then tests the instance it started.
       const settings = JSON.parse(fs.readFileSync(arg('--settings'), 'utf8'));

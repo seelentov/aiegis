@@ -109,6 +109,8 @@ export interface AiegisApi {
   openFixSession(projectId: string, findingId: string): string;
   /** Queues the PoC tester on a suspected finding. */
   enqueuePoc(projectId: string, findingId: string): Job;
+  /** Queues env-setup: an agent works out how to start the project and writes its test environment (one per project). */
+  enqueuePocSetup(projectId: string): Job;
 
   /** Configured scanners and their availability (checked at startup; `refresh` re-checks). */
   scannerStatus(projectId: string, refresh?: boolean): ScannerStatus[];

@@ -80,6 +80,7 @@ export interface RoleInfo {
 
 export interface Settings {
   claude: { binary: string; background_args: string[]; interactive_args: string[] };
+  pi: { binary: string; background_args: string[]; interactive_args: string[]; tools: Record<string, string[]> };
   queue: { parallelism: number; rate_limit_fallback_pause_sec: number };
   limits: { max_tokens_per_run: number };
   terminal: { external_app: string };
@@ -112,10 +113,14 @@ export interface Settings {
     start_timeout_sec: number;
     healthcheck_interval_sec: number;
     stop_timeout_sec: number;
+    /** Longest wait of one `check_poc_environment` status call (env-setup). */
+    check_wait_max_sec: number;
     /** The only variables of the app's environment the tester session and the instance inherit. */
     env_passthrough: string[];
     /** Claude Code settings (`--settings`) of tester sessions: the OS sandbox. */
     claude_settings: Record<string, unknown>;
+    /** Sandbox runtime config of tester sessions under pi: the OS sandbox of their bash commands. */
+    pi_sandbox: Record<string, unknown>;
     /** Test environment (project config); without it the tester is unavailable. */
     environment?: { start?: string; healthcheck?: string; stop?: string; base_url?: string; accounts?: Record<string, PocAccount> };
   };
@@ -143,7 +148,7 @@ export function scannerSettings(settings: Settings, name: string): ScannerSettin
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
@@ -173,6 +178,10 @@ const REQUIRED_SETTINGS: string[] = [
   'claude.binary',
   'claude.background_args',
   'claude.interactive_args',
+  'pi.binary',
+  'pi.background_args',
+  'pi.interactive_args',
+  'pi.tools',
   'queue.parallelism',
   'queue.rate_limit_fallback_pause_sec',
   'limits.max_tokens_per_run',
@@ -200,8 +209,10 @@ const REQUIRED_SETTINGS: string[] = [
   'poc.start_timeout_sec',
   'poc.healthcheck_interval_sec',
   'poc.stop_timeout_sec',
+  'poc.check_wait_max_sec',
   'poc.env_passthrough',
   'poc.claude_settings',
+  'poc.pi_sandbox',
   ...TASK_KINDS.flatMap((t) => ['role', 'title', 'prompt'].map((k) => `tasks.${t}.${k}`)),
 ];
 
@@ -243,8 +254,8 @@ function roleInfo(name: string, global: LoadedFile, project?: LoadedFile): RoleI
 
 function levelOf(obj: Level | undefined): Level {
   if (!obj) return {};
-  const { model, effort, instructions, permissions, env } = obj;
-  return { model, effort, instructions, permissions, env };
+  const { agent, model, effort, instructions, permissions, env } = obj;
+  return { agent, model, effort, instructions, permissions, env };
 }
 
 /** Builds cascade layers: global -> project -> role (global, project) -> module -> matrix -> requirement. */
@@ -295,12 +306,18 @@ export function resolveConfig(loc: ConfigLocation, target: ResolveTarget): Effec
   };
 }
 
+/** Coding agent of a session (`agent` of the cascade). */
+export function agentOf(cfg: EffectiveConfig): 'claude' | 'pi' {
+  if (!cfg.level.agent) throw new ConfigError('missing in the config: agent');
+  return cfg.level.agent.value;
+}
+
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks', 'scanners'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing
- * entries of `roles`/`tasks`/`scanners`. Existing values are never changed; comments are preserved. Returns added paths.
+ * entries of `roles`/`tasks`/`scanners`/`poc`. Existing values are never changed; comments are preserved. Returns added paths.
  */
 export function addMissingDefaults(userText: string, defaultsText: string): { text: string; added: string[] } {
   const doc = YAML.parseDocument(userText);

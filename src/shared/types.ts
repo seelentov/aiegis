@@ -414,8 +414,8 @@ export interface FindingDetails {
   similar: SimilarFinding[];
   /** Matrix cells and fix sessions that ran for this finding. */
   runs: Run[];
-  /** PoC tester: results (newest first), whether it can run and why not, its queued or running job. */
-  poc: { results: PocResult[]; available: boolean; reason: string | null; baseUrl: string | null; job: Job | null };
+  /** PoC tester: results (newest first), whether it can run and why not, its queued or running job, the latest env-setup job of the project. */
+  poc: { results: PocResult[]; available: boolean; reason: string | null; baseUrl: string | null; job: Job | null; setup: Job | null };
 }
 
 export interface CellDetails {
@@ -795,6 +795,7 @@ export interface ConfigFileInfo {
 
 export interface EffectiveConfigView {
   role: { name: string; title: string; kind: string; mcp_access: string };
+  agent?: { value: string; source: string };
   model?: { value: string; source: string };
   effort?: { value: string; source: string };
   instructions: { source: string; file?: string; text: string }[];

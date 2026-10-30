@@ -29,7 +29,7 @@ import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHa
 import { CARRIED_AUTHOR } from '../audit-store';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
 import { fileInside, missingInReport, SCA_MODULE_ENTITY, SCA_PACKAGE_ENTITY, scaItemId, scaPackageEntityId, scaTouched } from '../sca';
-import { hookDecision, POC_ENTITY } from '../poc';
+import { hookDecision, POC_ENTITY, POC_ENV_ENTITY, POC_ENV_ID, splitInlinedArg, type PocEnvironment } from '../poc';
 import type { SignalQuery } from '../signals';
 import type { ProjectStore } from '../store';
 import { authorize, type Action, type Grant, type TokenRegistry } from './tokens';
@@ -54,6 +54,13 @@ export interface McpServices {
   scaSettings(projectId: string): Settings['sca'];
   /** Where an inventory report is kept once copied out of the run's checkout. */
   scaReportFile(projectId: string, report: Pick<ScaReport, 'id' | 'path'>): string;
+  /** Saves the project's test environment described by env-setup (scripts and `poc.environment`). */
+  setPocEnvironment(
+    projectId: string,
+    e: { start: string; healthcheck: string; stop?: string; base_url: string; files?: { name: string; content: string }[] },
+  ): Promise<PocEnvironment>;
+  /** env-setup's own start of the environment: start it in the background, poll it, or stop it. */
+  pocCheck(projectId: string, action: 'start' | 'status' | 'stop', waitSec?: number): Promise<{ state: string; error: string | null; output: string }>;
   /** Called after an agent wrote something, so the UI can refresh. */
   onWrite(projectId: string): void;
 }
@@ -70,6 +77,12 @@ const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }],
 /** "The scanners found nothing" is not evidence for a pass (role prompt); the agent must argue from the code. */
 export const NO_SIGNALS_REASON =
   /\b(no|zero|without|absence of)\b[^.;]{0,30}\b(signals?|scanners?|semgrep|gitleaks|trivy)\b|\b(signals?|scanners?|semgrep|gitleaks|trivy)\b[^.;]{0,30}\b(returned|found|reported|showed?)\s+(no|nothing|none)\b/i;
+
+const pocStep = z.object({
+  action: z.string().min(1).describe('Request or command that was run (no secret values)'),
+  result: z.string().min(1).describe('Excerpt of the response: status and the relevant part of the body'),
+  note: z.string().optional(),
+});
 
 export function buildServer(grant: Grant, svc: McpServices, checks: SimilarChecks = new Map()): McpServer {
   const server = new McpServer({ name: 'aiegis', version: '0.1.0' });
@@ -952,36 +965,75 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     'set_poc_result',
     {
       description:
-        'Result of the PoC test of the finding in your scope (poc:<finding_id>): reproduced / not_reproduced need the steps you ran with the responses you observed; inconclusive needs a summary of what is missing. Does not change the finding status.',
+        'Result of the PoC test of the finding in your scope (poc:<finding_id>): reproduced / not_reproduced need the steps you ran with the responses you observed; inconclusive needs a summary of what is missing. Does not change the finding status. Every call is stored and shown to humans: never call it to test the tool.',
       inputSchema: {
         finding_id: z.string(),
         outcome: z.enum(POC_OUTCOMES),
         summary: z.string().min(1),
-        steps: z
-          .array(
-            z.object({
-              action: z.string().min(1).describe('Request or command that was run (no secret values)'),
-              result: z.string().min(1).describe('Excerpt of the response: status and the relevant part of the body'),
-              note: z.string().optional(),
-            }),
-          )
-          .optional(),
+        steps: z.array(pocStep).optional(),
       },
     },
     async (a) =>
       guard({ kind: 'write', entity: { type: POC_ENTITY, id: a.finding_id } }, () => {
         const run = liveRun();
         if (!grant.baseUrl) return fail('the run has no test environment');
-        const steps = a.steps ?? [];
+        let { summary, steps = [] } = a;
+        // Models sometimes write a long steps array into summary as tool-call markup; take it back out.
+        const inlined = a.steps ? null : splitInlinedArg(summary, 'steps');
+        if (inlined) {
+          const parsed = z.array(pocStep).safeParse(inlined.value);
+          if (!parsed.success) return fail('steps were written into summary as text and are not a valid list; pass steps as a separate array argument');
+          [summary, steps] = [inlined.text, parsed.data];
+        } else if (/<parameter name=/.test(summary)) {
+          return fail('summary contains tool-call markup (<parameter name=…>): pass steps as a separate array argument and keep summary to plain text');
+        }
         if (a.outcome !== 'inconclusive' && !steps.length) return fail('reproduced/not_reproduced requires steps with observed responses (steps)');
         const s = svc.store(pid);
         if (!s.audit.getFinding(a.finding_id)) return fail(`finding ${a.finding_id} not found`);
         const r = s.audit.addPocResult(
-          { findingId: a.finding_id, outcome: a.outcome, summary: a.summary, steps, baseUrl: grant.baseUrl, commitSha: run.commitSha },
+          { findingId: a.finding_id, outcome: a.outcome, summary, steps, baseUrl: grant.baseUrl, commitSha: run.commitSha },
           by,
         );
         svc.onWrite(pid);
         return ok({ saved: r.id, outcome: r.outcome });
+      }),
+  );
+
+  server.registerTool(
+    'set_poc_environment',
+    {
+      description: `Describe how the app starts the project's test instance (env-setup, scope ${POC_ENV_ENTITY}:${POC_ENV_ID}). Scripts in \`files\` are written to the project's .aiegis/poc/ ($AIEGIS_POC_SCRIPTS in the commands); start/healthcheck/stop/base_url replace poc.environment in the project config, accounts are kept. Commands run with sh -c in a worktree of the commit. An earlier check_poc_environment result is reset.`,
+      inputSchema: {
+        start: z.string().min(1).describe('Starts the instance; may stay in the foreground or exit after starting it in the background'),
+        healthcheck: z.string().min(1).describe('Exits 0 once the instance serves requests at base_url'),
+        stop: z.string().optional().describe('Stops what start left running (the start process group is killed anyway); omitted keeps the current one, empty removes it'),
+        base_url: z.string().min(1).describe('http(s) URL the tester sends requests to'),
+        files: z.array(z.object({ name: z.string().describe('Plain file name'), content: z.string() })).optional(),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: POC_ENV_ENTITY, id: POC_ENV_ID } }, async () => {
+        liveRun();
+        const env = await svc.setPocEnvironment(pid, a);
+        svc.onWrite(pid);
+        return ok({ saved: { start: env.start, healthcheck: env.healthcheck, stop: env.stop, base_url: env.base_url }, files: (a.files ?? []).map((f) => f.name) });
+      }),
+  );
+
+  server.registerTool(
+    'check_poc_environment',
+    {
+      description:
+        'Start the saved test environment the way the app does (start, then healthcheck until it passes or start_timeout_sec), poll it, or stop it. `start` returns at once; poll with `status` and `wait_sec`: it returns as soon as the start is ready or has failed, or after wait_sec (capped by poc.check_wait_max_sec). Keep investigating while it starts (read the service logs) and `stop` it once you see it failed. The instance is stopped as soon as it is ready or has failed. `output` is the instance output (first and last lines, repeats collapsed); for remote services, fetch their own logs yourself. The run succeeds without another start if the last check of the current environment is `ready`.',
+      inputSchema: {
+        action: z.enum(['start', 'status', 'stop']),
+        wait_sec: z.number().int().min(0).optional().describe('status: wait up to this many seconds for the start to finish'),
+      },
+    },
+    async ({ action, wait_sec }) =>
+      guard({ kind: 'write', entity: { type: POC_ENV_ENTITY, id: POC_ENV_ID } }, async () => {
+        liveRun();
+        return ok(await svc.pocCheck(pid, action, wait_sec));
       }),
   );
 

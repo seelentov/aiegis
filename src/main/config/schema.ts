@@ -22,6 +22,8 @@ export const PermissionsSchema = z.object({
 
 /** Fields every cascade level may set (SPEC §3). */
 export const LevelShape = {
+  /** Coding agent that runs the session. */
+  agent: z.enum(['claude', 'pi']).optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
   instructions: InstructionsSchema.optional(),
@@ -92,6 +94,15 @@ export const ConfigFileSchema = z.looseObject({
       interactive_args: z.array(z.string()).optional(),
     })
     .optional(),
+  pi: z
+    .looseObject({
+      binary: z.string().optional(),
+      background_args: z.array(z.string()).optional(),
+      interactive_args: z.array(z.string()).optional(),
+      /** Claude Code tool name (as in permissions) -> pi tool names. */
+      tools: z.record(z.string(), z.array(z.string())).optional(),
+    })
+    .optional(),
   queue: z
     .looseObject({
       parallelism: z.number().int().min(1).optional(),
@@ -138,8 +149,10 @@ export const ConfigFileSchema = z.looseObject({
       start_timeout_sec: z.number().int().min(1).optional(),
       healthcheck_interval_sec: z.number().int().min(1).optional(),
       stop_timeout_sec: z.number().int().min(1).optional(),
+      check_wait_max_sec: z.number().int().min(1).optional(),
       env_passthrough: z.array(z.string()).optional(),
       claude_settings: z.record(z.string(), z.unknown()).optional(),
+      pi_sandbox: z.record(z.string(), z.unknown()).optional(),
       environment: z
         .looseObject({
           start: z.string().optional(),
@@ -169,6 +182,7 @@ export type ConfigFile = z.infer<typeof ConfigFileSchema>;
 /** Settings that are not cascade levels; merged global -> project. */
 export const SETTINGS_KEYS = [
   'claude',
+  'pi',
   'queue',
   'limits',
   'terminal',

@@ -9,6 +9,7 @@ import type { Job } from '../src/shared/types';
 import { DEFAULTS_DIR, tmpDir, write } from './helpers';
 
 const FAKE = path.resolve(__dirname, 'fixtures', 'fake-claude.mjs');
+const FAKE_PI = path.resolve(__dirname, 'fixtures', 'fake-pi.mjs');
 
 async function waitFor<T>(fn: () => T | undefined | false, ms = 10_000): Promise<T> {
   const start = Date.now();
@@ -39,6 +40,8 @@ beforeAll(async () => {
   const cfgFile = path.join(home, 'config.yaml');
   const doc = YAML.parseDocument(fs.readFileSync(cfgFile, 'utf8'));
   doc.setIn(['claude', 'binary'], FAKE);
+  doc.setIn(['pi', 'binary'], FAKE_PI);
+  doc.setIn(['roles', 'pi-task'], { ...(doc.toJS().roles.task as object), agent: 'pi' });
   doc.setIn(['limits', 'max_tokens_per_run'], 1000);
   doc.setIn(['queue', 'parallelism'], 1);
   fs.writeFileSync(cfgFile, doc.toString());
@@ -71,6 +74,22 @@ describe('Core with a fake claude', () => {
     // The token died with the run; its MCP config file is gone.
     expect(fs.existsSync(path.join(core.paths.dataDir, pid, 'mcp', `${run.id}.json`))).toBe(false);
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' })).toBe('');
+  });
+
+  it('agent: pi runs pi in JSON mode with the run file of the aiegis extension', async () => {
+    const j = await core.enqueueTask(pid, { role: 'pi-task', prompt: 'go' });
+    const done = await settled(j);
+    expect(done.status).toBe('done');
+    const run = core.store(pid).getRun(done.lastRunId!)!;
+    expect(run.usage).toMatchObject({ input: 10, output: 5, cacheCreation: 20, costUsd: 0.002 });
+    expect((run.configSnapshot as { agent: { value: string } }).agent.value).toBe('pi');
+    const term = core.terminals.list().find((t) => t.runId === run.id)!;
+    const view = core.terminals.snapshot(term.id);
+    expect(view).toContain('mode=json');
+    expect(view).toContain('mcp__aiegis__*');
+    expect(view).toContain('token=yes');
+    expect(view).toMatch(/allow=Read,.*Bash\(git log:\*\)/);
+    expect(fs.existsSync(path.join(core.paths.dataDir, pid, 'mcp', `${run.id}.json`))).toBe(false);
   });
 
   it('cancel stops the process', async () => {

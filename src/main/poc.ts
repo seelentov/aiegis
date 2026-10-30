@@ -1,10 +1,18 @@
 import { execFile, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import YAML from 'yaml';
 import type { Settings } from './config/loader';
 
 /** Entity of a PoC tester job and scope of its token (id = finding id). */
 export const POC_ENTITY = 'poc';
 /** Directory of a run's own files (scripts) inside its checkout. */
 export const POC_DIR = '.aiegis-poc';
+/** Entity of an env-setup job: one test environment per project. */
+export const POC_ENV_ENTITY = 'poc_env';
+export const POC_ENV_ID = 'environment';
+/** Scripts of the test environment written by env-setup, relative to the project root (next to its config). */
+export const POC_SCRIPTS_DIR = path.join('.aiegis', 'poc');
 
 export type SecretRef = { env: string } | { keychain: { service: string; account: string } };
 
@@ -40,6 +48,48 @@ export function pocEnvironment(poc: Settings['poc']): { env: PocEnvironment } | 
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return { reason: 'poc.environment.base_url: http or https is required' };
   return { env: { start: e.start!, healthcheck: e.healthcheck!, stop: e.stop?.trim() || null, base_url: e.base_url!, accounts: e.accounts ?? {} } };
+}
+
+/** Project config text with the `poc.environment` commands replaced; accounts and comments are kept. */
+export function withEnvironment(text: string, e: { start: string; healthcheck: string; stop: string | null; base_url: string }): string {
+  const doc = YAML.parseDocument(text);
+  const at = (k: string) => ['poc', 'environment', k];
+  for (const k of ['start', 'healthcheck', 'base_url'] as const) doc.setIn(at(k), e[k]);
+  if (e.stop) doc.setIn(at('stop'), e.stop);
+  else doc.deleteIn(at('stop'));
+  return doc.toString();
+}
+
+const SCRIPT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** Throws unless every name is a plain file name (scripts land in one directory, nowhere else). */
+export function checkScriptNames(names: string[]): void {
+  const bad = names.find((n) => !SCRIPT_NAME.test(n));
+  if (bad !== undefined) throw new Error(`invalid script name ${JSON.stringify(bad)}: a plain file name is required`);
+}
+
+export function writeScripts(dir: string, files: { name: string; content: string }[]): void {
+  checkScriptNames(files.map((f) => f.name));
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of files) {
+    const file = path.join(dir, f.name);
+    fs.writeFileSync(file, f.content);
+    fs.chmodSync(file, 0o755);
+  }
+}
+
+/**
+ * A long array argument that a model wrote into a text argument as tool-call markup (`…</parameter>
+ * <parameter name="steps">[…]`): the text before the markup and the parsed value, or null when there is none.
+ */
+export function splitInlinedArg(text: string, name: string): { text: string; value: unknown } | null {
+  const m = new RegExp(`\\s*(?:</[a-z_]+>)?\\s*<parameter name="${name}">\\s*([\\s\\S]*?)\\s*(?:</parameter>)?\\s*$`).exec(text);
+  if (!m) return null;
+  try {
+    return { text: text.slice(0, m.index).trim(), value: JSON.parse(m[1]) };
+  } catch {
+    return null;
+  }
 }
 
 /** The named variables of the app's environment (the tester gets no other: SPEC §18). */
@@ -114,6 +164,21 @@ export function testerSettings(base: Record<string, unknown>, baseUrl: string, h
   return out;
 }
 
+/**
+ * Sandbox runtime config (`@anthropic-ai/sandbox-runtime`) of a tester session under pi: the configured base plus the
+ * base URL's host:port. A `localhost` base URL also gets 127.0.0.1:port: the runtime checks what a name resolves to and
+ * lets a loopback address through only when that literal is listed.
+ */
+export function piSandboxConfig(base: Record<string, unknown>, baseUrl: string): Record<string, unknown> {
+  const out = structuredClone(base);
+  const network = isObject(out.network) ? out.network : (out.network = {});
+  const domains = Array.isArray(network.allowedDomains) ? network.allowedDomains : [];
+  const host = allowedHost(baseUrl);
+  const extra = new URL(baseUrl).hostname === 'localhost' ? [host.replace(/^localhost:/, '127.0.0.1:')] : [];
+  network.allowedDomains = [...new Set([...domains, host, ...extra])];
+  return out;
+}
+
 const URL_RE = /[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s'"`\\<>)]+/g;
 /** curl options that send the request somewhere else than its URL. */
 const REDIRECT_OPTS = /(^|\s)(-x\S*|--proxy|--preproxy|--socks\S*|--connect-to|--resolve|--unix-socket|--abstract-unix-socket|--dns-servers|--doh-url)(?=\s|=|$)/;
@@ -157,6 +222,56 @@ export interface InstanceOptions {
 }
 
 const KILL_GRACE_MS = 5000;
+const HEAD_LINES = 40;
+const TAIL_LINES = 80;
+const MAX_LINE = 400;
+
+/**
+ * Instance output for an env-setup agent: the first and the last lines, with runs of one line collapsed (a dead tunnel
+ * repeats one error for the whole start timeout and would push out the lines that say what happened).
+ */
+export class OutputLog {
+  private head: string[] = [];
+  private tail: string[] = [];
+  private dropped = 0;
+  private partial = '';
+  private last: string | null = null;
+  private repeats = 0;
+
+  add(text: string): void {
+    const parts = (this.partial + text).split('\n');
+    this.partial = parts.pop()!;
+    for (const l of parts) this.line(l.replace(/\r$/, '').slice(0, MAX_LINE));
+  }
+
+  private line(l: string): void {
+    if (l === this.last) {
+      this.repeats++;
+      return;
+    }
+    if (this.repeats) this.push(repeated(this.repeats));
+    this.repeats = 0;
+    this.last = l;
+    this.push(l);
+  }
+
+  private push(l: string): void {
+    if (this.head.length < HEAD_LINES) return void this.head.push(l);
+    this.tail.push(l);
+    if (this.tail.length > TAIL_LINES) {
+      this.tail.shift();
+      this.dropped++;
+    }
+  }
+
+  text(): string {
+    const skipped = this.dropped ? [`… ${this.dropped} lines skipped`] : [];
+    const pending = [...(this.repeats ? [repeated(this.repeats)] : []), ...(this.partial ? [this.partial.slice(0, MAX_LINE)] : [])];
+    return [...this.head, ...skipped, ...this.tail, ...pending].join('\n');
+  }
+}
+
+const repeated = (n: number) => `… (the line above repeated ${n} more times)`;
 
 /** Runs a shell command to completion; resolves with its exit code (null on timeout or abort). */
 function runShell(cmd: string, o: InstanceOptions, timeoutMs: number, signal?: AbortSignal): Promise<number | null> {
@@ -190,11 +305,26 @@ function runShell(cmd: string, o: InstanceOptions, timeoutMs: number, signal?: A
 export class PocInstance {
   private child: ReturnType<typeof spawn> | null = null;
   private exitCode: number | null | undefined = undefined;
+  private readonly o: InstanceOptions;
+  private readonly out = new OutputLog();
 
   constructor(
     private readonly env: PocEnvironment,
-    private readonly o: InstanceOptions,
-  ) {}
+    o: InstanceOptions,
+  ) {
+    this.o = {
+      ...o,
+      log: (t) => {
+        this.out.add(t);
+        o.log(t);
+      },
+    };
+  }
+
+  /** The instance output, shortened (OutputLog). */
+  tail(): string {
+    return this.out.text();
+  }
 
   async start(signal: AbortSignal): Promise<void> {
     this.o.log(`$ ${this.env.start}\n`);
@@ -246,5 +376,68 @@ export class PocInstance {
         resolve();
       });
     });
+  }
+}
+
+export type PocCheckState = 'idle' | 'starting' | 'ready' | 'failed';
+
+/**
+ * A test start an env-setup session runs itself through MCP: started in the background and polled, so no tool call
+ * outlives the client's timeout; the instance is stopped as soon as it is ready or has failed.
+ */
+export class PocCheck {
+  state: PocCheckState = 'idle';
+  error: string | null = null;
+  private instance: PocInstance | null = null;
+  private ctrl: AbortController | null = null;
+  private running: Promise<void> | null = null;
+
+  constructor(
+    private readonly make: () => Promise<PocInstance>,
+    private readonly onDone: (error: string | null, output: string) => void,
+  ) {}
+
+  async start(): Promise<void> {
+    await this.stop();
+    const ctrl = (this.ctrl = new AbortController());
+    this.state = 'starting';
+    this.error = null;
+    this.instance = null;
+    this.running = (async () => {
+      try {
+        this.instance = await this.make();
+        await this.instance.start(ctrl.signal);
+        this.state = 'ready';
+      } catch (e) {
+        this.state = 'failed';
+        this.error = ctrl.signal.aborted ? 'stopped' : (e as Error).message;
+      } finally {
+        await this.instance?.stop().catch(() => undefined);
+      }
+      if (!ctrl.signal.aborted) this.onDone(this.error, this.output());
+    })();
+  }
+
+  output(): string {
+    return this.instance?.tail() ?? '';
+  }
+
+  /** Resolves when the running start is ready or has failed, or after `ms`. */
+  async settled(ms: number): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([this.running, new Promise((r) => (timer = setTimeout(r, ms)))]);
+    clearTimeout(timer);
+  }
+
+  async stop(): Promise<void> {
+    this.ctrl?.abort();
+    await this.running;
+  }
+
+  /** The environment changed: an earlier result says nothing about it. */
+  async reset(): Promise<void> {
+    await this.stop();
+    this.state = 'idle';
+    this.error = null;
   }
 }

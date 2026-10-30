@@ -35,6 +35,12 @@ const server = new AiegisMcpServer(tokens, {
   },
   scaSettings: () => ({ estimate_history_runs: 20, estimate_tokens_per_package: 1000, scanner_hints_limit: 10, prefilter_max_file_kb: 64, report_max_mb: 1 }),
   scaReportFile: (_pid, r) => path.join(reportDir, `${r.id}${path.extname(r.path)}`),
+  setPocEnvironment: () => {
+    throw new Error('not used here');
+  },
+  pocCheck: () => {
+    throw new Error('not used here');
+  },
   onWrite: () => undefined,
 });
 

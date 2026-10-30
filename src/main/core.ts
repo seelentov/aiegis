@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import YAML from 'yaml';
 import type {
   AppEvent,
   Cell,
@@ -68,10 +69,13 @@ import type {
 import { FINDING_STATUSES, SCA_STATUSES, SUPPRESSION_SCOPES, VERDICT_STATUSES } from '../shared/types';
 import { backgroundCommand, interactiveCommand, shellQuote, type ClaudeCommand } from './claude/args';
 import { billableTokens, formatEvent, LineSplitter, StreamTracker } from './claude/stream';
+import { piBackgroundCommand, piInteractiveCommand, piRunConfig } from './pi/args';
+import { formatPiEvent, PiStreamTracker } from './pi/stream';
 import { effectiveAllow } from './config/cascade';
 import {
   ConfigError,
   ensureGlobalDefaults,
+  agentOf,
   globalConfigPath,
   listRoles,
   loadConfigFile,
@@ -116,7 +120,25 @@ import { TokenRegistry, type EntityRef } from './mcp/tokens';
 import { projectDataDir, type AppPaths } from './paths';
 import { ProjectRegistry, type Project } from './projects';
 import { diffEntryPoints, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, renderTemplate, repoFileError } from './modules';
-import { accountsText, pickEnv, PocInstance, POC_DIR, POC_ENTITY, pocEnvironment, resolveSecrets, testerSettings, type PocEnvironment } from './poc';
+import {
+  accountsText,
+  checkScriptNames,
+  pickEnv,
+  PocCheck,
+  PocInstance,
+  POC_DIR,
+  POC_ENTITY,
+  POC_ENV_ENTITY,
+  POC_ENV_ID,
+  POC_SCRIPTS_DIR,
+  pocEnvironment,
+  resolveSecrets,
+  piSandboxConfig,
+  testerSettings,
+  withEnvironment,
+  writeScripts,
+  type PocEnvironment,
+} from './poc';
 import { JobQueue, type JobOutcome } from './queue';
 import {
   findImports,
@@ -204,6 +226,7 @@ const zeroUsage = (): TokenUsage => ({ input: 0, output: 0, cacheCreation: 0, ca
 function snapshot(cfg: EffectiveConfig): unknown {
   return {
     role: cfg.role,
+    agent: cfg.level.agent,
     model: cfg.level.model,
     effort: cfg.level.effort,
     instructions: cfg.level.instructions,
@@ -226,6 +249,8 @@ export class Core extends EventEmitter {
   private readonly worktrees = new Map<string, WorktreeCache>();
   /** jobId -> stream terminal and completion of the current background run. */
   private readonly activeRuns = new Map<string, { runId: string; terminalId: string; done: Promise<void> }>();
+  /** Test starts of the running env-setup session, by project (one at a time: one instance per project). */
+  private readonly pocChecks = new Map<string, PocCheck>();
   /** sessionId -> live interactive terminal (one claude process per session). */
   private readonly liveSessions = new Map<string, string>();
   /** jobId -> completion of a running scan job. */
@@ -252,6 +277,8 @@ export class Core extends EventEmitter {
       signals: (pid, q) => this.signalSlice(pid, q),
       scaSettings: (pid) => this.projectSettings(pid).sca,
       scaReportFile: (pid, r) => this.scaReportFile(pid, r),
+      setPocEnvironment: (pid, e) => this.setPocEnvironment(pid, e),
+      pocCheck: (pid, action, waitSec) => this.pocCheck(pid, action, waitSec),
       onWrite: (pid) => {
         this.send({ type: 'runs-changed', projectId: pid });
         this.send({ type: 'modules-changed', projectId: pid });
@@ -433,6 +460,7 @@ export class Core extends EventEmitter {
     walk(cfg.settings as unknown as Record<string, unknown>, '');
     return {
       role: cfg.role,
+      agent: cfg.level.agent,
       model: cfg.level.model,
       effort: cfg.level.effort,
       instructions: cfg.level.instructions,
@@ -1252,7 +1280,12 @@ export class Core extends EventEmitter {
       runs: uniq([...runs.map((r) => r.id), ...s.entityRuns(POC_ENTITY, id).map((r) => r.id)])
         .map((r) => s.getRun(r)!)
         .sort((x, y) => y.startedAt.localeCompare(x.startedAt)),
-      poc: { results: a.pocResults({ findingId: id }), ...this.pocAvailability(projectId), job: s.activeJobFor(POC_ENTITY, id) ?? null },
+      poc: {
+        results: a.pocResults({ findingId: id }),
+        ...this.pocAvailability(projectId),
+        job: s.activeJobFor(POC_ENTITY, id) ?? null,
+        setup: s.latestJobFor(POC_ENV_ENTITY, POC_ENV_ID) ?? null,
+      },
     };
   }
 
@@ -1310,6 +1343,79 @@ export class Core extends EventEmitter {
     );
     this.auditChanged(projectId);
     return job;
+  }
+
+  /** Output of the last test instance that did not start; the next env-setup session gets it. */
+  private pocFailureFile(projectId: string): string {
+    return path.join(projectDataDir(this.paths, projectId), 'poc-env-failure.log');
+  }
+
+  /** Queues env-setup at HEAD: an agent works out how to start the project and writes `poc.environment` (one per project). */
+  async enqueuePocSetup(projectId: string): Promise<Job> {
+    const p = this.project(projectId);
+    const entity = { type: POC_ENV_ENTITY, id: POC_ENV_ID };
+    this.assertNotQueued(projectId, entity);
+    const spec = this.taskSpec(projectId, 'poc_setup');
+    const poc = this.projectSettings(projectId).poc;
+    const failure = this.pocFailureFile(projectId);
+    const vars = {
+      project: p.name,
+      project_root: p.root,
+      environment: poc.environment ? YAML.stringify({ environment: poc.environment }).trim() : '(not configured)',
+      accounts: accountsText(poc.environment?.accounts ?? {}),
+      scripts_dir: path.join(p.root, POC_SCRIPTS_DIR),
+      env_passthrough: poc.env_passthrough.join(', '),
+      last_failure: fs.existsSync(failure) ? fs.readFileSync(failure, 'utf8') : '(none)',
+    };
+    return this.addAgentJob(
+      projectId,
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity },
+      await headSha(p.root),
+    );
+  }
+
+  /** Saves the environment an env-setup session describes: scripts into `.aiegis/poc/`, commands into the project config. */
+  async setPocEnvironment(
+    projectId: string,
+    e: { start: string; healthcheck: string; stop?: string; base_url: string; files?: { name: string; content: string }[] },
+  ): Promise<PocEnvironment> {
+    const root = this.project(projectId).root;
+    const file = projectConfigPath(root);
+    const poc = this.projectSettings(projectId).poc;
+    // An omitted stop keeps the configured one; an empty one removes it.
+    const stop = (e.stop ?? poc.environment?.stop)?.trim() || null;
+    const env = { start: e.start, healthcheck: e.healthcheck, stop, base_url: e.base_url };
+    const checked = pocEnvironment({ ...poc, environment: { ...env, stop: stop ?? undefined } });
+    if ('reason' in checked) throw new ConfigError(checked.reason);
+    checkScriptNames((e.files ?? []).map((f) => f.name));
+    const text = withEnvironment(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '', env);
+    parseConfigText(text, file);
+    writeScripts(path.join(root, POC_SCRIPTS_DIR), e.files ?? []);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    await this.pocChecks.get(projectId)?.reset();
+    return this.pocEnv(projectId);
+  }
+
+  /** The env-setup session starts the environment it described, polls the start, or stops it. */
+  async pocCheck(projectId: string, action: 'start' | 'status' | 'stop', waitSec = 0): Promise<{ state: string; error: string | null; output: string }> {
+    const c = this.pocChecks.get(projectId);
+    if (!c) throw new Error('no env-setup session of this project is running');
+    if (action === 'start') {
+      if (c.state === 'starting') throw new Error('a start is already running: poll its status or stop it');
+      await c.start();
+    }
+    if (action === 'stop') await c.stop();
+    if (action === 'status' && c.state === 'starting' && waitSec > 0)
+      await c.settled(Math.min(waitSec, this.projectSettings(projectId).poc.check_wait_max_sec) * 1000);
+    // While it starts, the recent output is enough; a finished start returns all of it (OutputLog keeps it short).
+    return { state: c.state, error: c.error, output: c.state === 'starting' ? c.output().slice(-3000) : c.output() };
+  }
+
+  /** Output of the last start that failed goes to the next env-setup; a start that succeeded clears it. */
+  private savePocOutcome(projectId: string, error: string | null, output: string): void {
+    if (error) fs.writeFileSync(this.pocFailureFile(projectId), `${error}\n\n${output}`);
+    else fs.rmSync(this.pocFailureFile(projectId), { force: true });
   }
 
   /** Files of a tester session: `--settings` (sandbox, allowlist, hook) and the hook's auth header with the run token. */
@@ -1457,10 +1563,11 @@ export class Core extends EventEmitter {
   private runnableJobs(projectId: string): Job[] {
     const s = this.store(projectId);
     const scanning = new Set(s.activeJobs().filter((j) => j.type === SCAN_JOB).map((j) => String(j.payload.commit_sha)));
-    // One test instance per project (one base_url): tester jobs run one at a time.
-    let tester = s.activeJobs().some((j) => j.entityType === POC_ENTITY && j.status === 'running');
+    // One test instance per project (one base_url): tester and env-setup jobs run one at a time.
+    const instance = (j: Job) => j.entityType === POC_ENTITY || j.entityType === POC_ENV_ENTITY;
+    let tester = s.activeJobs().some((j) => instance(j) && j.status === 'running');
     return s.queuedJobs().filter((j) => {
-      if (j.entityType === POC_ENTITY) return tester ? false : (tester = true);
+      if (instance(j)) return tester ? false : (tester = true);
       return !(scanning.size && matrixPayload(j)?.stage === 'verdicts' && scanning.has(String(j.payload.commit_sha)));
     });
   }
@@ -2420,13 +2527,16 @@ export class Core extends EventEmitter {
         ? this.docDir(p.id, job.entityId)
         : job.entityType === SCA_MODULE_ENTITY
           ? await this.scaWorktreeCache(p).ensure(sha)
-          : job.entityType === POC_ENTITY
+          : job.entityType === POC_ENTITY || job.entityType === POC_ENV_ENTITY
             ? await this.pocWorktreeCache(p).ensure(sha)
             : await this.worktreeCache(p).ensure(sha);
     if (job.entityType === SCA_MODULE_ENTITY) this.stageScaInputs(p.id, job, cwd);
     // The tester's environment and account secrets (env variables of the instance and the session).
     const poc = job.entityType === POC_ENTITY ? this.pocEnv(p.id) : null;
-    const pocVars = poc ? { ...(await resolveSecrets(poc.accounts)), AIEGIS_POC_BASE_URL: poc.base_url } : {};
+    const setup = job.entityType === POC_ENV_ENTITY;
+    const scriptsVar = { AIEGIS_POC_SCRIPTS: path.join(p.root, POC_SCRIPTS_DIR) };
+    const instanceVars = async (e: PocEnvironment) => ({ ...(await resolveSecrets(e.accounts)), AIEGIS_POC_BASE_URL: e.base_url, ...scriptsVar });
+    const pocVars = poc ? await instanceVars(poc) : {};
     if (poc) fs.mkdirSync(path.join(cwd, String(job.payload.out_dir)), { recursive: true });
     if (signal.aborted) return { kind: signal.reason === 'taken_over' ? 'taken_over' : 'cancelled' };
 
@@ -2445,13 +2555,22 @@ export class Core extends EventEmitter {
       scope,
       baseUrl: poc?.base_url,
     });
-    const mcpPath = this.writeMcpConfig(p.id, runId, grant.token);
-    const cmd = backgroundCommand(cfg, { sessionId, mcpConfigPath: mcpPath });
-    const settingsPath = poc ? this.writeTesterSettings(p.id, runId, cfg, poc.base_url, grant.token) : null;
-    if (settingsPath) {
-      cmd.args.push('--settings', settingsPath);
+    // The user's checkout is readable for env-setup: local docs, skills and settings that are not committed live only there.
+    const dirs = setup ? [p.root] : [];
+    const pi = agentOf(cfg) === 'pi';
+    const mcpPath = this.writeMcpConfig(p.id, runId, grant.token, cfg, dirs, poc?.base_url);
+    const cmd = pi ? piBackgroundCommand(cfg, { sessionId, runFile: mcpPath }) : backgroundCommand(cfg, { sessionId, mcpConfigPath: mcpPath, dirs });
+    // The tester's sandbox and hook: Claude Code gets them as --settings, pi from the run file of the aiegis extension.
+    const settingsPath = poc && !pi ? this.writeTesterSettings(p.id, runId, cfg, poc.base_url, grant.token) : null;
+    if (settingsPath) cmd.args.push('--settings', settingsPath);
+    if (poc) {
       cmd.inherit = cfg.settings.poc.env_passthrough;
       Object.assign(cmd.env, pocVars);
+    }
+    // env-setup sees what the instance commands will see (no secrets: the app checks the environment itself).
+    if (setup) {
+      cmd.inherit = cfg.settings.poc.env_passthrough;
+      Object.assign(cmd.env, scriptsVar);
     }
 
     s.startRun(
@@ -2479,32 +2598,71 @@ export class Core extends EventEmitter {
     const done = new Promise<void>((r) => (resolveDone = r));
     this.activeRuns.set(job.id, { runId, terminalId, done });
 
-    let instance: PocInstance | null = null;
+    let instance = null as PocInstance | null;
+    const newInstance = (env: PocEnvironment, vars: Record<string, string>) =>
+      new PocInstance(env, {
+        cwd,
+        env: { ...pickEnv(cfg.settings.poc.env_passthrough), ...cmd.env, ...vars },
+        startTimeoutSec: cfg.settings.poc.start_timeout_sec,
+        healthcheckIntervalSec: cfg.settings.poc.healthcheck_interval_sec,
+        stopTimeoutSec: cfg.settings.poc.stop_timeout_sec,
+        log: (t) => this.terminals.append(terminalId, `\x1b[2m${t.replace(/\r?\n/g, '\r\n')}\x1b[0m`),
+      });
+    /** Starts the test instance; on failure finishes the run, keeps the output for env-setup and returns the outcome. */
+    const startInstance = async (env: PocEnvironment, vars: Record<string, string>, usage: TokenUsage): Promise<JobOutcome | null> => {
+      instance = newInstance(env, vars);
+      try {
+        await instance.start(signal);
+        this.savePocOutcome(p.id, null, '');
+        return null;
+      } catch (e) {
+        const status: RunStatus = !signal.aborted ? 'failed' : signal.reason === 'taken_over' ? 'taken_over' : 'cancelled';
+        const error = `the test environment did not start: ${(e as Error).message}`;
+        if (status === 'failed') this.savePocOutcome(p.id, error, instance.tail());
+        this.finishRun(p.id, runId, status, usage, status === 'failed' ? error : null);
+        return status === 'failed' ? { kind: 'failed', error } : { kind: status };
+      }
+    };
+    const check = setup
+      ? new PocCheck(
+          async () => {
+            const env = this.pocEnv(p.id);
+            return newInstance(env, await instanceVars(env));
+          },
+          (error, output) => this.savePocOutcome(p.id, error && `the test environment did not start: ${error}`, output),
+        )
+      : null;
+    if (check) this.pocChecks.set(p.id, check);
     try {
       if (poc) {
-        instance = new PocInstance(poc, {
-          cwd,
-          env: { ...pickEnv(cfg.settings.poc.env_passthrough), ...cmd.env },
-          startTimeoutSec: cfg.settings.poc.start_timeout_sec,
-          healthcheckIntervalSec: cfg.settings.poc.healthcheck_interval_sec,
-          stopTimeoutSec: cfg.settings.poc.stop_timeout_sec,
-          log: (t) => this.terminals.append(terminalId, `\x1b[2m${t.replace(/\r?\n/g, '\r\n')}\x1b[0m`),
-        });
-        try {
-          await instance.start(signal);
-        } catch (e) {
-          const status: RunStatus = !signal.aborted ? 'failed' : signal.reason === 'taken_over' ? 'taken_over' : 'cancelled';
-          const error = `the test environment did not start: ${(e as Error).message}`;
-          this.finishRun(p.id, runId, status, zeroUsage(), status === 'failed' ? error : null);
-          return status === 'failed' ? { kind: 'failed', error } : { kind: status };
-        }
+        const failed = await startInstance(poc, {}, zeroUsage());
+        if (failed) return failed;
       }
       const res = await this.runClaudeProcess(cmd, cwd, prep.prompt, {
+        agent: agentOf(cfg),
         signal,
         logPath,
         terminalId,
         maxTokens: cfg.settings.limits.max_tokens_per_run,
       });
+      // env-setup is done once the environment the session described has started: in the session's own last check,
+      // or else in a check the app runs now.
+      if (check) await check.stop();
+      if (check && res.status === 'succeeded' && check.state !== 'ready') {
+        this.terminals.append(terminalId, '\r\n[aiegis] checking the test environment\r\n');
+        let env: PocEnvironment;
+        let vars: Record<string, string>;
+        try {
+          env = this.pocEnv(p.id);
+          vars = await instanceVars(env);
+        } catch (e) {
+          const error = `the session left no usable test environment: ${(e as Error).message}`;
+          this.finishRun(p.id, runId, 'failed', res.usage, error);
+          return { kind: 'failed', error };
+        }
+        const failed = await startInstance(env, vars, res.usage);
+        if (failed) return failed;
+      }
       this.finishRun(p.id, runId, res.status, res.usage, res.error);
       switch (res.status) {
         case 'succeeded': {
@@ -2525,6 +2683,10 @@ export class Core extends EventEmitter {
       throw e;
     } finally {
       await instance?.stop().catch(() => undefined);
+      if (check) {
+        await check.stop();
+        this.pocChecks.delete(p.id);
+      }
       this.tokens.revoke(grant.token);
       this.mcp.forgetRun(runId);
       fs.rmSync(mcpPath, { force: true });
@@ -2636,10 +2798,16 @@ export class Core extends EventEmitter {
     this.scaChanged(projectId);
   }
 
-  private writeMcpConfig(projectId: string, name: string, token: string): string {
+  /**
+   * Claude: the `--mcp-config` file; pi: the run file of the aiegis extension (MCP server, permission rules and, for
+   * the tester at `baseUrl`, its sandbox and hook).
+   */
+  private writeMcpConfig(projectId: string, name: string, token: string, cfg: EffectiveConfig, dirs: string[] = [], baseUrl?: string): string {
     const file = path.join(projectDataDir(this.paths, projectId), 'mcp', `${name}.json`);
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(file, mcpConfigJson(this.mcp.url(), token), { mode: 0o600 });
+    const tester = baseUrl ? { sandbox: piSandboxConfig(cfg.settings.poc.pi_sandbox, baseUrl), hookUrl: this.mcp.hookUrl() } : undefined;
+    const text = agentOf(cfg) === 'pi' ? JSON.stringify(piRunConfig(cfg, { url: this.mcp.url(), token }, dirs, tester)) : mcpConfigJson(this.mcp.url(), token);
+    fs.writeFileSync(file, text, { mode: 0o600 });
     return file;
   }
 
@@ -2647,12 +2815,13 @@ export class Core extends EventEmitter {
     cmd: ClaudeCommand,
     cwd: string,
     prompt: string,
-    o: { signal: AbortSignal; logPath: string; terminalId: string; maxTokens: number },
+    o: { agent: 'claude' | 'pi'; signal: AbortSignal; logPath: string; terminalId: string; maxTokens: number },
   ): Promise<{ status: RunStatus; usage: TokenUsage; error: string | null; rateLimitResetsAt?: number }> {
     return new Promise((resolve) => {
       const child = spawn(cmd.binary, cmd.args, { cwd, env: { ...(cmd.inherit ? pickEnv(cmd.inherit) : process.env), ...cmd.env }, stdio: ['pipe', 'pipe', 'pipe'] });
       const log = fs.createWriteStream(o.logPath, { flags: 'a' });
-      const tracker = new StreamTracker();
+      const tracker = o.agent === 'pi' ? new PiStreamTracker() : new StreamTracker();
+      const format = o.agent === 'pi' ? formatPiEvent : formatEvent;
       const lines = new LineSplitter();
       let stderr = '';
       let stopReason: RunStatus | null = null;
@@ -2678,7 +2847,7 @@ export class Core extends EventEmitter {
           return;
         }
         tracker.feed(ev);
-        this.terminals.append(o.terminalId, formatEvent(ev));
+        this.terminals.append(o.terminalId, format(ev));
         if (billableTokens(tracker.summary.usage) > o.maxTokens) {
           this.terminals.append(o.terminalId, `\x1b[31m[aiegis] token limit per run exceeded (${o.maxTokens})\x1b[0m\r\n`);
           stop('token_limit');
@@ -2745,6 +2914,7 @@ export class Core extends EventEmitter {
       entity: run.entityType && run.entityId ? { type: run.entityType, id: run.entityId } : null,
       scope: run.scope,
       cfg: this.resumeConfig(projectId, run),
+      runAgent: runAgentOf(run),
       title: `↺ ${run.role} ${run.sessionId.slice(0, 8)}`,
     });
   }
@@ -2800,10 +2970,14 @@ export class Core extends EventEmitter {
       scope,
       baseUrl,
     });
-    const mcpPath = this.writeMcpConfig(projectId, runId, grant.token);
-    const cmd = interactiveCommand(cfg, { sessionId: o.sessionId, resume: o.resume, mcpConfigPath: mcpPath, prompt: o.prompt });
+    if (o.runAgent && o.runAgent !== agentOf(cfg)) throw new Error(`the session was run by ${o.runAgent}; the config now selects ${agentOf(cfg)}`);
+    const pi = agentOf(cfg) === 'pi';
+    const mcpPath = this.writeMcpConfig(projectId, runId, grant.token, cfg, [], baseUrl);
+    const cmd = pi
+      ? piInteractiveCommand(cfg, { sessionId: o.sessionId, runFile: mcpPath, prompt: o.prompt })
+      : interactiveCommand(cfg, { sessionId: o.sessionId, resume: o.resume, mcpConfigPath: mcpPath, prompt: o.prompt });
     if (baseUrl) {
-      cmd.args.push('--settings', this.writeTesterSettings(projectId, runId, cfg, baseUrl, grant.token));
+      if (!pi) cmd.args.push('--settings', this.writeTesterSettings(projectId, runId, cfg, baseUrl, grant.token));
       cmd.inherit = cfg.settings.poc.env_passthrough;
     }
     const s = this.store(projectId);
@@ -2905,6 +3079,7 @@ export class Core extends EventEmitter {
         entity,
         scope: run.scope,
         cfg: this.resumeConfig(projectId, run),
+        runAgent: runAgentOf(run),
       },
       true,
     );
@@ -2940,6 +3115,13 @@ interface InteractiveSpec {
   cfg?: EffectiveConfig;
   /** Initial prompt of a new session. */
   prompt?: string;
+  /** Agent of the resumed session: a session continues only in the agent that created it. */
+  runAgent?: string;
+}
+
+/** Runs from before `agent` existed were Claude Code sessions. */
+function runAgentOf(run: Run): string {
+  return (run.configSnapshot as { agent?: { value: string } } | null)?.agent?.value ?? 'claude';
 }
 
 /** Used only by the synchronous MCP enqueue path; the UI resolves HEAD asynchronously. */
