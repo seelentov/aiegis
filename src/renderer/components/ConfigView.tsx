@@ -1,4 +1,5 @@
 import type { EffectiveConfigView } from '../../shared/types';
+import { tr } from '../i18n';
 
 /** Effective configuration with the source of every value (SPEC §3). */
 export function ConfigView({ config, title }: { config: EffectiveConfigView; title: string }) {
@@ -6,8 +7,16 @@ export function ConfigView({ config, title }: { config: EffectiveConfigView; tit
     <details>
       <summary>{title}</summary>
       <dl>
-        <dt>Роль</dt>
+        <dt>{tr('Role')}</dt>
         <dd>{config.role.name}</dd>
+        {config.agent && (
+          <>
+            <dt>agent</dt>
+            <dd>
+              {config.agent.value} <span className="muted">← {config.agent.source}</span>
+            </dd>
+          </>
+        )}
         {config.model && (
           <>
             <dt>model</dt>
@@ -24,7 +33,7 @@ export function ConfigView({ config, title }: { config: EffectiveConfigView; tit
             </dd>
           </>
         )}
-        <dt>Инструкции</dt>
+        <dt>{tr('Instructions')}</dt>
         <dd>
           {config.instructions.map((i, n) => (
             <div key={n} className="muted small">

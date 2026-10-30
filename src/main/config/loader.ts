@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import { ConfigFileSchema, SETTINGS_KEYS, type ConfigFile, type Level } from './schema';
+import { ConfigFileSchema, SETTINGS_KEYS, type ConfigFile, type Level, type Text } from './schema';
+import type { Language } from '../../shared/types';
 import type { PocAccount } from '../poc';
 import { mergeSettings, resolveLevels, type EffectiveLevel, type Layer, type ReadText, type SourceMap } from './cascade';
 
@@ -22,8 +23,8 @@ export interface LoadedFile {
   data: ConfigFile;
 }
 
-export const SOURCE_GLOBAL = 'глобальный';
-export const SOURCE_PROJECT = 'проект';
+export const SOURCE_GLOBAL = 'global';
+export const SOURCE_PROJECT = 'project';
 
 export function globalConfigPath(globalDir: string): string {
   return path.join(globalDir, 'config.yaml');
@@ -43,7 +44,7 @@ export function parseConfigText(text: string, file: string): ConfigFile {
   try {
     raw = YAML.parse(text) ?? {};
   } catch (e) {
-    throw new ConfigError(`${file}: ошибка YAML: ${(e as Error).message}`);
+    throw new ConfigError(`${file}: YAML error: ${(e as Error).message}`);
   }
   const parsed = ConfigFileSchema.safeParse(raw);
   if (!parsed.success) {
@@ -59,6 +60,17 @@ export function loadConfigFile(file: string): LoadedFile {
   return { path: file, baseDir, exists: true, data: parseConfigText(fs.readFileSync(file, 'utf8'), file) };
 }
 
+/** UI language from the global config. */
+export function uiLanguage(global: LoadedFile): Language {
+  return global.data.ui?.language ?? 'en';
+}
+
+/** Picks the text for the UI language; falls back to English, then to any variant. */
+export function localized(text: Text | undefined, lang: Language): string | undefined {
+  if (text === undefined || typeof text === 'string') return text;
+  return text[lang] ?? text.en ?? Object.values(text)[0];
+}
+
 export interface RoleInfo {
   name: string;
   title: string;
@@ -68,6 +80,7 @@ export interface RoleInfo {
 
 export interface Settings {
   claude: { binary: string; background_args: string[]; interactive_args: string[] };
+  pi: { binary: string; background_args: string[]; interactive_args: string[]; tools: Record<string, string[]> };
   queue: { parallelism: number; rate_limit_fallback_pause_sec: number };
   limits: { max_tokens_per_run: number };
   terminal: { external_app: string };
@@ -100,10 +113,14 @@ export interface Settings {
     start_timeout_sec: number;
     healthcheck_interval_sec: number;
     stop_timeout_sec: number;
+    /** Longest wait of one `check_poc_environment` status call (env-setup). */
+    check_wait_max_sec: number;
     /** The only variables of the app's environment the tester session and the instance inherit. */
     env_passthrough: string[];
     /** Claude Code settings (`--settings`) of tester sessions: the OS sandbox. */
     claude_settings: Record<string, unknown>;
+    /** Sandbox runtime config of tester sessions under pi: the OS sandbox of their bash commands. */
+    pi_sandbox: Record<string, unknown>;
     /** Test environment (project config); without it the tester is unavailable. */
     environment?: { start?: string; healthcheck?: string; stop?: string; base_url?: string; accounts?: Record<string, PocAccount> };
   };
@@ -124,19 +141,19 @@ const SCANNER_KEYS: (keyof ScannerSettings)[] = ['enabled', 'binary', 'format', 
 /** A configured scanner with every field set; a missing field is a configuration error. */
 export function scannerSettings(settings: Settings, name: string): ScannerSettings {
   const s = settings.scanners[name];
-  if (!s) throw new ConfigError(`сканер scanners.${name} не описан в конфигурации`);
+  if (!s) throw new ConfigError(`scanner scanners.${name} is not configured`);
   const missing = SCANNER_KEYS.filter((k) => s[k] === undefined);
-  if (missing.length) throw new ConfigError(`в конфигурации не заданы: ${missing.map((k) => `scanners.${name}.${k}`).join(', ')}`);
+  if (missing.length) throw new ConfigError(`missing in the config: ${missing.map((k) => `scanners.${name}.${k}`).join(', ')}`);
   return s as ScannerSettings;
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
   role: string;
-  title: string;
+  title: Text;
   prompt: string;
 }
 
@@ -161,6 +178,10 @@ const REQUIRED_SETTINGS: string[] = [
   'claude.binary',
   'claude.background_args',
   'claude.interactive_args',
+  'pi.binary',
+  'pi.background_args',
+  'pi.interactive_args',
+  'pi.tools',
   'queue.parallelism',
   'queue.rate_limit_fallback_pause_sec',
   'limits.max_tokens_per_run',
@@ -188,8 +209,10 @@ const REQUIRED_SETTINGS: string[] = [
   'poc.start_timeout_sec',
   'poc.healthcheck_interval_sec',
   'poc.stop_timeout_sec',
+  'poc.check_wait_max_sec',
   'poc.env_passthrough',
   'poc.claude_settings',
+  'poc.pi_sandbox',
   ...TASK_KINDS.flatMap((t) => ['role', 'title', 'prompt'].map((k) => `tasks.${t}.${k}`)),
 ];
 
@@ -201,7 +224,7 @@ const readText: ReadText = (file) => {
   try {
     return fs.readFileSync(file, 'utf8');
   } catch {
-    throw new ConfigError(`не найден файл инструкций: ${file}`);
+    throw new ConfigError(`instruction file not found: ${file}`);
   }
 };
 
@@ -221,18 +244,18 @@ export function listRoles(loc: ConfigLocation): RoleInfo[] {
 function roleInfo(name: string, global: LoadedFile, project?: LoadedFile): RoleInfo {
   const g = global.data.roles?.[name];
   const p = project?.data.roles?.[name];
-  if (!g && !p) throw new ConfigError(`роль "${name}" не описана ни в одном конфиге`);
+  if (!g && !p) throw new ConfigError(`role "${name}" is not defined in any config`);
   const kind = p?.kind ?? g?.kind;
   const access = p?.mcp_access ?? g?.mcp_access;
-  if (!kind) throw new ConfigError(`роль "${name}": не задано поле kind`);
-  if (!access) throw new ConfigError(`роль "${name}": не задано поле mcp_access`);
-  return { name, title: p?.title ?? g?.title ?? name, kind, mcp_access: access };
+  if (!kind) throw new ConfigError(`role "${name}": field kind is not set`);
+  if (!access) throw new ConfigError(`role "${name}": field mcp_access is not set`);
+  return { name, title: localized(p?.title ?? g?.title, uiLanguage(global)) ?? name, kind, mcp_access: access };
 }
 
 function levelOf(obj: Level | undefined): Level {
   if (!obj) return {};
-  const { model, effort, instructions, permissions, env } = obj;
-  return { model, effort, instructions, permissions, env };
+  const { agent, model, effort, instructions, permissions, env } = obj;
+  return { agent, model, effort, instructions, permissions, env };
 }
 
 /** Builds cascade layers: global -> project -> role (global, project) -> module -> matrix -> requirement. */
@@ -240,20 +263,20 @@ export function buildLayers(target: ResolveTarget, global: LoadedFile, project?:
   const layers: Layer[] = [{ source: SOURCE_GLOBAL, baseDir: global.baseDir, level: levelOf(global.data) }];
   if (project) layers.push({ source: SOURCE_PROJECT, baseDir: project.baseDir, level: levelOf(project.data) });
   const gRole = global.data.roles?.[target.role];
-  if (gRole) layers.push({ source: `роль ${target.role} (${SOURCE_GLOBAL})`, baseDir: global.baseDir, level: levelOf(gRole) });
+  if (gRole) layers.push({ source: `role ${target.role} (${SOURCE_GLOBAL})`, baseDir: global.baseDir, level: levelOf(gRole) });
   const pRole = project?.data.roles?.[target.role];
-  if (pRole && project) layers.push({ source: `роль ${target.role} (${SOURCE_PROJECT})`, baseDir: project.baseDir, level: levelOf(pRole) });
+  if (pRole && project) layers.push({ source: `role ${target.role} (${SOURCE_PROJECT})`, baseDir: project.baseDir, level: levelOf(pRole) });
   if (target.module && project) {
     const m = project.data.modules?.[target.module];
-    if (m) layers.push({ source: `модуль ${target.module}`, baseDir: project.baseDir, level: levelOf(m) });
+    if (m) layers.push({ source: `module ${target.module}`, baseDir: project.baseDir, level: levelOf(m) });
   }
   if (target.matrix && project) {
     const m = project.data.matrices?.[target.matrix];
-    if (m) layers.push({ source: `матрица ${target.matrix}`, baseDir: project.baseDir, level: levelOf(m) });
+    if (m) layers.push({ source: `matrix ${target.matrix}`, baseDir: project.baseDir, level: levelOf(m) });
   }
   if (target.item && project) {
     const r = project.data.requirements?.[target.item];
-    if (r) layers.push({ source: `пункт ${target.item}`, baseDir: project.baseDir, level: levelOf(r) });
+    if (r) layers.push({ source: `item ${target.item}`, baseDir: project.baseDir, level: levelOf(r) });
   }
   return layers;
 }
@@ -265,7 +288,7 @@ export function resolveSettings(global: LoadedFile, project?: LoadedFile): { set
     { source: SOURCE_PROJECT, value: project ? pick(project.data) : undefined },
   ]);
   const missing = REQUIRED_SETTINGS.filter((k) => getPath(value, k) === undefined);
-  if (missing.length) throw new ConfigError(`в конфигурации не заданы: ${missing.join(', ')}`);
+  if (missing.length) throw new ConfigError(`missing in the config: ${missing.join(', ')}`);
   return { settings: value as unknown as Settings, sources };
 }
 
@@ -283,12 +306,18 @@ export function resolveConfig(loc: ConfigLocation, target: ResolveTarget): Effec
   };
 }
 
+/** Coding agent of a session (`agent` of the cascade). */
+export function agentOf(cfg: EffectiveConfig): 'claude' | 'pi' {
+  if (!cfg.level.agent) throw new ConfigError('missing in the config: agent');
+  return cfg.level.agent.value;
+}
+
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks', 'scanners'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing
- * entries of `roles`/`tasks`/`scanners`. Existing values are never changed; comments are preserved. Returns added paths.
+ * entries of `roles`/`tasks`/`scanners`/`poc`. Existing values are never changed; comments are preserved. Returns added paths.
  */
 export function addMissingDefaults(userText: string, defaultsText: string): { text: string; added: string[] } {
   const doc = YAML.parseDocument(userText);

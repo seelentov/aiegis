@@ -6,6 +6,7 @@ import { time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
 import { Icon, IconButton } from './Icon';
+import { tr } from '../i18n';
 
 interface Props {
   project: ProjectInfo;
@@ -16,13 +17,13 @@ interface Props {
   onSelect: (s: Selection) => void;
 }
 
-const CHANGE: Record<EntryPointChange | 'removed', string> = { added: 'новая', changed: 'изменена', same: '', removed: 'удалена' };
+const CHANGE: Record<EntryPointChange | 'removed', string> = { added: tr('new|entry'), changed: tr('changed|entry'), same: '', removed: tr('removed|entry') };
 
-const SNAPSHOT_STATUS: Record<EntryPointSnapshot['status'], string> = { building: 'строится', complete: '', failed: 'неполная' };
+const SNAPSHOT_STATUS: Record<EntryPointSnapshot['status'], string> = { building: tr('building'), complete: '', failed: tr('incomplete') };
 
 function snapshotLabel(s: EntryPointSnapshot): string {
   const st = SNAPSHOT_STATUS[s.status];
-  return `${s.commitSha.slice(0, 8)} · ${time(s.createdAt)} · ${s.entryCount} точек${st ? ` · ${st}` : ''}`;
+  return `${s.commitSha.slice(0, 8)} · ${time(s.createdAt)} · ${tr('{n} entry points', { n: s.entryCount })}${st ? ` · ${st}` : ''}`;
 }
 
 /** Expanded view of an entry point: middleware, parameters and call chain as a tree. */
@@ -30,13 +31,13 @@ function EntryTree({ e, open }: { e: EntryPoint; open: (file: string, line?: num
   return (
     <ul className="tree">
       <li>
-        <span className="muted">Хэндлер</span>{' '}
+        <span className="muted">{tr('Handler')}</span>{' '}
         <a onClick={() => open(e.handler.file, e.handler.line)}>
           {e.handler.file}:{e.handler.line}
         </a>
       </li>
       <li>
-        <span className="muted">Авторизация</span> {e.auth}
+        <span className="muted">{tr('Authorization')}</span> {e.auth}
       </li>
       {e.middleware.length > 0 && (
         <li>
@@ -52,7 +53,7 @@ function EntryTree({ e, open }: { e: EntryPoint; open: (file: string, line?: num
       )}
       {e.params.length > 0 && (
         <li>
-          <span className="muted">Параметры</span>
+          <span className="muted">{tr('Parameters')}</span>
           <ul>
             {e.params.map((p, i) => (
               <li key={i}>
@@ -65,7 +66,7 @@ function EntryTree({ e, open }: { e: EntryPoint; open: (file: string, line?: num
       )}
       {e.callChain.length > 0 && (
         <li>
-          <span className="muted">Цепочка вызовов</span>
+          <span className="muted">{tr('Call chain')}</span>
           <ol className="chain">
             {e.callChain.map((c, i) => (
               <li key={i}>
@@ -81,7 +82,7 @@ function EntryTree({ e, open }: { e: EntryPoint; open: (file: string, line?: num
       )}
       {e.notes && (
         <li>
-          <span className="muted">Заметки</span> {e.notes}
+          <span className="muted">{tr('Notes')}</span> {e.notes}
         </li>
       )}
     </ul>
@@ -135,12 +136,12 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
     [...(map?.entries ?? []).map((e) => ({ e, change: e.change })), ...(map?.removed ?? []).map((e) => ({ e, change: 'removed' as const }))].filter((r) => match(r.e)),
     [
       { key: 'toggle', title: '' },
-      { key: 'kind', title: 'Тип', text: (r) => r.e.kind, filter: 'enum' },
-      { key: 'method', title: 'Метод', text: (r) => r.e.method ?? '', filter: 'enum' },
-      { key: 'name', title: 'Маршрут / имя', text: (r) => r.e.name },
-      { key: 'handler', title: 'Хэндлер', text: (r) => `${r.e.handler.file}:${r.e.handler.line}` },
-      { key: 'auth', title: 'Авторизация', text: (r) => r.e.auth, filter: 'enum' },
-      { key: 'change', title: 'Изменение', text: (r) => CHANGE[r.change] || 'без изменений', filter: 'enum' },
+      { key: 'kind', title: tr('Type'), text: (r) => r.e.kind, filter: 'enum' },
+      { key: 'method', title: tr('Method'), text: (r) => r.e.method ?? '', filter: 'enum' },
+      { key: 'name', title: tr('Route / name'), text: (r) => r.e.name },
+      { key: 'handler', title: tr('Handler'), text: (r) => `${r.e.handler.file}:${r.e.handler.line}` },
+      { key: 'auth', title: tr('Authorization'), text: (r) => r.e.auth, filter: 'enum' },
+      { key: 'change', title: tr('Change'), text: (r) => CHANGE[r.change] || tr('unchanged'), filter: 'enum' },
     ],
   );
 
@@ -176,7 +177,7 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
     <div className="entry-points-tab">
       <div className="toolbar">
         <label>
-          Модуль{' '}
+          {tr('Module')}{' '}
           <select value={moduleId ?? ''} onChange={(e) => onModule(e.target.value)}>
             {modules.map((m) => (
               <option key={m.id} value={m.id}>
@@ -187,7 +188,7 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
         </label>
         {map && map.snapshots.length > 0 && (
           <label>
-            Версия{' '}
+            {tr('Version')}{' '}
             <select value={snap?.id ?? ''} onChange={(e) => setSnapshotId(e.target.value)}>
               {!snap && <option value="">—</option>}
               {map.snapshots.map((s) => (
@@ -198,32 +199,32 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
             </select>
           </label>
         )}
-        <input type="search" aria-label="Поиск по всем столбцам" placeholder="поиск по всем столбцам" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <input type="search" aria-label={tr('Search all columns')} placeholder={tr('search all columns')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         {moduleId && (
-          <IconButton icon={snap ? 'recheck' : 'route'} title={snap ? 'Перестроить карту модуля' : 'Построить карту модуля'} label={snap ? 'Перестроить' : 'Построить'} onClick={() => void run(api.enqueueEntryPoints(project.id, moduleId))} />
+          <IconButton icon={snap ? 'recheck' : 'route'} title={snap ? tr('Rebuild module map') : tr('Build module map')} label={snap ? tr('Rebuild') : tr('Build')} onClick={() => void run(api.enqueueEntryPoints(project.id, moduleId))} />
         )}
         {g.count}
       </div>
 
       {!modules.length ? (
-        <div className="empty">Сначала разметьте модули на вкладке «Модули».</div>
+        <div className="empty">{tr('Mark up modules on the “Modules” tab first.')}</div>
       ) : !snap ? (
-        <div className="empty">Карты точек входа для модуля ещё нет.</div>
+        <div className="empty">{tr('The module has no entry point map yet.')}</div>
       ) : (
         <>
           <div className="muted snapshot-info">
-            Коммит <span className="mono">{snap.commitSha.slice(0, 12)}</span> ·{' '}
-            <a onClick={() => onSelect({ kind: 'run', id: snap.runId })}>прогон</a>
+            {tr('Commit')} <span className="mono">{snap.commitSha.slice(0, 12)}</span> ·{' '}
+            <a onClick={() => onSelect({ kind: 'run', id: snap.runId })}>{tr('run')}</a>
             {map.baseline ? (
               <>
                 {' '}
-                · относительно <span className="mono">{map.baseline.commitSha.slice(0, 8)}</span>: +{counts!.added} ~{counts!.changed} −
+                · {tr('relative to')} <span className="mono">{map.baseline.commitSha.slice(0, 8)}</span>: +{counts!.added} ~{counts!.changed} −
                 {map.removed.length}
               </>
             ) : (
-              ' · первая версия'
+              ` · ${tr('first version')}`
             )}
-            {snap.status !== 'complete' && <span className="warn"> · версия {SNAPSHOT_STATUS[snap.status]}</span>}
+            {snap.status !== 'complete' && <span className="warn"> · {tr('version {status}', { status: SNAPSHOT_STATUS[snap.status] })}</span>}
           </div>
           <table className="grid entry-grid">
             {g.head}

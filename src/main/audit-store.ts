@@ -182,7 +182,7 @@ export class AuditStore {
 
   createDocument(title: string): string {
     const t = title.trim();
-    if (!t) throw new Error('пустое название документа');
+    if (!t) throw new Error('empty document title');
     const id = crypto.randomUUID();
     this.db.prepare('INSERT INTO documents (id, title, created_at) VALUES (?, ?, ?)').run(id, t, now());
     return id;
@@ -243,10 +243,10 @@ export class AuditStore {
   /** Review is mandatory (SPEC §4, Q17): every item must be accepted or rejected first. */
   approveVersion(id: string, by: string): void {
     const v = this.getVersion(id);
-    if (!v) throw new Error(`версия ${id} не найдена`);
-    if (v.status !== 'review') throw new Error('утвердить можно только версию на ревью');
-    if (v.pendingCount) throw new Error(`не просмотрено пунктов: ${v.pendingCount}`);
-    if (!this.listItems(id).some((i) => i.review === 'accepted')) throw new Error('в версии нет принятых пунктов');
+    if (!v) throw new Error(`version ${id} not found`);
+    if (v.status !== 'review') throw new Error('only a version in review can be approved');
+    if (v.pendingCount) throw new Error(`items not reviewed: ${v.pendingCount}`);
+    if (!this.listItems(id).some((i) => i.review === 'accepted')) throw new Error('the version has no accepted items');
     this.db.prepare(`UPDATE doc_versions SET status = 'approved', approved_at = ?, approved_by = ? WHERE id = ?`).run(now(), by, id);
   }
 
@@ -285,9 +285,9 @@ export class AuditStore {
     review: ReviewState = 'pending',
   ): RequirementItem {
     const v = this.getVersion(versionId);
-    if (!v) throw new Error(`версия ${versionId} не найдена`);
+    if (!v) throw new Error(`version ${versionId} not found`);
     const text = it.text.trim();
-    if (!text) throw new Error('пустой текст требования');
+    if (!text) throw new Error('empty requirement text');
     return this.db.transaction(() => {
       const key = it.key?.trim() || this.generatedKey(v.documentId);
       const requirementId = this.ensureRequirement(v.documentId, key);
@@ -390,17 +390,17 @@ export class AuditStore {
 
   saveMatrix(m: { id?: string; name: string; documentIds: string[]; moduleIds: string[] }): Matrix {
     const name = m.name.trim();
-    if (!name) throw new Error('пустое имя матрицы');
-    if (!m.documentIds.length) throw new Error('выберите хотя бы один документ');
+    if (!name) throw new Error('empty matrix name');
+    if (!m.documentIds.length) throw new Error('choose at least one document');
     const clash = this.db.prepare('SELECT id FROM matrices WHERE name = ?').get(name) as { id: string } | undefined;
-    if (clash && clash.id !== m.id) throw new Error(`матрица ${name} уже есть`);
+    if (clash && clash.id !== m.id) throw new Error(`matrix ${name} already exists`);
     const t = now();
     const id = m.id ?? crypto.randomUUID();
     if (m.id) {
       const changes = this.db
         .prepare('UPDATE matrices SET name = ?, documents = ?, modules = ?, updated_at = ? WHERE id = ?')
         .run(name, JSON.stringify(m.documentIds), JSON.stringify(m.moduleIds), t, id).changes;
-      if (!changes) throw new Error(`матрица ${m.id} не найдена`);
+      if (!changes) throw new Error(`matrix ${m.id} not found`);
     } else {
       this.db
         .prepare('INSERT INTO matrices (id, name, documents, modules, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -570,7 +570,7 @@ export class AuditStore {
   /** Links a finding to an SCA item; merged findings resolve to their target. */
   linkScaFinding(id: string, x: ScaItemRef, by: Authorship): Finding {
     let f = this.getFinding(id);
-    if (!f) throw new Error(`находка ${id} не найдена`);
+    if (!f) throw new Error(`finding ${id} not found`);
     while (f.mergedInto) f = this.getFinding(f.mergedInto)!;
     if (!f.scaItems.some((y) => scaItemId(y) === scaItemId(x))) this.insertEvent(f.id, { kind: 'link', scaItem: x }, by);
     return this.getFinding(f.id)!;
@@ -578,8 +578,8 @@ export class AuditStore {
 
   setFindingStatus(id: string, status: FindingStatus, reason: string | null, by: Authorship): Finding {
     const f = this.getFinding(id);
-    if (!f) throw new Error(`находка ${id} не найдена`);
-    if (f.mergedInto) throw new Error('находка объединена с другой');
+    if (!f) throw new Error(`finding ${id} not found`);
+    if (f.mergedInto) throw new Error('the finding is merged into another one');
     if (f.status !== status) this.insertEvent(id, { kind: 'status', status, reason }, by);
     return this.getFinding(id)!;
   }
@@ -587,7 +587,7 @@ export class AuditStore {
   /** Links a finding to a cell (M:N); merged findings resolve to their target. */
   linkFinding(id: string, c: CellRef, by: Authorship): Finding {
     let f = this.getFinding(id);
-    if (!f) throw new Error(`находка ${id} не найдена`);
+    if (!f) throw new Error(`finding ${id} not found`);
     while (f.mergedInto) f = this.getFinding(f.mergedInto)!;
     if (!f.cells.some((x) => cellId(x) === cellId(c))) this.insertEvent(f.id, { kind: 'link', cell: c }, by);
     return this.getFinding(f.id)!;
@@ -595,11 +595,11 @@ export class AuditStore {
 
   /** Manual merge (SPEC §4, Q23): `sourceId` becomes a pointer to `targetId`, its cells move over. */
   mergeFinding(sourceId: string, targetId: string, by: Authorship): Finding {
-    if (sourceId === targetId) throw new Error('нельзя объединить находку с самой собой');
+    if (sourceId === targetId) throw new Error('a finding cannot be merged into itself');
     const src = this.getFinding(sourceId);
     const dst = this.getFinding(targetId);
-    if (!src || !dst) throw new Error('находка не найдена');
-    if (src.mergedInto || dst.mergedInto) throw new Error('находка уже объединена с другой');
+    if (!src || !dst) throw new Error('finding not found');
+    if (src.mergedInto || dst.mergedInto) throw new Error('the finding is already merged into another one');
     this.db.transaction(() => {
       this.insertEvent(sourceId, { kind: 'merged', mergedInto: targetId }, by);
       for (const c of src.cells) if (!dst.cells.some((x) => cellId(x) === cellId(c))) this.insertEvent(targetId, { kind: 'link', cell: c }, by);

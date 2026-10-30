@@ -32,10 +32,10 @@ function store() {
 describe('module globs', () => {
   it('validates and converts to git pathspecs', () => {
     expect(globsError(['a/**', '!a/test/**'])).toBeNull();
-    expect(globsError(['!a/**'])).toMatch(/включающий/);
-    expect(globsError(['/etc/**'])).toMatch(/относительным/);
+    expect(globsError(['!a/**'])).toMatch(/including glob/);
+    expect(globsError(['/etc/**'])).toMatch(/relative/);
     expect(globsError([':(top)x'])).toMatch(/pathspec/);
-    expect(globsError(['a/../../x'])).toMatch(/пределы/);
+    expect(globsError(['a/../../x'])).toMatch(/leaves the repository/);
     expect(toPathspecs(['a/**', '!a/test/**'])).toEqual([':(glob)a/**', ':(glob,exclude)a/test/**']);
   });
 
@@ -49,8 +49,8 @@ describe('module globs', () => {
     expect(await matchFiles(repo, ['svc/*/*.java'])).toEqual(['svc/src/A.java', 'svc/test/T.java']);
     expect(await matchFiles(repo, ['nope/**'])).toEqual([]);
     expect(repoFileError(repo, 'svc/src/A.java')).toBeNull();
-    expect(repoFileError(repo, 'svc/src')).toMatch(/не найден/);
-    expect(repoFileError(repo, '../x')).toMatch(/относительным/);
+    expect(repoFileError(repo, 'svc/src')).toMatch(/not found/);
+    expect(repoFileError(repo, '../x')).toMatch(/relative/);
     expect(fs.existsSync(path.join(repo, 'svc'))).toBe(true);
   });
 });
@@ -58,7 +58,7 @@ describe('module globs', () => {
 describe('prompt templates', () => {
   it('fills placeholders and rejects unknown ones', () => {
     expect(renderTemplate('Map {{module_name}} ({{ module_id }})', { module_name: 'm', module_id: '1' })).toBe('Map m (1)');
-    expect(() => renderTemplate('{{oops}}', { a: '' }, 'tasks/x.md')).toThrow(/tasks\/x.md: неизвестная подстановка \{\{oops\}\}/);
+    expect(() => renderTemplate('{{oops}}', { a: '' }, 'tasks/x.md')).toThrow(/tasks\/x.md: unknown placeholder \{\{oops\}\}/);
   });
 });
 
@@ -92,7 +92,7 @@ describe('ProjectStore: modules', () => {
     expect(s.saveModule({ id: m.id, name: 'auth', globs: ['auth/**'], description: 'v1' }, by)).toEqual(m);
     s.saveModule({ id: m.id, name: 'auth-service', globs: ['auth/**', '!auth/test/**'], description: 'v2' }, by);
     expect(s.getModule(m.id)).toMatchObject({ name: 'auth-service', description: 'v2', author: 'human', runId: null });
-    expect(() => s.saveModule({ name: 'auth-service', globs: ['x/**'], description: '' }, by)).toThrow(/уже есть/);
+    expect(() => s.saveModule({ name: 'auth-service', globs: ['x/**'], description: '' }, by)).toThrow(/already exists/);
     expect(s.moduleHistory(m.id).map((h) => h.description)).toEqual(['v2', 'v1']);
 
     s.removeModule(m.id, 'merged into core', by);

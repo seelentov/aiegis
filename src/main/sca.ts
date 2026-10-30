@@ -22,7 +22,7 @@ export const scaItemId = (x: ScaItemRef) => `${x.moduleId}/${x.packageKey}#${x.v
 export function parseScaItemId(id: string): ScaItemRef {
   const slash = id.indexOf('/');
   const hash = id.lastIndexOf('#');
-  if (slash <= 0 || hash <= slash + 1 || hash === id.length - 1) throw new Error(`неверный id SCA-пункта ${id}`);
+  if (slash <= 0 || hash <= slash + 1 || hash === id.length - 1) throw new Error(`invalid SCA item id ${id}`);
   return { moduleId: id.slice(0, slash), packageKey: id.slice(slash + 1, hash), vulnId: id.slice(hash + 1) };
 }
 
@@ -30,7 +30,7 @@ export const scaPackageEntityId = (moduleId: string, key: string) => `${moduleId
 
 export function parseScaPackageEntityId(id: string): { moduleId: string; packageKey: string } {
   const i = id.indexOf('/');
-  if (i <= 0) throw new Error(`неверный id пакета ${id}`);
+  if (i <= 0) throw new Error(`invalid package id ${id}`);
   return { moduleId: id.slice(0, i), packageKey: id.slice(i + 1) };
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Icon, IconButton } from './Icon';
+import { lang, tr } from '../i18n';
 
 export interface Col<T> {
   key: string;
@@ -22,7 +23,7 @@ interface GridState {
 
 // Per-table state survives tab switches for the session.
 const memory = new Map<string, GridState>();
-const collator = new Intl.Collator('ru', { numeric: true, sensitivity: 'base' });
+const collator = new Intl.Collator(lang, { numeric: true, sensitivity: 'base' });
 
 export function useGrid<T>(id: string, rows: T[], cols: Col<T>[]) {
   const [state, setState] = useState<GridState>(() => memory.get(id) ?? { sort: null, filters: {} });
@@ -91,10 +92,10 @@ export function useGrid<T>(id: string, rows: T[], cols: Col<T>[]) {
       <span className="grid-count">
         {filtered && (
           <span className="muted">
-            {shown.length} из {rows.length}
+            {tr('{n} of {total}', { n: shown.length, total: rows.length })}
           </span>
         )}
-        <IconButton icon="clearFilter" title="Сбросить фильтры и сортировку" onClick={reset} />
+        <IconButton icon="clearFilter" title={tr('Reset filters and sorting')} onClick={reset} />
       </span>
     ) : null;
 
@@ -102,12 +103,12 @@ export function useGrid<T>(id: string, rows: T[], cols: Col<T>[]) {
 }
 
 function ColumnFilter<T>({ col, rows, value, onChange }: { col: Col<T>; rows: T[]; value: string; onChange: (v: string) => void }) {
-  const label = `Фильтр: ${typeof col.title === 'string' ? col.title : col.key}`;
+  const label = tr('Filter: {column}', { column: typeof col.title === 'string' ? col.title : col.key });
   if (col.filter === 'enum') {
     const options = [...new Set(rows.map(col.text!))].filter(Boolean).sort(collator.compare);
     return (
       <select className={value ? 'col-filter set' : 'col-filter'} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">все</option>
+        <option value="">{tr('all')}</option>
         {options.map((o) => (
           <option key={o} value={o}>
             {o}
@@ -121,7 +122,7 @@ function ColumnFilter<T>({ col, rows, value, onChange }: { col: Col<T>; rows: T[
       className={value ? 'col-filter set' : 'col-filter'}
       type="search"
       aria-label={label}
-      placeholder="поиск"
+      placeholder={tr('search')}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => e.key === 'Escape' && onChange('')}
@@ -133,7 +134,7 @@ function ColumnFilter<T>({ col, rows, value, onChange }: { col: Col<T>; rows: T[
 export function EmptyRow({ colSpan, filtered, children }: { colSpan: number; filtered: boolean; children: ReactNode }) {
   return (
     <tr className="empty-row">
-      <td colSpan={colSpan}>{filtered ? 'Ничего не подходит под фильтры' : children}</td>
+      <td colSpan={colSpan}>{filtered ? tr('Nothing matches the filters') : children}</td>
     </tr>
   );
 }

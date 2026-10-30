@@ -408,11 +408,11 @@ export class ProjectStore {
    */
   saveModule(m: { id?: string; name: string; globs: string[]; description: string }, by: Authorship): Module {
     const name = m.name.trim();
-    if (!name) throw new Error('пустое имя модуля');
+    if (!name) throw new Error('empty module name');
     const clash = this.moduleByName(name);
-    if (clash && clash.id !== m.id) throw new Error(`модуль с именем ${name} уже есть`);
+    if (clash && clash.id !== m.id) throw new Error(`a module named ${name} already exists`);
     const cur = m.id ? this.getModule(m.id) : undefined;
-    if (m.id && !cur) throw new Error(`модуль ${m.id} не найден`);
+    if (m.id && !cur) throw new Error(`module ${m.id} not found`);
     const same = cur && cur.name === name && cur.description === m.description && JSON.stringify(cur.globs) === JSON.stringify(m.globs);
     if (same) return cur;
     const id = m.id ?? crypto.randomUUID();
@@ -422,7 +422,7 @@ export class ProjectStore {
 
   removeModule(id: string, reason: string, by: Authorship): void {
     const cur = this.getModule(id);
-    if (!cur) throw new Error(`модуль ${id} не найден`);
+    if (!cur) throw new Error(`module ${id} not found`);
     this.insertRevision({ moduleId: id, name: cur.name, globs: cur.globs, description: cur.description, deleted: true, reason }, by);
   }
 
@@ -470,7 +470,7 @@ export class ProjectStore {
     const existing = this.snapshotOf(run.id, moduleId);
     if (existing) return existing;
     const mod = this.getModule(moduleId);
-    if (!mod) throw new Error(`модуль ${moduleId} не найден`);
+    if (!mod) throw new Error(`module ${moduleId} not found`);
     const id = crypto.randomUUID();
     this.db.transaction(() => {
       this.db

@@ -3,13 +3,21 @@
 #
 # Cascade: global -> project -> role -> module -> matrix/standard -> item.
 # Project config may add levels `modules.<name>`, `matrices.<name>` and `requirements.<key>`.
-# Level fields: model, effort, instructions, permissions, env.
-#   model, effort         - lower level replaces;
+# Level fields: agent, model, effort, instructions, permissions, env.
+#   agent, model, effort  - lower level replaces;
 #   instructions          - concatenated top-down; `mode: replace` drops everything above;
 #   permissions.allow/deny - union, deny wins;
 #   env                   - merged, lower level wins per key.
 # Instruction files are resolved relative to the directory of the config file that names them.
 
+# UI language: en | ru. Also picks the variant of `title: { en: ..., ru: ... }` texts below.
+ui:
+  language: en
+
+# Coding agent that runs sessions: claude (Claude Code, default) | pi (pi coding agent, see `pi:` below).
+# Model names go to the agent as is: pi resolves `sonnet`/`haiku` by fuzzy match, or use `provider/model`.
+# effort becomes `--effort` (claude) or `--thinking` (pi).
+agent: claude
 model: sonnet
 effort: low
 permissions:
@@ -23,6 +31,25 @@ claude:
   background_args: ["--strict-mcp-config", "--setting-sources", "", "--permission-mode", "dontAsk"]
   # Extra args for interactive sessions (free session, resume).
   interactive_args: []
+
+# pi coding agent (https://pi.dev), used where `agent: pi`. Sessions run with `--mode json` / interactively with
+# `--session-id`; the aiegis extension (shipped with the app) connects the run's MCP server and enforces the role's
+# permissions (pi has none of its own): deny wins, allow rules use the Claude Code syntax above, Bash pattern rules
+# allow one simple command per call; anything else is blocked in background runs and asked in interactive sessions.
+pi:
+  binary: pi
+  # Background runs: no user extensions, skills, prompt templates or project-local settings (like --setting-sources "").
+  # Keep `--extension builtin:mcp`: the aiegis MCP server needs pi's built-in MCP support.
+  background_args: ["--no-extensions", "--extension", "builtin:mcp", "--no-skills", "--no-prompt-templates", "--no-approve"]
+  interactive_args: []
+  # Claude Code tool names of `permissions` -> pi tools. Tools without a pi counterpart (WebFetch, NotebookEdit) are ignored.
+  tools:
+    Read: [read]
+    Grep: [grep]
+    Glob: [find, ls]
+    Bash: [bash]
+    Edit: [edit]
+    Write: [write]
 
 queue:
   parallelism: 2
@@ -38,7 +65,7 @@ terminal:
   external_app: Terminal
 
 sessions:
-  # Role of "Новая сессия" / "Открыть сессию для фикса".
+  # Role of "New session" / "Open fix session".
   free_role: assistant
   # Role preselected for ad-hoc background tasks.
   default_task_role: task
@@ -137,6 +164,10 @@ poc:
   start_timeout_sec: 600
   healthcheck_interval_sec: 5
   stop_timeout_sec: 120
+  # env-setup polls its own start with check_poc_environment(status, wait_sec); one call waits at most this long.
+  # Claude Code fails MCP calls that take longer than its request timeout (a 120 s wait timed out; 60 s is the MCP
+  # SDK default), and it blocks plain `sleep` in Bash.
+  check_wait_max_sec: 50
   # The tester session and the instance commands inherit only these variables of the app's environment (tokens and
   # passwords of the user's shell stay out of reach); add what the build needs (JAVA_HOME, ...) in the project config.
   # The cascade `env` level, account secrets and AIEGIS_POC_BASE_URL are added on top.
@@ -154,6 +185,20 @@ poc:
         # macOS: lets commands connect to the instance on localhost directly (Claude Code bypasses its proxy for
         # local addresses). It opens every localhost port to scripts; curl URLs are still limited to base_url by the hook.
         allowLocalBinding: true
+  # OS sandbox of tester sessions under `agent: pi` (@anthropic-ai/sandbox-runtime, the runtime behind Claude Code's
+  # sandbox; macOS Seatbelt, Linux bubblewrap). The aiegis extension wraps every bash command in it and asks the same
+  # hook first; the app adds the host:port of base_url to network.allowedDomains, the extension adds the working
+  # directory to filesystem.allowWrite. Commands reach a local instance through the sandbox proxy, so exactly that
+  # host:port is open (no allowLocalBinding needed). No sandbox (other OS, missing bubblewrap) = commands are blocked.
+  pi_sandbox:
+    network:
+      allowedDomains: []
+      deniedDomains: []
+      strictAllowlist: true
+    filesystem:
+      denyRead: []
+      allowWrite: []
+      denyWrite: []
   # Test environment: describe it in the project config (.aiegis/config.yaml); without it the tester is unavailable.
   # Commands run with `sh -c` in the worktree; they and the tester get the account secrets as env variables
   # AIEGIS_POC_<ACCOUNT>_<SECRET> (secret values come from the app's env or the macOS keychain, never from the file).
@@ -172,31 +217,31 @@ tasks:
   # Module markup of the repository. Placeholders: project, hint, modules.
   modules:
     role: modules
-    title: Разметка модулей
+    title: { en: "Module markup", ru: "Разметка модулей" }
     prompt: instructions/tasks/modules.md
   # Entry point map of one module. Placeholders: project, module_id, module_name, module_globs, module_description.
   entry_points:
     role: entry-points
-    title: "Точки входа: {{module_name}}"
+    title: { en: "Entry points: {{module_name}}", ru: "Точки входа: {{module_name}}" }
     prompt: instructions/tasks/entry-points.md
   # Requirement extraction from one document version.
   # Placeholders: project, document_title, version_id, version_n, file, format, previous.
   requirements:
     role: requirements
-    title: "Требования: {{document_title}} v{{version_n}}"
+    title: { en: "Requirements: {{document_title}} v{{version_n}}", ru: "Требования: {{document_title}} v{{version_n}}" }
     prompt: instructions/tasks/requirements.md
   # Cheap n/a triage of a module against matrix requirements.
   # Placeholders: project, matrix, module_id, module_name, module_globs, module_description, requirements.
   matrix_triage:
     role: matrix-triage
-    title: "Отсев n/a: {{matrix}} × {{module_name}}"
+    title: { en: "n/a triage: {{matrix}} × {{module_name}}", ru: "Отсев n/a: {{matrix}} × {{module_name}}" }
     prompt: instructions/tasks/matrix-triage.md
   # Verdicts for a batch of cells (one module, one requirement group).
   # Placeholders: project, matrix, module_id, module_name, module_globs, module_description, group, requirements,
   # suppressions (relevant human suppressions of scanner signals, few-shot).
   matrix_verdicts:
     role: matrix
-    title: "Вердикты: {{matrix}} × {{module_name}} / {{group}}"
+    title: { en: "Verdicts: {{matrix}} × {{module_name}} / {{group}}", ru: "Вердикты: {{matrix}} × {{module_name}} / {{group}}" }
     prompt: instructions/tasks/matrix-verdicts.md
   # Dependency inventory of one module: the agent picks the tools to resolve dependencies and look up vulnerabilities.
   # Runs in a separate worktree of the commit (build tools write there). Placeholders: project, module_id, module_name,
@@ -204,7 +249,7 @@ tasks:
   # humans, copied into out_dir), scanner_hints (dependency CVEs found by configured scanners).
   sca_inventory:
     role: sca-inventory
-    title: "SCA-инвентаризация: {{module_name}}"
+    title: { en: "SCA inventory: {{module_name}}", ru: "SCA-инвентаризация: {{module_name}}" }
     prompt: instructions/tasks/sca-inventory.md
   # Reachability of the vulnerabilities of one package in one module.
   # Placeholders: project, module_id, module_name, module_globs, module_description, package_key, package, direct,
@@ -220,17 +265,25 @@ tasks:
     role: tester
     title: "PoC: {{title}}"
     prompt: instructions/tasks/poc.md
-  # "Открыть сессию для фикса" (interactive, user's working directory).
+  # env-setup: works out how to start the project for the PoC tester, writes poc.environment (one per project) and
+  # starts it itself (check_poc_environment) until it is ready; without a ready check the app starts it after the session.
+  # Placeholders: project, project_root (the user's checkout, readable), environment (current poc.environment),
+  # accounts, scripts_dir, env_passthrough, last_failure (output of the last test instance that did not start).
+  poc_setup:
+    role: env-setup
+    title: { en: "PoC environment setup", ru: "Настройка PoC-окружения" }
+    prompt: instructions/tasks/poc-setup.md
+  # "Open fix session" (interactive, user's working directory).
   # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, cells.
   fix:
     role: assistant
-    title: "Фикс: {{title}}"
+    title: { en: "Fix: {{title}}", ru: "Фикс: {{title}}" }
     prompt: instructions/tasks/fix.md
 
 roles:
-  # Free interactive session ("Новая сессия", "Открыть сессию для фикса").
+  # Free interactive session ("New session", "Open fix session").
   assistant:
-    title: AppSec-ассистент
+    title: { en: "AppSec assistant", ru: "AppSec-ассистент" }
     kind: interactive
     mcp_access: manage
     model: sonnet
@@ -242,7 +295,7 @@ roles:
 
   # Ad-hoc background task started from the queue UI or by the assistant via MCP.
   task:
-    title: Фоновая задача
+    title: { en: "Background task", ru: "Фоновая задача" }
     kind: background
     mcp_access: scoped
     model: haiku
@@ -254,7 +307,7 @@ roles:
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
   requirements:
-    title: Извлечение требований
+    title: { en: "Requirement extraction", ru: "Извлечение требований" }
     kind: background
     mcp_access: scoped
     model: haiku
@@ -266,7 +319,7 @@ roles:
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash"]
 
   matrix-triage:
-    title: Отсев n/a
+    title: { en: "n/a triage", ru: "Отсев n/a" }
     kind: background
     mcp_access: scoped
     model: haiku
@@ -278,7 +331,7 @@ roles:
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
   matrix:
-    title: Проверка матрицы
+    title: { en: "Matrix check", ru: "Проверка матрицы" }
     kind: background
     mcp_access: scoped
     model: sonnet
@@ -296,7 +349,7 @@ roles:
 
   # SCA reachability: is a vulnerable package version used by the module in a way the vulnerability needs.
   sca:
-    title: SCA — достижимость
+    title: { en: "SCA reachability", ru: "SCA — достижимость" }
     kind: background
     mcp_access: scoped
     model: haiku
@@ -311,7 +364,7 @@ roles:
   # Build tools run the project's build scripts in a separate worktree (trust in the audited repository);
   # files may be written only into the run's directory `.aiegis-sca/` of that worktree. Extend the allowlist per project.
   sca-inventory:
-    title: SCA — инвентаризация
+    title: { en: "SCA inventory", ru: "SCA — инвентаризация" }
     kind: background
     mcp_access: scoped
     model: haiku
@@ -354,7 +407,7 @@ roles:
       dirs: ["~/.gradle/caches", "~/.m2/repository"]
 
   modules:
-    title: Разметка модулей
+    title: { en: "Module markup", ru: "Разметка модулей" }
     kind: background
     mcp_access: scoped
     model: sonnet
@@ -366,7 +419,7 @@ roles:
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
   entry-points:
-    title: Карта точек входа
+    title: { en: "Entry point map", ru: "Карта точек входа" }
     kind: background
     mcp_access: scoped
     model: sonnet
@@ -377,10 +430,26 @@ roles:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
+  # env-setup: studies the project (code, docs, skills, build files; the user's checkout via --add-dir), describes how
+  # the app starts its test instance (set_poc_environment) and starts it (check_poc_environment) until it works.
+  # Not sandboxed: it may run build and remote commands. Its commands see only poc.env_passthrough of the app's
+  # environment, like the instance commands, and no account secrets.
+  env-setup:
+    title: { en: "PoC environment setup", ru: "Настройка PoC-окружения" }
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: medium
+    instructions:
+      file: instructions/roles/env-setup.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
   # PoC tester: reproduces a suspected finding against the test instance (poc.environment) at base_url only.
   # Commands run in the OS sandbox (poc.claude_settings); scripts may be written only into `.aiegis-poc/`.
   tester:
-    title: PoC-тестировщик
+    title: { en: "PoC tester", ru: "PoC-тестировщик" }
     kind: background
     mcp_access: scoped
     model: sonnet

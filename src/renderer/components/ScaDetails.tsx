@@ -9,6 +9,8 @@ import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { confirmSca } from './ScaTab';
 import { IconButton } from './Icon';
+import { Section } from './Section';
+import { tr } from '../i18n';
 
 interface Common {
   project: ProjectInfo;
@@ -59,7 +61,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
         cwe: null,
         entryPoint: null,
         files: parseEvidence(evidence),
-        recommendation: item.vuln.fixedVersion ? `Обновить ${pkg.name} до ${item.vuln.fixedVersion} или новее.` : null,
+        recommendation: item.vuln.fixedVersion ? tr('Upgrade {package} to {version} or newer.', { package: pkg.name, version: item.vuln.fixedVersion }) : null,
       }),
     );
     if (f) setForm(null);
@@ -85,8 +87,8 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
       session: false,
       body: (
         <>
-          находка {d.findings.find((f) => f.id === e.findingId)?.title ?? ''}:{' '}
-          {e.kind === 'created' ? 'создана' : e.kind === 'link' ? 'связана с уязвимостью' : e.kind === 'merged' ? 'объединена' : FINDING_STATUS[e.status!]}
+          {tr('finding')} {d.findings.find((f) => f.id === e.findingId)?.title ?? ''}:{' '}
+          {e.kind === 'created' ? tr('created') : e.kind === 'link' ? tr('linked to the vulnerability') : e.kind === 'merged' ? tr('merged') : FINDING_STATUS[e.status!]}
           {e.reason ? ` — ${e.reason}` : ''}
         </>
       ),
@@ -96,22 +98,22 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
   return (
     <section>
       <h3>
-        <span className="mono">{item.vulnId}</span> в {pkg.name}@{pkg.version}
+        <span className="mono">{item.vulnId}</span> {tr('in')} {pkg.name}@{pkg.version}
       </h3>
       {item.vuln.title && <p>{item.vuln.title}</p>}
       <dl>
-        <dt>Модуль</dt>
-        <dd>{d.module?.name ?? 'удалён'}</dd>
+        <dt>{tr('Module')}</dt>
+        <dd>{d.module?.name ?? tr('deleted')}</dd>
         <dt>Severity</dt>
         <dd>
           <span className={`status sev-${item.vuln.severity}`}>{SEVERITY[item.vuln.severity]}</span>
           {item.vuln.aliases.length > 0 && <span className="mono small"> {item.vuln.aliases.join(', ')}</span>}
         </dd>
-        <dt>Исправлено в</dt>
+        <dt>{tr('Fixed in')}</dt>
         <dd className="mono">{item.vuln.fixedVersion ?? '—'}</dd>
-        <dt>Пакет</dt>
+        <dt>{tr('Package')}</dt>
         <dd>
-          {pkg.ecosystem} · {pkg.direct === null ? 'прямая?' : pkg.direct ? 'прямая зависимость' : 'транзитивная'}
+          {pkg.ecosystem} · {pkg.direct === null ? tr('direct?') : pkg.direct ? tr('direct dependency') : tr('transitive')}
           {pkg.manifest && (
             <div>
               <a className="mono small" onClick={() => void run(api.openInEditor(pkg.manifest!, undefined, project.id))}>
@@ -121,14 +123,14 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
           )}
           {pkg.purl && <div className="mono small muted">{pkg.purl}</div>}
         </dd>
-        <dt>Имена импорта</dt>
-        <dd className="mono small">{pkg.importNames.join(', ') || <span className="muted">неизвестны — префильтр не применяется</span>}</dd>
-        <dt>Ссылки в модуле</dt>
+        <dt>{tr('Import names')}</dt>
+        <dd className="mono small">{pkg.importNames.join(', ') || <span className="muted">{tr('unknown: the prefilter does not apply')}</span>}</dd>
+        <dt>{tr('References in the module')}</dt>
         <dd className="mono small">
           {d.importHits === null ? (
             <span className="muted">—</span>
           ) : d.importHits.length === 0 ? (
-            <span className="muted">нет (на HEAD)</span>
+            <span className="muted">{tr('none (at HEAD)')}</span>
           ) : (
             <>
               {d.importHits.slice(0, 10).map((f) => (
@@ -136,46 +138,46 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
                   <a onClick={() => void run(api.openInEditor(f, undefined, project.id))}>{f}</a>
                 </div>
               ))}
-              {d.importHits.length > 10 && <div className="muted">…ещё {d.importHits.length - 10}</div>}
+              {d.importHits.length > 10 && <div className="muted">{tr('…{n} more', { n: d.importHits.length - 10 })}</div>}
             </>
           )}
         </dd>
-        <dt>Инвентаризация</dt>
+        <dt>{tr('Inventory')}</dt>
         <dd>
           {INVENTORY_STATUS[inv.status]} · <span className="mono">{inv.commitSha.slice(0, 8)}</span> · {time(inv.finishedAt)} ·{' '}
-          <a onClick={() => onSelect({ kind: 'run', id: inv.runId })}>прогон</a>
+          <a onClick={() => onSelect({ kind: 'run', id: inv.runId })}>{tr('run')}</a>
           {d.report && (
             <>
               {' '}
               ·{' '}
               <a onClick={() => void run(api.scaReportPath(project.id, d.report!.id)).then((f) => void (f && run(api.openInEditor(f))))}>
-                отчёт {d.report.path.split('/').pop()}
+                {tr('report {name}', { name: d.report.path.split('/').pop() ?? '' })}
               </a>
             </>
           )}
         </dd>
-        <dt>Достижимость</dt>
+        <dt>{tr('Reachability')}</dt>
         <dd>
           <span className={`status ss-${item.status}`}>{SCA_STATUS[item.status]}</span>
-          {v?.author === 'auto' && <span className="muted"> · префильтр без ИИ</span>}
-          {item.stale && <span className="status stale">устарело: изменился код</span>}
+          {v?.author === 'auto' && <span className="muted"> · {tr('prefilter without AI')}</span>}
+          {item.stale && <span className="status stale">{tr('stale: code changed')}</span>}
         </dd>
         {d.changedFiles.length > 0 && (
           <>
-            <dt>Изменены</dt>
+            <dt>{tr('Changed|code')}</dt>
             <dd className="mono small">
               {d.changedFiles.slice(0, 10).map((f) => (
                 <div key={f}>{f}</div>
               ))}
-              {d.changedFiles.length > 10 && <div className="muted">…ещё {d.changedFiles.length - 10}</div>}
+              {d.changedFiles.length > 10 && <div className="muted">{tr('…{n} more', { n: d.changedFiles.length - 10 })}</div>}
             </dd>
           </>
         )}
         {v && (
           <>
-            <dt>Обоснование</dt>
+            <dt>{tr('Rationale')}</dt>
             <dd className="prewrap">{v.reason}</dd>
-            <dt>Доказательства</dt>
+            <dt>{tr('Evidence')}</dt>
             <dd>
               <EvidenceList project={project} run={run} items={v.evidence} />
             </dd>
@@ -186,20 +188,20 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
         <IconButton
           icon="recheck"
           className="primary"
-          title="Перепроверить достижимость"
-          label="Перепроверить"
+          title={tr('Recheck reachability')}
+          label={tr('Recheck')}
           disabled={Boolean(item.activeJob) || !d.module}
           onClick={() => void confirmSca(project, run, { items: [id] })}
         />
-        {v?.runId && <IconButton icon="terminal" title="Открыть сессию вердикта" onClick={() => void run(api.openRun(project.id, v.runId!)).then(onTerminal)} />}
-        <IconButton icon="verdict" title="Задать вердикт вручную" label="Вердикт" aria-pressed={form === 'verdict'} onClick={() => openForm('verdict')} />
-        <IconButton icon="finding" title="Добавить находку вручную" label="Находка" aria-pressed={form === 'finding'} onClick={() => openForm('finding')} />
+        {v?.runId && <IconButton icon="terminal" title={tr('Open the verdict session')} onClick={() => void run(api.openRun(project.id, v.runId!)).then(onTerminal)} />}
+        <IconButton icon="verdict" title={tr('Set the verdict manually')} label={tr('Verdict')} aria-pressed={form === 'verdict'} onClick={() => openForm('verdict')} />
+        <IconButton icon="finding" title={tr('Add a finding manually')} label={tr('Finding')} aria-pressed={form === 'finding'} onClick={() => openForm('finding')} />
       </div>
       {form && (
         <div className="form module-form">
           {form === 'verdict' ? (
             <label>
-              Статус
+              {tr('Status')}
               <select value={status} onChange={(e) => setStatus(e.target.value as ScaVerdictStatus)}>
                 {SCA_STATUSES.map((s) => (
                   <option key={s} value={s}>
@@ -211,7 +213,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
           ) : (
             <>
               <label>
-                Заголовок
+                {tr('Heading')}
                 <input value={fTitle} onChange={(e) => setFTitle(e.target.value)} />
               </label>
               <label>
@@ -225,24 +227,24 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
             </>
           )}
           <label>
-            {form === 'verdict' ? 'Обоснование' : 'Описание'}
+            {form === 'verdict' ? tr('Rationale') : tr('Description')}
             <textarea rows={3} value={form === 'verdict' ? reason : fDesc} onChange={(e) => (form === 'verdict' ? setReason(e.target.value) : setFDesc(e.target.value))} />
           </label>
           <label>
-            Код (по строке: путь[:строка] [заметка], от корня репозитория)
+            {tr('Code (one per line: path[:line] [note], from the repository root)')}
             <textarea rows={2} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
           </label>
           <div className="row">
             <button className="primary" onClick={() => void (form === 'verdict' ? saveVerdict() : saveFinding())}>
-              Сохранить
+              {tr('Save')}
             </button>
-            <button onClick={() => setForm(null)}>Отмена</button>
+            <button onClick={() => setForm(null)}>{tr('Cancel')}</button>
           </div>
         </div>
       )}
 
-      <h4>Находки</h4>
-      {d.findings.length === 0 && <div className="muted">нет</div>}
+      <Section title={tr('Findings')}>
+      {d.findings.length === 0 && <div className="muted">{tr('none')}</div>}
       {d.findings.map((f) => (
         <div key={f.id} className="result">
           <a onClick={() => onSelect({ kind: 'finding', id: f.id })}>{f.title}</a> <span className={`status sev-${f.severity}`}>{SEVERITY[f.severity]}</span>{' '}
@@ -251,7 +253,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
       ))}
       <div className="actions">
         <select value={link} onChange={(e) => setLink(e.target.value)}>
-          <option value="">связать с находкой…</option>
+          <option value="">{tr('link to a finding…')}</option>
           {findings
             .filter((f) => !f.mergedInto && !d.findings.some((x) => x.id === f.id))
             .map((f) => (
@@ -260,11 +262,12 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
               </option>
             ))}
         </select>
-        <IconButton icon="link" title="Связать находку с пунктом" disabled={!link} onClick={() => void run(api.linkScaFinding(project.id, link, id)).then(() => setLink(''))} />
+        <IconButton icon="link" title={tr('Link the finding to the item')} disabled={!link} onClick={() => void run(api.linkScaFinding(project.id, link, id)).then(() => setLink(''))} />
       </div>
+      </Section>
 
-      <h4>История</h4>
-      {timeline.length === 0 && <div className="muted">нет</div>}
+      <Section title={tr('History')}>
+      {timeline.length === 0 && <div className="muted">{tr('none')}</div>}
       {timeline.map((t) => (
         <div key={t.key} className="result">
           <div className="muted small">
@@ -274,9 +277,9 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
                 {' '}
                 ·{' '}
                 {t.session ? (
-                  <a onClick={() => void run(api.openRun(project.id, t.runId!)).then(onTerminal)}>сессия</a>
+                  <a onClick={() => void run(api.openRun(project.id, t.runId!)).then(onTerminal)}>{tr('session')}</a>
                 ) : (
-                  <a onClick={() => onSelect({ kind: 'run', id: t.runId! })}>прогон</a>
+                  <a onClick={() => onSelect({ kind: 'run', id: t.runId! })}>{tr('run')}</a>
                 )}
               </>
             )}
@@ -284,7 +287,8 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
           <div>{t.body}</div>
         </div>
       ))}
-      {d.config && <ConfigView config={d.config} title="Итоговая конфигурация проверки достижимости" />}
+      </Section>
+      {d.config && <ConfigView config={d.config} title={tr('Effective configuration of the reachability check')} />}
     </section>
   );
 }

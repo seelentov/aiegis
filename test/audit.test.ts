@@ -53,9 +53,9 @@ describe('documents and requirements', () => {
     const gen = a.upsertItem(v.id, { text: 'No secrets in code', section: 'Secrets', quote: 'q' }, ai);
     expect(gen.key).toBe('R-001');
     expect(a.upsertItem(v.id, { text: 'Validate input', section: 'Input', quote: 'q' }, ai).key).toBe('R-002');
-    expect(() => a.approveVersion(v.id, 'human')).toThrow(/на ревью/);
+    expect(() => a.approveVersion(v.id, 'human')).toThrow(/in review/);
     a.setVersionStatus(v.id, 'review');
-    expect(() => a.approveVersion(v.id, 'human')).toThrow(/не просмотрено пунктов: 3/);
+    expect(() => a.approveVersion(v.id, 'human')).toThrow(/items not reviewed: 3/);
     const items = a.listItems(v.id);
     a.reviewItems(v.id, [items[0].id, items[1].id], 'accepted');
     a.reviewItems(v.id, [items[2].id], 'rejected');
@@ -133,8 +133,8 @@ describe('verdicts, triage and findings', () => {
     const merged = a.mergeFinding(f2.id, f1.id, human);
     expect(merged.cells).toEqual([c1, c2, c3]);
     expect(a.getFinding(f2.id)!.mergedInto).toBe(f1.id);
-    expect(() => a.setFindingStatus(f2.id, 'fixed', null, human)).toThrow(/объединена/);
-    expect(() => a.mergeFinding(f1.id, f1.id, human)).toThrow(/самой собой/);
+    expect(() => a.setFindingStatus(f2.id, 'fixed', null, human)).toThrow(/merged into/);
+    expect(() => a.mergeFinding(f1.id, f1.id, human)).toThrow(/into itself/);
     // Linking to a merged finding resolves to its target.
     expect(a.linkFinding(f2.id, { moduleId: 'm3', requirementId: 'r9' }, human).id).toBe(f1.id);
     expect(a.findingsOfCell(c3).map((f) => f.id)).toEqual([f1.id]);
@@ -200,7 +200,7 @@ describe('matrix helpers', () => {
     const cweAndFile = a.createFinding(finding({ entryPoint: null }), [], human);
     const r = rankSimilar({ entryPoint: 'http GET /a', cwe: 'cwe-639', files: [{ file: 'svc/A.java' }], moduleId: 'm1' }, a.listFindings(), 5);
     expect(r.map((x) => x.finding.id)).toEqual([same.id, cweAndFile.id]);
-    expect(r[0].reasons).toEqual(['та же точка входа', 'тот же CWE-639', 'общие файлы: svc/A.java']);
+    expect(r[0].reasons).toEqual(['same entry point', 'same CWE-639', 'shared files: svc/A.java']);
     expect(rankSimilar({ entryPoint: null, cwe: null, files: [{ file: 'none' }], moduleId: null }, a.listFindings(), 5)).toEqual([]);
   });
 

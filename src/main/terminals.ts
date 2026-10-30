@@ -84,7 +84,7 @@ export class Terminals extends EventEmitter {
     proc.onData((d) => this.append(id, d));
     proc.onExit(({ exitCode }) => {
       entry.proc = undefined;
-      this.append(id, `\r\n\x1b[2m[процесс завершён, код ${exitCode}]\x1b[0m\r\n`);
+      this.append(id, `\r\n\x1b[2m[process exited, code ${exitCode}]\x1b[0m\r\n`);
       this.markEnded(id);
       spec.onExit?.(exitCode);
     });

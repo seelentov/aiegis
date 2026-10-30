@@ -9,6 +9,7 @@ import type { Job } from '../src/shared/types';
 import { DEFAULTS_DIR, tmpDir, write } from './helpers';
 
 const FAKE = path.resolve(__dirname, 'fixtures', 'fake-claude.mjs');
+const FAKE_PI = path.resolve(__dirname, 'fixtures', 'fake-pi.mjs');
 
 async function waitFor<T>(fn: () => T | undefined | false, ms = 10_000): Promise<T> {
   const start = Date.now();
@@ -39,6 +40,8 @@ beforeAll(async () => {
   const cfgFile = path.join(home, 'config.yaml');
   const doc = YAML.parseDocument(fs.readFileSync(cfgFile, 'utf8'));
   doc.setIn(['claude', 'binary'], FAKE);
+  doc.setIn(['pi', 'binary'], FAKE_PI);
+  doc.setIn(['roles', 'pi-task'], { ...(doc.toJS().roles.task as object), agent: 'pi' });
   doc.setIn(['limits', 'max_tokens_per_run'], 1000);
   doc.setIn(['queue', 'parallelism'], 1);
   fs.writeFileSync(cfgFile, doc.toString());
@@ -67,10 +70,26 @@ describe('Core with a fake claude', () => {
     expect(results[0]).toMatchObject({ entityId: j.entityId, data: { summary: `cwd=${run.cwd}` } });
     const term = core.terminals.list().find((t) => t.runId === run.id)!;
     expect(term.alive).toBe(false);
-    expect(core.terminals.snapshot(term.id)).toMatch(/вне scope/);
+    expect(core.terminals.snapshot(term.id)).toMatch(/outside the token scope/);
     // The token died with the run; its MCP config file is gone.
     expect(fs.existsSync(path.join(core.paths.dataDir, pid, 'mcp', `${run.id}.json`))).toBe(false);
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' })).toBe('');
+  });
+
+  it('agent: pi runs pi in JSON mode with the run file of the aiegis extension', async () => {
+    const j = await core.enqueueTask(pid, { role: 'pi-task', prompt: 'go' });
+    const done = await settled(j);
+    expect(done.status).toBe('done');
+    const run = core.store(pid).getRun(done.lastRunId!)!;
+    expect(run.usage).toMatchObject({ input: 10, output: 5, cacheCreation: 20, costUsd: 0.002 });
+    expect((run.configSnapshot as { agent: { value: string } }).agent.value).toBe('pi');
+    const term = core.terminals.list().find((t) => t.runId === run.id)!;
+    const view = core.terminals.snapshot(term.id);
+    expect(view).toContain('mode=json');
+    expect(view).toContain('mcp__aiegis__*');
+    expect(view).toContain('token=yes');
+    expect(view).toMatch(/allow=Read,.*Bash\(git log:\*\)/);
+    expect(fs.existsSync(path.join(core.paths.dataDir, pid, 'mcp', `${run.id}.json`))).toBe(false);
   });
 
   it('cancel stops the process', async () => {
@@ -128,23 +147,23 @@ describe('Core with a fake claude', () => {
     await waitFor(() => core.terminals.snapshot(term).includes('fake interactive --session-id'));
     execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'fix'], { cwd: repo });
     core.terminals.write(term, 'q\r');
-    await waitFor(() => notices.some((n) => n.includes('изменила HEAD')));
+    await waitFor(() => notices.some((n) => n.includes('changed HEAD')));
   });
 
   it('settings editor validates YAML and refuses files outside config dirs', () => {
     const file = path.join(core.paths.globalDir, 'config.yaml');
     expect(() => core.writeConfigFile(pid, file, 'queue: { parallelism: -1 }')).toThrow(/parallelism/);
-    expect(() => core.readConfigFile(pid, path.join(repo, 'a.txt'))).toThrow(/нельзя/);
-    expect(() => core.readConfigFile(pid, path.join(core.paths.globalDir, '..', 'x.yaml'))).toThrow(/нельзя/);
+    expect(() => core.readConfigFile(pid, path.join(repo, 'a.txt'))).toThrow(/cannot be edited/);
+    expect(() => core.readConfigFile(pid, path.join(core.paths.globalDir, '..', 'x.yaml'))).toThrow(/cannot be edited/);
     const projectCfg = path.join(repo, '.aiegis', 'config.yaml');
     core.writeConfigFile(pid, projectCfg, 'roles: { task: { model: sonnet } }\n');
-    expect(core.effectiveView(pid, 'task').model).toEqual({ value: 'sonnet', source: 'роль task (проект)' });
+    expect(core.effectiveView(pid, 'task').model).toEqual({ value: 'sonnet', source: 'role task (project)' });
   });
 
   it('module markup and entry point maps: scope, cascade module level, versions', async () => {
     const markup = await core.enqueueModuleMarkup(pid, 'only svc');
-    await expect(core.enqueueModuleMarkup(pid, '')).rejects.toThrow(/уже есть задача/);
-    expect(markup).toMatchObject({ role: 'modules', entityType: 'module_map', entityId: pid, title: 'Разметка модулей' });
+    await expect(core.enqueueModuleMarkup(pid, '')).rejects.toThrow(/already has a queued job/);
+    expect(markup).toMatchObject({ role: 'modules', entityType: 'module_map', entityId: pid, title: 'Module markup' });
     expect(String(markup.payload.prompt)).toContain('only svc');
     expect((await settled(markup)).status).toBe('done');
     const [mod] = await core.listModules(pid);
@@ -152,12 +171,12 @@ describe('Core with a fake claude', () => {
 
     write(path.join(repo, '.aiegis', 'config.yaml'), 'modules: { svc: { model: module-model } }\n');
     const j1 = await core.enqueueEntryPoints(pid, mod.id);
-    expect(j1).toMatchObject({ role: 'entry-points', entityType: 'module', entityId: mod.id, title: 'Точки входа: svc' });
+    expect(j1).toMatchObject({ role: 'entry-points', entityType: 'module', entityId: mod.id, title: 'Entry points: svc' });
     expect(String(j1.payload.prompt)).toContain('- svc/**');
     const d1 = await settled(j1);
     expect(d1.status).toBe('done');
     const run1 = core.store(pid).getRun(d1.lastRunId!)!;
-    expect(run1.configSnapshot).toMatchObject({ model: { value: 'module-model', source: 'модуль svc' } });
+    expect(run1.configSnapshot).toMatchObject({ model: { value: 'module-model', source: 'module svc' } });
     const map1 = core.entryPointMap(pid, mod.id);
     expect(map1.snapshot).toMatchObject({ runId: run1.id, status: 'complete', commitSha: run1.commitSha, touchedFiles: ['svc/Api.java'] });
     expect(map1.baseline).toBeNull();
@@ -173,10 +192,10 @@ describe('Core with a fake claude', () => {
     // Older versions stay viewable.
     expect(core.entryPointMap(pid, mod.id, map1.snapshot!.id).entries).toHaveLength(1);
 
-    await expect(core.saveModule(pid, { id: mod.id, name: 'svc', globs: ['nope/**'], description: '' })).rejects.toThrow(/не совпадают/);
+    await expect(core.saveModule(pid, { id: mod.id, name: 'svc', globs: ['nope/**'], description: '' })).rejects.toThrow(/match no repository file/);
     await core.saveModule(pid, { id: mod.id, name: 'svc', globs: ['svc/*.java'], description: 'edited' });
     expect(core.moduleHistory(pid, mod.id).map((h) => h.author)).toEqual(['human', 'ai:modules']);
     core.removeModule(pid, mod.id, 'test');
-    await expect(core.enqueueEntryPoints(pid, mod.id)).rejects.toThrow(/не найден/);
+    await expect(core.enqueueEntryPoints(pid, mod.id)).rejects.toThrow(/not found/);
   });
 });

@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { Instructions, Level } from './schema';
 
 export interface Layer {
-  /** Human-readable origin shown in "effective configuration", e.g. "роль task (глобально)". */
+  /** Human-readable origin shown in "effective configuration", e.g. "role task (global)". */
   source: string;
   /** Directory instruction files are resolved against. */
   baseDir: string;
@@ -22,6 +22,7 @@ export interface InstructionPart {
 }
 
 export interface EffectiveLevel {
+  agent?: Sourced<'claude' | 'pi'>;
   model?: Sourced<string>;
   effort?: Sourced<string>;
   instructions: InstructionPart[];
@@ -49,6 +50,7 @@ function pushUnique(list: Sourced<string>[], value: string, source: string): voi
 export function resolveLevels(layers: Layer[], readText: ReadText): EffectiveLevel {
   const out: EffectiveLevel = { instructions: [], permissions: { allow: [], deny: [], dirs: [] }, env: {} };
   for (const { source, baseDir, level } of layers) {
+    if (level.agent !== undefined) out.agent = { value: level.agent, source };
     if (level.model !== undefined) out.model = { value: level.model, source };
     if (level.effort !== undefined) out.effort = { value: level.effort, source };
     if (level.instructions !== undefined) {

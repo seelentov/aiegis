@@ -21,10 +21,10 @@ export function buildInvocations(name: string, args: string[], targets: string[]
   const used = new Set<string>();
   for (const a of args) for (const m of a.matchAll(PLACEHOLDER)) used.add(m[1]);
   const unknown = [...used].filter((u) => !['targets', 'target', 'report'].includes(u));
-  if (unknown.length) throw new Error(`scanners.${name}.args: неизвестная подстановка {{${unknown[0]}}}, доступны: targets, target, report`);
-  if (used.has('targets') === used.has('target')) throw new Error(`scanners.${name}.args: нужна ровно одна из подстановок {{targets}} или {{target}}`);
+  if (unknown.length) throw new Error(`scanners.${name}.args: unknown placeholder {{${unknown[0]}}}, available: targets, target, report`);
+  if (used.has('targets') === used.has('target')) throw new Error(`scanners.${name}.args: exactly one of the placeholders {{targets}} or {{target}} is required`);
   if (args.some((a) => a.includes('{{') && /\{\{\s*targets\s*\}\}/.test(a) && a.trim() !== '{{targets}}'))
-    throw new Error(`scanners.${name}.args: {{targets}} должна быть отдельным аргументом`);
+    throw new Error(`scanners.${name}.args: {{targets}} must be a separate argument`);
   const fill = (target: string, i: number) => {
     const report = used.has('report') ? reportFile(i) : null;
     const out: string[] = [];
@@ -46,7 +46,7 @@ export function checkScanner(s: Pick<ScannerSettings, 'binary' | 'version_args'>
       const version = text.find((l) => /\d+\.\d+/.test(l)) ?? text[0] ?? null;
       if (err) {
         const code = (err as NodeJS.ErrnoException).code;
-        resolve({ available: false, version: null, error: code === 'ENOENT' ? `${s.binary} не найден в PATH` : err.message.split('\n')[0] });
+        resolve({ available: false, version: null, error: code === 'ENOENT' ? `${s.binary} not found in PATH` : err.message.split('\n')[0] });
       } else resolve({ available: true, version: version ? version.replace(/^version:\s*/i, '') : null, error: null });
     });
   });

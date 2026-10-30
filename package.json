@@ -1,9 +1,9 @@
 {
   "name": "aiegis",
   "productName": "aiegis",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "Desktop app on top of Claude Code for AppSec audits: requirement matrices, entry-point maps, SAST/SCA triage and PoC checks",
+  "description": "Desktop app on top of Claude Code or pi for AppSec audits: requirement matrices, entry-point maps, SAST/SCA triage and PoC checks",
   "author": "Vladislav Komkov <komkov222111@gmail.com>",
   "license": "MIT",
   "homepage": "https://github.com/seelentov/aiegis#readme",
@@ -31,7 +31,7 @@
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "e2e": "npm run build && ELECTRON_RUN_AS_NODE=1 electron dist/e2e.js",
     "rebuild": "electron-rebuild -f -w better-sqlite3,node-pty",
-    "postinstall": "electron-rebuild -f -w better-sqlite3,node-pty",
+    "postinstall": "electron-rebuild -f -w better-sqlite3,node-pty && node scripts/dev-brand.mjs",
     "icons": "electron scripts/icons.mjs",
     "dist": "npm run build && electron-builder --publish never"
   },
@@ -82,6 +82,7 @@
     }
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.80",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "better-sqlite3": "^13.0.3",
     "mammoth": "^1.13.0",

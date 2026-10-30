@@ -74,9 +74,9 @@ describe('SCA with a fake claude', () => {
     expect(run.cwd).toBe(path.join(data, pid, 'sca-worktrees', run.commitSha));
     const log = fs.readFileSync(run.logPath!, 'utf8');
     expect(log).toContain(`inputs: ${input.id.slice(0, 8)}-deps.lock`);
-    expect(log).toContain('нет уязвимостей: CVE-404');
-    expect(log).toContain('отчёт ../outside.json не найден');
-    expect(log).toContain('не отслеживаются git (сгенерированы?): svc/gradle.lockfile');
+    expect(log).toContain('has no vulnerabilities: CVE-404');
+    expect(log).toContain('report ../outside.json not found');
+    expect(log).toContain('not tracked by git (generated?): svc/gradle.lockfile');
 
     const view = await core.scaView(pid);
     const m = view.modules.find((x) => x.module.id === moduleId)!;
@@ -102,7 +102,7 @@ describe('SCA with a fake claude', () => {
     const r = await core.runSca(pid, { scope: 'pending' });
     expect(r.auto).toBe(1);
     expect(r.jobs).toHaveLength(2);
-    await expect(core.runSca(pid, { scope: 'pending' })).rejects.toThrow(/уже в очереди/);
+    await expect(core.runSca(pid, { scope: 'pending' })).rejects.toThrow(/already queued/);
     for (const j of r.jobs) expect((await settled(j)).status).toBe('done');
 
     const items = (await core.scaView(pid)).modules.find((x) => x.module.id === moduleId)!.items;
@@ -135,7 +135,7 @@ describe('SCA with a fake claude', () => {
 
   it('manual verdicts and findings: reachable needs a linked finding; human verdict is a new record', async () => {
     const id = scaItemId({ moduleId, packageKey: 'maven:net.mystery:x@3.0', vulnId: 'CVE-4' });
-    await expect(core.setScaVerdict(pid, id, { status: 'reachable', reason: 'used', evidence: [] })).rejects.toThrow(/находку/);
+    await expect(core.setScaVerdict(pid, id, { status: 'reachable', reason: 'used', evidence: [] })).rejects.toThrow(/finding/);
     const f = core.createScaFinding(pid, id, { title: 'x reachable', description: 'd', severity: 'medium', cwe: null, entryPoint: null, files: [{ file: 'svc/Api.java' }], recommendation: null });
     const v = await core.setScaVerdict(pid, id, { status: 'reachable', reason: 'checked by hand', evidence: [{ file: 'svc/Api.java', line: 2 }] });
     expect(v).toMatchObject({ author: 'human', status: 'reachable' });
@@ -184,7 +184,7 @@ describe('SCA with a fake claude', () => {
   it('removing an input is recorded once', async () => {
     const [i] = core.store(pid).sca.listInputs();
     await core.removeScaInput(pid, i.id);
-    await expect(core.removeScaInput(pid, i.id)).rejects.toThrow(/уже исключён/);
+    await expect(core.removeScaInput(pid, i.id)).rejects.toThrow(/already excluded/);
     expect(core.store(pid).sca.inputsFor(moduleId)).toEqual([]);
   });
 });

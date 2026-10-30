@@ -22,7 +22,7 @@ export const cellId = (c: CellRef) => `${c.moduleId}/${c.requirementId}`;
 
 export function parseCellId(id: string): CellRef {
   const i = id.indexOf('/');
-  if (i <= 0) throw new Error(`неверный id ячейки ${id}`);
+  if (i <= 0) throw new Error(`invalid cell id ${id}`);
   return { moduleId: id.slice(0, i), requirementId: id.slice(i + 1) };
 }
 
@@ -128,16 +128,16 @@ export function rankSimilar(
     let score = 0;
     if (query.entryPoint && f.entryPoint && query.entryPoint.trim() === f.entryPoint.trim() && (!query.moduleId || !f.moduleId || query.moduleId === f.moduleId)) {
       score += 3;
-      reasons.push('та же точка входа');
+      reasons.push('same entry point');
     }
     if (normCwe(query.cwe) && normCwe(query.cwe) === normCwe(f.cwe)) {
       score += 2;
-      reasons.push(`тот же CWE-${normCwe(f.cwe)}`);
+      reasons.push(`same CWE-${normCwe(f.cwe)}`);
     }
     const shared = [...fileSet(f.files)].filter((x) => qFiles.has(x));
     if (shared.length) {
       score += Math.min(shared.length, 3);
-      reasons.push(`общие файлы: ${shared.join(', ')}`);
+      reasons.push(`shared files: ${shared.join(', ')}`);
     }
     if (score >= 3) out.push({ finding: f, score, reasons });
   }

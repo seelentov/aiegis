@@ -10,12 +10,12 @@ export const MODULE_ENTITY = 'module';
 
 /** Returns an error message for an invalid glob list, or null. */
 export function globsError(globs: string[]): string | null {
-  if (!globs.some((g) => !g.startsWith('!'))) return 'нужен хотя бы один включающий glob';
+  if (!globs.some((g) => !g.startsWith('!'))) return 'at least one including glob is required';
   for (const g of globs) {
     const p = g.startsWith('!') ? g.slice(1) : g;
-    if (!p.trim()) return 'пустой glob';
-    if (p.startsWith('/') || p.startsWith(':')) return `glob "${g}" должен быть относительным путём без pathspec-магии`;
-    if (p.split('/').includes('..')) return `glob "${g}" выходит за пределы репозитория`;
+    if (!p.trim()) return 'empty glob';
+    if (p.startsWith('/') || p.startsWith(':')) return `glob "${g}" must be a relative path without pathspec magic`;
+    if (p.split('/').includes('..')) return `glob "${g}" leaves the repository`;
   }
   return null;
 }
@@ -35,14 +35,14 @@ export async function matchFiles(cwd: string, globs: string[]): Promise<string[]
 
 /** Returns an error for a path that is not a file of the checkout in `cwd`, or null. */
 export function repoFileError(cwd: string, rel: string): string | null {
-  if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return `путь ${rel} должен быть относительным от корня репозитория`;
-  return fs.statSync(path.join(cwd, rel), { throwIfNoEntry: false })?.isFile() ? null : `файл ${rel} не найден`;
+  if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) return `path ${rel} must be relative to the repository root`;
+  return fs.statSync(path.join(cwd, rel), { throwIfNoEntry: false })?.isFile() ? null : `file ${rel} not found`;
 }
 
 /** Fills `{{name}}` placeholders; an unknown placeholder is an error (templates are user-editable files). */
-export function renderTemplate(template: string, vars: Record<string, string>, file = 'шаблон'): string {
+export function renderTemplate(template: string, vars: Record<string, string>, file = 'template'): string {
   return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, name: string) => {
-    if (!(name in vars)) throw new Error(`${file}: неизвестная подстановка {{${name}}}, доступны: ${Object.keys(vars).join(', ')}`);
+    if (!(name in vars)) throw new Error(`${file}: unknown placeholder {{${name}}}, available: ${Object.keys(vars).join(', ')}`);
     return vars[name];
   });
 }
