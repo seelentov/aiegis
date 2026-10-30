@@ -163,6 +163,9 @@ function createWindow(): void {
   win.on('closed', () => (win = null));
 }
 
+// Must match build.appId: the NSIS shortcut uses it, so the taskbar groups the window under aiegis, not Electron.
+if (process.platform === 'win32') app.setAppUserModelId('io.github.seelentov.aiegis');
+
 app.whenReady().then(async () => {
   // Before anything spawns `claude` or scanners: Finder/Dock launches lack the user's shell PATH.
   await adoptLoginShellPath();
