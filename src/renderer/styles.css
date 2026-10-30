@@ -327,7 +327,7 @@ table.compact td { padding: var(--space-3xs) var(--space-2xs); }
 .row { display: flex; align-items: center; gap: var(--space-xs); }
 .module-form { grid-template-columns: minmax(0, 1fr); }
 .details .module-form input, .details .module-form textarea { width: 100%; }
-.details .actions input { flex: 1; min-width: 0; }
+.details .actions input, .details .actions select { flex: 1; min-width: 0; max-width: 100%; }
 .snapshot-info { margin-bottom: var(--space-xs); }
 
 /* Entry points */
