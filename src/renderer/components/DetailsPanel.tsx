@@ -8,7 +8,9 @@ import { ConfigView } from './ConfigView';
 import { IconButton } from './Icon';
 import { ModuleForm } from './ModulesTab';
 import { ScaItemDetailsView } from './ScaDetails';
+import { Section } from './Section';
 import { SignalDetailsView, SuppressionDetailsView } from './SignalDetails';
+import { tr } from '../i18n';
 
 export interface Selection {
   kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression' | 'sca';
@@ -59,11 +61,11 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
 
   return (
     <section>
-      <h3>Модуль {mod?.name ?? <span className="muted">(удалён)</span>}</h3>
+      <h3>{tr('Module')} {mod?.name ?? <span className="muted">({tr('deleted')})</span>}</h3>
       {mod && !editing && (
         <>
           <dl>
-            <dt>Описание</dt>
+            <dt>{tr('Description')}</dt>
             <dd>{mod.description || '—'}</dd>
             <dt>Globs</dt>
             <dd className="mono small">
@@ -71,32 +73,32 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
                 <div key={g}>{g}</div>
               ))}
             </dd>
-            <dt>Файлов</dt>
-            <dd>{files ?? '—'} (в рабочей копии)</dd>
-            <dt>Изменён</dt>
+            <dt>{tr('Files')}</dt>
+            <dd>{files ?? '—'} ({tr('in the working copy')})</dd>
+            <dt>{tr('Changed')}</dt>
             <dd>
               {mod.author} · {time(mod.updatedAt)}
             </dd>
-            <dt>Карта</dt>
+            <dt>{tr('Map')}</dt>
             <dd>
               {mod.latestSnapshot
-                ? `${mod.latestSnapshot.entryCount} точек · ${mod.latestSnapshot.commitSha.slice(0, 8)}`
-                : 'нет'}
+                ? `${tr('{n} entry points', { n: mod.latestSnapshot.entryCount })} · ${mod.latestSnapshot.commitSha.slice(0, 8)}`
+                : tr('no')}
             </dd>
           </dl>
           <div className="actions">
-            <IconButton icon="route" className="primary" title="Построить карту точек входа" label="Построить карту" disabled={Boolean(mod.activeJob)} onClick={() => void run(api.enqueueEntryPoints(project.id, id))} />
-            <IconButton icon="map" title="Открыть карту" disabled={!mod.latestSnapshot} onClick={() => onOpenMap(id)} />
-            <IconButton icon="edit" title="Изменить модуль" onClick={() => setEditing(true)} />
+            <IconButton icon="route" className="primary" title={tr('Build the entry point map')} label={tr('Build map')} disabled={Boolean(mod.activeJob)} onClick={() => void run(api.enqueueEntryPoints(project.id, id))} />
+            <IconButton icon="map" title={tr('Open map')} disabled={!mod.latestSnapshot} onClick={() => onOpenMap(id)} />
+            <IconButton icon="edit" title={tr('Edit the module')} onClick={() => setEditing(true)} />
           </div>
           <div className="actions">
-            <input placeholder="причина удаления" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <IconButton icon="trash" className="danger" title="Удалить модуль (нужна причина)" disabled={!reason.trim()} onClick={() => void remove()} />
+            <input placeholder={tr('reason for deletion')} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <IconButton icon="trash" className="danger" title={tr('Delete the module (a reason is required)')} disabled={!reason.trim()} onClick={() => void remove()} />
           </div>
         </>
       )}
       {mod && editing && <ModuleForm project={project} run={run} module={mod} onDone={() => setEditing(false)} />}
-      <h4>История</h4>
+      <Section title={tr('History')}>
       {history.map((h) => (
         <div key={h.id} className="result">
           <div className="muted small">
@@ -104,12 +106,12 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
             {h.runId && (
               <>
                 {' '}
-                · <a onClick={() => onSelect({ kind: 'run', id: h.runId! })}>прогон</a>
+                · <a onClick={() => onSelect({ kind: 'run', id: h.runId! })}>{tr('run')}</a>
               </>
             )}
           </div>
           {h.deleted ? (
-            <div className="warn">удалён: {h.reason}</div>
+            <div className="warn">{tr('deleted: {reason}', { reason: h.reason ?? '' })}</div>
           ) : (
             <>
               <div>
@@ -120,7 +122,8 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
           )}
         </div>
       ))}
-      {config && <ConfigView config={config} title="Итоговая конфигурация карты точек входа" />}
+      </Section>
+      {config && <ConfigView config={config} title={tr('Effective configuration of the entry point map')} />}
     </section>
   );
 }
@@ -144,7 +147,7 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
     })();
   }, [project, selection, revision, run]);
 
-  if (!project || !selection) return <aside className="details empty">Выберите элемент списка</aside>;
+  if (!project || !selection) return <aside className="details empty">{tr('Select a list item')}</aside>;
   if (selection.kind === 'module')
     return (
       <aside className="details">
@@ -186,56 +189,56 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
     <aside className="details">
       {job && (
         <section>
-          <h3>Задача</h3>
+          <h3>{tr('Job')}</h3>
           <dl>
-            <dt>Название</dt>
+            <dt>{tr('Title')}</dt>
             <dd>{job.title}</dd>
-            <dt>Статус</dt>
+            <dt>{tr('Status')}</dt>
             <dd>{JOB_STATUS[job.status]}</dd>
             {job.error && (
               <>
-                <dt>Ошибка</dt>
+                <dt>{tr('Error')}</dt>
                 <dd className="error-text">{job.error}</dd>
               </>
             )}
-            <dt>Коммит</dt>
+            <dt>{tr('Commit')}</dt>
             <dd className="mono">{String(job.payload.commit_sha ?? '').slice(0, 12)}</dd>
           </dl>
           <details>
-            <summary>Промпт</summary>
+            <summary>{tr('Prompt')}</summary>
             <pre>{String(job.payload.prompt ?? '')}</pre>
           </details>
         </section>
       )}
       {r && (
         <section>
-          <h3>Прогон</h3>
+          <h3>{tr('Run|noun')}</h3>
           <dl>
-            <dt>Статус</dt>
+            <dt>{tr('Status')}</dt>
             <dd>{RUN_STATUS[r.status]}</dd>
             {r.error && (
               <>
-                <dt>Ошибка</dt>
+                <dt>{tr('Error')}</dt>
                 <dd className="error-text">{r.error}</dd>
               </>
             )}
-            <dt>Роль</dt>
+            <dt>{tr('Role')}</dt>
             <dd>{r.role}</dd>
-            <dt>Автор</dt>
+            <dt>{tr('Author')}</dt>
             <dd>{r.author}</dd>
-            <dt>Сессия</dt>
+            <dt>{tr('Session')}</dt>
             <dd className="mono">{r.sessionId}</dd>
-            <dt>Коммит</dt>
+            <dt>{tr('Commit')}</dt>
             <dd className="mono">{r.commitSha.slice(0, 12)}</dd>
-            <dt>Каталог</dt>
+            <dt>{tr('Directory')}</dt>
             <dd className="mono small">{r.cwd}</dd>
-            <dt>Время</dt>
+            <dt>{tr('Time')}</dt>
             <dd>
               {time(r.startedAt)} → {time(r.finishedAt)}
             </dd>
             {r.kind === 'background' && (
               <>
-                <dt>Токены</dt>
+                <dt>{tr('Tokens')}</dt>
                 <dd>
                   {tokens(r.usage)} (cache read {r.usage.cacheRead}) · {cost(r.usage)}
                 </dd>
@@ -243,13 +246,13 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
             )}
           </dl>
           <div className="actions">
-            <IconButton icon="terminal" className="primary" title="Открыть сессию во встроенном терминале" label="Открыть сессию" onClick={() => void run(api.openRun(project.id, r.id)).then(onTerminal)} />
-            <IconButton icon="external" title="Открыть во внешнем терминале" onClick={() => void run(api.openExternal(project.id, r.id))} />
-            {details?.log && <IconButton icon="file" title="Открыть лог прогона" onClick={() => void run(api.openInEditor(details.log!))} />}
+            <IconButton icon="terminal" className="primary" title={tr('Open the session in the built-in terminal')} label={tr('Open session')} onClick={() => void run(api.openRun(project.id, r.id)).then(onTerminal)} />
+            <IconButton icon="external" title={tr('Open in an external terminal')} onClick={() => void run(api.openExternal(project.id, r.id))} />
+            {details?.log && <IconButton icon="file" title={tr('Open the run log')} onClick={() => void run(api.openInEditor(details.log!))} />}
           </div>
-          <h4>Результаты</h4>
+          <Section title={tr('Results|list')}>
           {details.results.length === 0 ? (
-            <div className="muted">нет</div>
+            <div className="muted">{tr('none')}</div>
           ) : (
             details.results.map((x) => (
               <div key={x.id} className="result">
@@ -261,8 +264,9 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
               </div>
             ))
           )}
+          </Section>
           <details>
-            <summary>Итоговая конфигурация прогона</summary>
+            <summary>{tr('Effective configuration of the run')}</summary>
             <pre>{JSON.stringify(r.configSnapshot, null, 2)}</pre>
           </details>
         </section>

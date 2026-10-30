@@ -5,6 +5,7 @@ import type { RunFn } from '../App';
 import { JOB_STATUS, REVIEW, time, VERSION_STATUS } from '../format';
 import { EmptyRow, useGrid } from './Grid';
 import { IconButton } from './Icon';
+import { tr } from '../i18n';
 
 interface Props {
   project: ProjectInfo;
@@ -13,7 +14,7 @@ interface Props {
   onTerminal: (id: string | undefined) => void;
 }
 
-const CHANGE: Record<ItemChange, string> = { added: 'новый', changed: 'изменён', same: '' };
+const CHANGE: Record<ItemChange, string> = { added: tr('new|item'), changed: tr('changed|item'), same: '' };
 
 type ItemDraft = { key: string; text: string; section: string; quote: string };
 
@@ -23,26 +24,26 @@ function ItemForm({ item, onSave, onCancel }: { item?: RequirementItem; onSave: 
   return (
     <div className="form">
       <label>
-        Id (пусто — сгенерировать)
+        {tr('Id (empty to generate)')}
         <input value={d.key} onChange={set('key')} disabled={Boolean(item)} />
       </label>
       <label>
-        Раздел
+        {tr('Section')}
         <input value={d.section} onChange={set('section')} />
       </label>
       <label className="wide">
-        Требование
+        {tr('Requirement')}
         <textarea rows={2} value={d.text} onChange={set('text')} />
       </label>
       <label className="wide">
-        Цитата-источник
+        {tr('Source quote')}
         <textarea rows={2} value={d.quote} onChange={set('quote')} />
       </label>
       <div className="wide row">
         <button className="primary" disabled={!d.text.trim()} onClick={() => onSave(d)}>
-          Сохранить (принят)
+          {tr('Save (accepted)')}
         </button>
-        <button onClick={onCancel}>Отмена</button>
+        <button onClick={onCancel}>{tr('Cancel')}</button>
       </div>
     </div>
   );
@@ -65,9 +66,9 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
     view.items.filter((i) => filter === 'all' || (filter === 'pending' ? i.review === 'pending' : i.change !== 'same')),
     [
       { key: 'key', title: 'Id', text: (i) => `${i.key} ${CHANGE[i.change]}`, sort: (i) => i.key },
-      { key: 'section', title: 'Раздел', text: (i) => i.section, filter: 'enum' },
-      { key: 'text', title: 'Требование / цитата', text: (i) => `${i.text} ${i.quote ?? ''}`, sort: (i) => i.text },
-      { key: 'review', title: 'Ревью', text: (i) => REVIEW[i.review], filter: 'enum' },
+      { key: 'section', title: tr('Section'), text: (i) => i.section, filter: 'enum' },
+      { key: 'text', title: tr('Requirement / quote'), text: (i) => `${i.text} ${i.quote ?? ''}`, sort: (i) => i.text },
+      { key: 'review', title: tr('Review'), text: (i) => REVIEW[i.review], filter: 'enum' },
       { key: 'actions', title: '', className: 'actions' },
     ],
   );
@@ -80,38 +81,38 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
         </strong>
         <span className={`status v-${v.status}`}>{VERSION_STATUS[v.status]}</span>
         <span className="muted">
-          {v.filename} · {time(v.createdAt)} · пунктов {v.itemCount}
-          {v.pendingCount ? `, не просмотрено ${v.pendingCount}` : ''}
-          {view.baseline ? ` · сравнение с v${view.baseline.n}` : ''}
+          {v.filename} · {time(v.createdAt)} · {tr('items {n}', { n: v.itemCount })}
+          {v.pendingCount ? `, ${tr('pending {n}', { n: v.pendingCount })}` : ''}
+          {view.baseline ? ` · ${tr('compared with v{n}', { n: view.baseline.n })}` : ''}
         </span>
-        {view.sourceFile && <IconButton icon="file" title="Открыть исходный файл" onClick={() => void run(api.openInEditor(view.sourceFile!))} />}
+        {view.sourceFile && <IconButton icon="file" title={tr('Open the source file')} onClick={() => void run(api.openInEditor(view.sourceFile!))} />}
         {view.job?.lastRunId && (
-          <IconButton icon="terminal" title="Открыть сессию извлечения" onClick={() => void run(api.openRun(project.id, view.job!.lastRunId!)).then(onTerminal)} />
+          <IconButton icon="terminal" title={tr('Open the extraction session')} onClick={() => void run(api.openRun(project.id, view.job!.lastRunId!)).then(onTerminal)} />
         )}
       </div>
       {view.job && (active || view.job.error) && (
         <div className="muted">
-          Извлечение: {JOB_STATUS[view.job.status]}
+          {tr('Extraction: {status}', { status: JOB_STATUS[view.job.status] })}
           {view.job.error && <span className="error-text"> — {view.job.error}</span>}
         </div>
       )}
-      {!view.quotesVerified && <div className="warn">PDF читается Claude напрямую: цитаты не сверяются с текстом приложением — проверьте их при ревью.</div>}
+      {!view.quotesVerified && <div className="warn">{tr('Claude reads the PDF directly: the app does not match quotes against the text, check them during review.')}</div>}
       <div className="toolbar">
         {editable && (
           <>
             <IconButton
               icon="checkAll"
-              title="Принять все непросмотренные пункты"
-              label={`Принять все ${v.pendingCount || ''}`}
+              title={tr('Accept all pending items')}
+              label={`${tr('Accept all')} ${v.pendingCount || ''}`}
               disabled={!v.pendingCount}
               onClick={() => review(view.items.filter((i) => i.review === 'pending').map((i) => i.id), 'accepted')}
             />
-            <IconButton icon="plus" title="Добавить пункт вручную" label="Пункт" onClick={() => setEditing('new')} />
+            <IconButton icon="plus" title={tr('Add an item manually')} label={tr('Item')} onClick={() => setEditing('new')} />
             <IconButton
               icon="approve"
               className="primary"
-              title={v.pendingCount > 0 ? 'Сначала просмотрите все пункты' : 'Утвердить версию: её пункты попадут в матрицы'}
-              label="Утвердить"
+              title={v.pendingCount > 0 ? tr('Review all items first') : tr('Approve the version: its items go to matrices')}
+              label={tr('Approve')}
               disabled={v.status !== 'review' || v.pendingCount > 0}
               onClick={() => void run(api.approveVersion(project.id, v.id))}
             />
@@ -119,9 +120,9 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
         )}
         {(v.status === 'failed' || (v.status === 'extracting' && !active)) && (
           <>
-            <IconButton icon="retry" title="Повторить извлечение требований" label="Извлечь заново" onClick={() => void run(api.retryExtraction(project.id, v.id))} />
+            <IconButton icon="retry" title={tr('Retry requirement extraction')} label={tr('Extract again')} onClick={() => void run(api.retryExtraction(project.id, v.id))} />
             {v.itemCount > 0 && (
-              <IconButton icon="checkAll" title="Перейти к ревью извлечённых пунктов" label="К ревью" onClick={() => void run(api.setVersionState(project.id, v.id, 'review'))} />
+              <IconButton icon="checkAll" title={tr('Go to the review of extracted items')} label={tr('To review')} onClick={() => void run(api.setVersionState(project.id, v.id, 'review'))} />
             )}
           </>
         )}
@@ -129,14 +130,14 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
           <IconButton
             icon="reject"
             className="danger"
-            title="Аннулировать версию"
-            onClick={() => confirm('Аннулировать версию? Её пункты не попадут в матрицы.') && void run(api.setVersionState(project.id, v.id, 'discarded'))}
+            title={tr('Discard the version')}
+            onClick={() => confirm(tr('Discard the version? Its items will not go to matrices.')) && void run(api.setVersionState(project.id, v.id, 'discarded'))}
           />
         )}
-        <select aria-label="Пункты" value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
-          <option value="all">все пункты</option>
-          <option value="pending">не просмотренные</option>
-          <option value="changed">новые и изменённые</option>
+        <select aria-label={tr('Items')} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+          <option value="all">{tr('all items')}</option>
+          <option value="pending">{tr('pending items')}</option>
+          <option value="changed">{tr('new and changed')}</option>
         </select>
         {g.count}
       </div>
@@ -150,7 +151,7 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
         <tbody>
           {g.rows.length === 0 && (
             <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
-              {active ? 'Пункты появятся по мере извлечения…' : 'Пунктов нет'}
+              {active ? tr('Items appear as they are extracted…') : tr('No items')}
             </EmptyRow>
           )}
           {g.rows.map((i) =>
@@ -176,9 +177,9 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
                 <td className="actions">
                   {editable && (
                     <>
-                      <IconButton icon="check" className="ok" title="Принять" aria-pressed={i.review === 'accepted'} disabled={i.review === 'accepted'} onClick={() => review([i.id], 'accepted')} />
-                      <IconButton icon="reject" className="danger" title="Отклонить" aria-pressed={i.review === 'rejected'} disabled={i.review === 'rejected'} onClick={() => review([i.id], 'rejected')} />
-                      <IconButton icon="edit" title="Изменить" onClick={() => setEditing(i.id)} />
+                      <IconButton icon="check" className="ok" title={tr('Accept')} aria-pressed={i.review === 'accepted'} disabled={i.review === 'accepted'} onClick={() => review([i.id], 'accepted')} />
+                      <IconButton icon="reject" className="danger" title={tr('Reject')} aria-pressed={i.review === 'rejected'} disabled={i.review === 'rejected'} onClick={() => review([i.id], 'rejected')} />
+                      <IconButton icon="edit" title={tr('Edit')} onClick={() => setEditing(i.id)} />
                     </>
                   )}
                 </td>
@@ -189,12 +190,12 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
             <tr key={i.id} className="removed">
               <td className="mono">
                 {i.key}
-                <div className="status c-removed">удалён</div>
+                <div className="status c-removed">{tr('removed|item')}</div>
               </td>
               <td>{i.section}</td>
               <td>{i.text}</td>
               <td colSpan={2} className="muted">
-                нет в новой версии
+                {tr('not in the new version')}
               </td>
             </tr>
           ))}
@@ -220,9 +221,9 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
   }, [project.id, versionId, revision, run]);
 
   const g = useGrid('documents', docs, [
-    { key: 'title', title: 'Документ', text: (d) => d.title },
-    { key: 'current', title: 'Текущая версия', text: (d) => (d.current ? `v${d.current.n}` : 'не утверждена'), filter: 'enum' },
-    { key: 'versions', title: 'Версии' },
+    { key: 'title', title: tr('Document'), text: (d) => d.title },
+    { key: 'current', title: tr('Current version'), text: (d) => (d.current ? `v${d.current.n}` : tr('not approved')), filter: 'enum' },
+    { key: 'versions', title: tr('Versions') },
     { key: 'actions', title: '', className: 'actions' },
   ]);
 
@@ -239,8 +240,8 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
   return (
     <div className="documents-tab">
       <div className="toolbar">
-        <input placeholder="название документа (по умолчанию — имя файла)" value={title} onChange={(e) => setTitle(e.target.value)} size={40} />
-        <IconButton icon="upload" className="primary" title="Загрузить документ: MD, PDF или DOCX" label="Загрузить документ" onClick={() => void importFile()} />
+        <input placeholder={tr('document title (file name by default)')} value={title} onChange={(e) => setTitle(e.target.value)} size={40} />
+        <IconButton icon="upload" className="primary" title={tr('Upload a document: MD, PDF or DOCX')} label={tr('Upload document')} onClick={() => void importFile()} />
         {g.count}
       </div>
       <table className="grid compact">
@@ -248,7 +249,7 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
         <tbody>
           {g.rows.length === 0 && (
             <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
-              Документов нет — загрузите стандарт или внутренний гайдлайн
+              {tr('No documents: upload a standard or an internal guideline')}
             </EmptyRow>
           )}
           {g.rows.map((d) => (
@@ -256,7 +257,7 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
               <td>
                 <strong>{d.title}</strong>
               </td>
-              <td>{d.current ? `v${d.current.n} · ${d.current.itemCount} пунктов` : <span className="muted">не утверждена</span>}</td>
+              <td>{d.current ? `v${d.current.n} · ${tr('items {n}', { n: d.current.itemCount })}` : <span className="muted">{tr('not approved')}</span>}</td>
               <td>
                 {d.versions.map((v) => (
                   <a key={v.id} className={v.id === versionId ? 'version active' : 'version'} onClick={() => setVersionId(v.id)}>
@@ -265,7 +266,7 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
                 ))}
               </td>
               <td className="actions">
-                <IconButton icon="filePlus" title="Загрузить новую версию" onClick={() => void importFile(d.id)} />
+                <IconButton icon="filePlus" title={tr('Upload a new version')} onClick={() => void importFile(d.id)} />
               </td>
             </tr>
           ))}

@@ -5,6 +5,8 @@ import type { RunFn } from '../App';
 import { SCAN_STATUS, SEVERITY, SIGNAL_KIND, SUPPRESSION_SCOPE, SUPPRESSION_STATE, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { IconButton } from './Icon';
+import { Section } from './Section';
+import { tr } from '../i18n';
 
 interface Common {
   project: ProjectInfo;
@@ -39,35 +41,34 @@ function SuppressForm({ project, run, signal, onDone }: { project: ProjectInfo; 
   return (
     <div className="form module-form">
       <fieldset>
-        <legend>Что подавить</legend>
+        <legend>{tr('What to suppress')}</legend>
         <label className="check">
-          <input type="radio" checked={scope === 'finding'} onChange={() => setScope('finding')} /> этот сигнал ({signal.file}
+          <input type="radio" checked={scope === 'finding'} onChange={() => setScope('finding')} /> {tr('this signal')} ({signal.file}
           {signal.line ? `:${signal.line}` : ''})
         </label>
         <label className="check">
-          <input type="radio" checked={scope === 'rule_glob'} onChange={() => setScope('rule_glob')} /> правило <span className="mono small">{signal.ruleId}</span> в
-          файлах
+          <input type="radio" checked={scope === 'rule_glob'} onChange={() => setScope('rule_glob')} /> {tr('rule')} <span className="mono small">{signal.ruleId}</span> {tr('in files')}
         </label>
       </fieldset>
       {scope === 'rule_glob' && (
         <label>
-          Globs (по одному в строке, от корня репозитория)
+          {tr('Globs (one per line, from the repository root)')}
           <textarea rows={2} className="mono" value={globs} onChange={(e) => setGlobs(e.target.value)} />
         </label>
       )}
       <label>
-        Причина (обязательно)
+        {tr('Reason (required)')}
         <textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
       </label>
       <label>
-        Срок (необязательно)
+        {tr('Expires (optional)')}
         <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
       </label>
       <div className="row">
         <button className="primary" disabled={!reason.trim() || (scope === 'rule_glob' && !globs.trim())} onClick={() => void save()}>
-          Подавить
+          {tr('Suppress')}
         </button>
-        <button onClick={onDone}>Отмена</button>
+        <button onClick={onDone}>{tr('Cancel')}</button>
       </div>
     </div>
   );
@@ -110,11 +111,11 @@ export function SignalDetailsView({ project, id, revision, run, onSelect }: Comm
         <dd>
           <span className={`status sev-${s.severity}`}>{SEVERITY[s.severity]}</span> {SIGNAL_KIND[s.kind]}
         </dd>
-        <dt>Сканер</dt>
+        <dt>{tr('Scanner')}</dt>
         <dd>
           {s.scanner} <span className="mono small">{s.ruleId}</span>
         </dd>
-        <dt>Файл</dt>
+        <dt>{tr('File')}</dt>
         <dd>
           <a className="mono small" onClick={() => void run(api.openInEditor(s.file, s.line ?? undefined, project.id))}>
             {s.file}
@@ -122,7 +123,7 @@ export function SignalDetailsView({ project, id, revision, run, onSelect }: Comm
             {s.endLine && s.endLine !== s.line ? `–${s.endLine}` : ''}
           </a>
         </dd>
-        <dt>Модули</dt>
+        <dt>{tr('Modules')}</dt>
         <dd>{s.moduleIds.map((m) => modules.find((x) => x.id === m)?.name ?? m.slice(0, 8)).join(', ') || '—'}</dd>
         {s.cwe.length > 0 && (
           <>
@@ -130,27 +131,28 @@ export function SignalDetailsView({ project, id, revision, run, onSelect }: Comm
             <dd>{s.cwe.join(', ')}</dd>
           </>
         )}
-        <dt>Скан</dt>
+        <dt>{tr('Scan|noun')}</dt>
         <dd>
           {SCAN_STATUS[d.scan.status]} · <span className="mono">{d.scan.commitSha.slice(0, 8)}</span> · {d.scan.toolVersion ?? ''} · {time(d.scan.finishedAt)}
         </dd>
-        <dt>Отпечаток</dt>
+        <dt>{tr('Fingerprint')}</dt>
         <dd className="mono small">{s.fingerprint.slice(0, 16)}</dd>
       </dl>
       <div className="prewrap">{s.message}</div>
       {s.snippet && <pre>{s.snippet}</pre>}
       {data.length > 0 && (
         <details>
-          <summary>Данные сканера</summary>
+          <summary>{tr('Scanner data')}</summary>
           <pre>{JSON.stringify(Object.fromEntries(data), null, 2)}</pre>
         </details>
       )}
       <div className="actions">
-        <IconButton icon="suppress" className="primary" title="Подавить сигнал" label="Подавить" disabled={form} onClick={() => setForm(true)} />
+        <IconButton icon="suppress" className="primary" title={tr('Suppress the signal')} label={tr('Suppress')} disabled={form} onClick={() => setForm(true)} />
       </div>
       {form && <SuppressForm project={project} run={run} signal={s} onDone={() => setForm(false)} />}
-      <h4>Подавления</h4>
-      {d.suppressions.length === 0 ? <div className="muted">нет</div> : d.suppressions.map((x) => <SuppressionLine key={x.id} s={x} onSelect={onSelect} />)}
+      <Section title={tr('Suppressions')}>
+        {d.suppressions.length === 0 ? <div className="muted">{tr('none')}</div> : d.suppressions.map((x) => <SuppressionLine key={x.id} s={x} onSelect={onSelect} />)}
+      </Section>
     </section>
   );
 }
@@ -169,7 +171,7 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
   }, [project.id, id, revision, run]);
 
   const s = list.find((x) => x.id === id);
-  if (!s) return list.length ? <div className="muted">Подавление не найдено</div> : null;
+  if (!s) return list.length ? <div className="muted">{tr('Suppression not found')}</div> : null;
   const successor = list.find((x) => x.replaces === s.id);
 
   const renew = async () => {
@@ -180,11 +182,11 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
 
   return (
     <section>
-      <h3>Подавление</h3>
+      <h3>{tr('Suppression')}</h3>
       <dl>
-        <dt>Состояние</dt>
+        <dt>{tr('State')}</dt>
         <dd>
-          <span className={`status sup-${s.state}`}>{SUPPRESSION_STATE[s.state]}</span> <span className="muted small">на HEAD</span>
+          <span className={`status sup-${s.state}`}>{SUPPRESSION_STATE[s.state]}</span> <span className="muted small">{tr('at HEAD')}</span>
         </dd>
         <dt>Scope</dt>
         <dd>
@@ -200,17 +202,17 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
             </dd>
           </>
         )}
-        <dt>Причина</dt>
+        <dt>{tr('Reason')}</dt>
         <dd className="prewrap">{s.reason}</dd>
-        <dt>Автор</dt>
+        <dt>{tr('Author')}</dt>
         <dd>
           {s.author} · {time(s.createdAt)}
         </dd>
-        <dt>Коммит</dt>
+        <dt>{tr('Commit')}</dt>
         <dd className="mono">{s.commitSha.slice(0, 12)}</dd>
-        <dt>Срок</dt>
+        <dt>{tr('Expires')}</dt>
         <dd>{s.expiresAt ?? '—'}</dd>
-        <dt>Зависит от</dt>
+        <dt>{tr('Depends on')}</dt>
         <dd className="mono small">
           {s.touchedFiles.length || s.moduleGlobs.length
             ? [...s.touchedFiles, ...s.moduleGlobs.map((g) => `glob ${g}`)].map((f) => <div key={f}>{f}</div>)
@@ -218,7 +220,7 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
         </dd>
         {s.changedFiles.length > 0 && (
           <>
-            <dt>Изменились</dt>
+            <dt>{tr('Changed|files')}</dt>
             <dd className="mono small warn">
               {s.changedFiles.map((f) => (
                 <div key={f}>{f}</div>
@@ -228,21 +230,21 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
         )}
         {s.replaces && (
           <>
-            <dt>Заменяет</dt>
+            <dt>{tr('Replaces')}</dt>
             <dd>
-              <a onClick={() => onSelect({ kind: 'suppression', id: s.replaces! })}>предыдущее подавление</a>
+              <a onClick={() => onSelect({ kind: 'suppression', id: s.replaces! })}>{tr('previous suppression')}</a>
             </dd>
           </>
         )}
         {s.revokedAt && (
           <>
-            <dt>Отозвано</dt>
+            <dt>{tr('Revoked')}</dt>
             <dd>
               {s.revokedBy} · {time(s.revokedAt)}: {s.revokeReason}
               {successor && (
                 <>
                   {' '}
-                  · <a onClick={() => onSelect({ kind: 'suppression', id: successor.id })}>новое</a>
+                  · <a onClick={() => onSelect({ kind: 'suppression', id: successor.id })}>{tr('new|suppression')}</a>
                 </>
               )}
             </dd>
@@ -252,12 +254,12 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
       {!s.revokedAt && (
         <>
           <div className="actions">
-            <input type="date" title="новый срок (необязательно)" value={expires} onChange={(e) => setExpires(e.target.value)} />
-            <IconButton icon="check" className={s.state === 'active' ? '' : 'primary'} title="Подтвердить подавление на HEAD" label="Подтвердить" onClick={() => void renew()} />
+            <input type="date" title={tr('new expiry date (optional)')} value={expires} onChange={(e) => setExpires(e.target.value)} />
+            <IconButton icon="check" className={s.state === 'active' ? '' : 'primary'} title={tr('Confirm the suppression at HEAD')} label={tr('Confirm')} onClick={() => void renew()} />
           </div>
           <div className="actions">
-            <input placeholder="причина отзыва" value={reason} onChange={(e) => setReason(e.target.value)} />
-            <IconButton icon="undo" className="danger" title="Отозвать подавление (нужна причина)" label="Отозвать" disabled={!reason.trim()} onClick={() => void run(api.revokeSuppression(project.id, s.id, reason))} />
+            <input placeholder={tr('reason for revoking')} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <IconButton icon="undo" className="danger" title={tr('Revoke the suppression (a reason is required)')} label={tr('Revoke')} disabled={!reason.trim()} onClick={() => void run(api.revokeSuppression(project.id, s.id, reason))} />
           </div>
         </>
       )}
