@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { Instructions, Level } from './schema';
 
 export interface Layer {
-  /** Human-readable origin shown in "effective configuration", e.g. "роль task (глобально)". */
+  /** Human-readable origin shown in "effective configuration", e.g. "role task (global)". */
   source: string;
   /** Directory instruction files are resolved against. */
   baseDir: string;

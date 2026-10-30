@@ -32,17 +32,17 @@ export type Decision = { ok: true } | { ok: false; reason: string };
  * - management (enqueue/cancel jobs) requires access "manage".
  */
 export function authorize(grant: Grant, projectId: string, action: Action): Decision {
-  if (grant.projectId !== projectId) return { ok: false, reason: 'токен выдан для другого проекта' };
+  if (grant.projectId !== projectId) return { ok: false, reason: 'the token was issued for another project' };
   switch (action.kind) {
     case 'read':
       return { ok: true };
     case 'manage':
-      return grant.access === 'manage' ? { ok: true } : { ok: false, reason: `роль ${grant.role} не имеет прав управления` };
+      return grant.access === 'manage' ? { ok: true } : { ok: false, reason: `role ${grant.role} has no manage access` };
     case 'write': {
       const inScope = grant.scope.some((e) => e.type === action.entity.type && e.id === action.entity.id);
       return inScope
         ? { ok: true }
-        : { ok: false, reason: `запись ${action.entity.type}:${action.entity.id} вне scope токена` };
+        : { ok: false, reason: `write to ${action.entity.type}:${action.entity.id} is outside the token scope` };
     }
   }
 }

@@ -160,7 +160,7 @@ export class SignalStore {
   /** After a crash, scans left running are finalized as failed. */
   recoverScans(): number {
     return this.db
-      .prepare(`UPDATE scans SET status = 'failed', error = 'прервано: приложение завершилось во время сканирования', finished_at = ? WHERE status = 'running'`)
+      .prepare(`UPDATE scans SET status = 'failed', error = 'interrupted: the app exited during the scan', finished_at = ? WHERE status = 'running'`)
       .run(now()).changes;
   }
 
@@ -209,8 +209,8 @@ export class SignalStore {
 
   revokeSuppression(id: string, by: string, reason: string): Suppression {
     const s = this.getSuppression(id);
-    if (!s) throw new Error(`подавление ${id} не найдено`);
-    if (s.revokedAt) throw new Error('подавление уже отозвано');
+    if (!s) throw new Error(`suppression ${id} not found`);
+    if (s.revokedAt) throw new Error('suppression already revoked');
     this.db.prepare('UPDATE suppressions SET revoked_at = ?, revoked_by = ?, revoke_reason = ? WHERE id = ?').run(now(), by, reason, id);
     return this.getSuppression(id)!;
   }

@@ -76,7 +76,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   const pid = grant.projectId;
   const guard = async (action: Action, fn: () => ToolResult | Promise<ToolResult>): Promise<ToolResult> => {
     const d = authorize(grant, pid, action);
-    if (!d.ok) return fail(`Отказано: ${d.reason}`);
+    if (!d.ok) return fail(`Denied: ${d.reason}`);
     try {
       return await fn();
     } catch (e) {
@@ -87,7 +87,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   /** The run of this token; writes that depend on the checkout need it to be alive. */
   const liveRun = (): Run => {
     const run = svc.store(pid).getRun(grant.runId);
-    if (!run || run.finishedAt) throw new Error('прогон этого токена уже завершён; запись недоступна');
+    if (!run || run.finishedAt) throw new Error('the run of this token has finished; writing is not allowed');
     return run;
   };
 
@@ -182,7 +182,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         const err = globsError(globs);
         if (err) return fail(err);
         const files = await matchFiles(liveRun().cwd, globs);
-        if (!files.length) return fail(`globs ${JSON.stringify(globs)} не совпадают ни с одним файлом репозитория`);
+        if (!files.length) return fail(`globs ${JSON.stringify(globs)} match no repository file`);
         const s = svc.store(pid);
         const id = module_id ?? s.moduleByName(name)?.id;
         const m = s.saveModule({ id, name, globs, description }, by);
@@ -319,7 +319,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         const a = svc.store(pid).audit;
         if (version_id) return ok(a.listItems(version_id));
         if (document_id) return ok(a.currentItems([document_id]));
-        return fail('укажите document_id или version_id');
+        return fail('specify document_id or version_id');
       }),
   );
 
@@ -341,15 +341,15 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         liveRun();
         const a = svc.store(pid).audit;
         const v = a.getVersion(version_id);
-        if (!v) return fail(`версия ${version_id} не найдена`);
-        if (v.status === 'approved') return fail('версия уже утверждена; изменения невозможны');
+        if (!v) return fail(`version ${version_id} not found`);
+        if (v.status === 'approved') return fail('the version is already approved; changes are not possible');
         const doc = svc.documentText(pid, version_id);
-        if (doc !== null && !quoteFound(doc, quote)) return fail('цитата не найдена в тексте документа: скопируйте предложение дословно');
+        if (doc !== null && !quoteFound(doc, quote)) return fail('the quote is not in the document text: copy the sentence verbatim');
         // Unchanged wording is carried over from the previous version; re-extracting it would re-split or duplicate it.
         const carried = a
           .listItems(version_id)
           .find((i) => i.author === CARRIED_AUTHOR && (i.key === key?.trim() || quoteFound(i.quote, quote) || quoteFound(quote, i.quote)));
-        if (carried) return fail(`пункт ${carried.key} перенесён из прошлой версии без изменений: не извлекайте этот текст заново`);
+        if (carried) return fail(`item ${carried.key} was carried over from the previous version unchanged: do not extract this text again`);
         const item = a.upsertItem(version_id, { key, text, section, quote }, by);
         svc.onWrite(pid);
         return ok({ saved: item.key, requirement_id: item.requirementId, items_in_version: a.listItems(version_id).length });
@@ -368,9 +368,9 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   const cellTarget = (c: CellRef) => {
     const s = svc.store(pid);
     const item = s.audit.currentItem(c.requirementId);
-    if (!item) throw new Error(`требование ${c.requirementId} не найдено среди утверждённых`);
+    if (!item) throw new Error(`requirement ${c.requirementId} not found among approved ones`);
     const mod = s.getModule(c.moduleId);
-    if (!mod) throw new Error(`модуль ${c.moduleId} не найден`);
+    if (!mod) throw new Error(`module ${c.moduleId} not found`);
     return { item, mod };
   };
   const checkFiles = (cwd: string, files: Evidence[]) => {
@@ -466,13 +466,13 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         const { item, mod } = cellTarget(c);
         const s = svc.store(pid);
         const evidence = a.evidence ?? [];
-        if ((a.status === 'pass' || a.status === 'finding') && !evidence.length) return fail('для pass/finding нужны ссылки на код (evidence)');
+        if ((a.status === 'pass' || a.status === 'finding') && !evidence.length) return fail('pass/finding requires code references (evidence)');
         if (a.status === 'pass' && NO_SIGNALS_REASON.test(a.reason))
-          return fail('pass не обосновывается отсутствием сигналов сканеров: опишите, что в коде обеспечивает требование');
+          return fail('pass cannot rest on the absence of scanner signals: describe what in the code satisfies the requirement');
         checkFiles(run.cwd, evidence);
         const findings = s.audit.findingsOfCell(c);
         if (a.status === 'finding' && !findings.length)
-          return fail('сначала запишите находку: find_similar, затем create_finding или link_finding для этой ячейки');
+          return fail('record the finding first: find_similar, then create_finding or link_finding for this cell');
         const touched = new Set([
           ...evidence.map((e) => e.file),
           ...(a.status === 'finding' ? findings.flatMap((f) => f.files.map((x) => x.file)) : []),
@@ -579,7 +579,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     async (a) =>
       guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
         const run = liveRun();
-        if (!checks.get(grant.runId)?.has(a.check_id)) return fail('нет такого check_id: сначала вызовите find_similar в этом прогоне');
+        if (!checks.get(grant.runId)?.has(a.check_id)) return fail('no such check_id: call find_similar in this run first');
         const c = cellOf(a);
         cellTarget(c);
         checkFiles(run.cwd, a.files);
@@ -666,16 +666,16 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   const currentPackage = (moduleId: string, key: string) => {
     const s = svc.store(pid);
     const mod = s.getModule(moduleId);
-    if (!mod) throw new Error(`модуль ${moduleId} не найден`);
+    if (!mod) throw new Error(`module ${moduleId} not found`);
     const inv = s.sca.latestInventory(moduleId);
     const pkg = inv && s.sca.listPackages(inv.id).find((p) => p.key === key);
-    if (!pkg) throw new Error(`пакета ${key} нет в текущей инвентаризации модуля`);
+    if (!pkg) throw new Error(`package ${key} is not in the current module inventory`);
     return { mod, pkg };
   };
   const scaRef = (moduleId: string, key: string, vulnId: string) => ({ moduleId, packageKey: key, vulnId });
   const checkVulns = (pkg: { key: string; vulns: { vulnId: string }[] }, ids: string[]) => {
     const bad = ids.filter((v) => !pkg.vulns.some((x) => x.vulnId === v));
-    if (bad.length) throw new Error(`у пакета ${pkg.key} нет уязвимостей: ${bad.join(', ')}`);
+    if (bad.length) throw new Error(`package ${pkg.key} has no vulnerabilities: ${bad.join(', ')}`);
   };
 
   server.registerTool(
@@ -738,19 +738,19 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         const run = liveRun();
         const s = svc.store(pid);
         const mod = s.getModule(a.module_id);
-        if (!mod) return fail(`модуль ${a.module_id} не найден`);
+        if (!mod) return fail(`module ${a.module_id} not found`);
         const abs = fileInside(run.cwd, a.report);
-        if (!abs) return fail(`отчёт ${a.report} не найден: укажите путь файла внутри текущего каталога`);
+        if (!abs) return fail(`report ${a.report} not found: specify a file path inside the current directory`);
         const size = fs.statSync(abs).size;
-        if (size > svc.scaSettings(pid).report_max_mb * 1024 * 1024) return fail(`отчёт ${a.report} больше sca.report_max_mb: сузьте сканирование`);
+        if (size > svc.scaSettings(pid).report_max_mb * 1024 * 1024) return fail(`report ${a.report} exceeds sca.report_max_mb: narrow the scan`);
         if (a.manifest) {
           const err = repoFileError(run.cwd, a.manifest);
           if (err) return fail(err);
         }
         const text = fs.readFileSync(abs, 'utf8');
         const miss = missingInReport(text, { name: a.name }, a.vulnerabilities);
-        if (miss.package || !text.includes(a.version)) return fail(`в отчёте ${a.report} нет пакета ${a.name} версии ${a.version}`);
-        if (miss.vulns.length) return fail(`в отчёте ${a.report} нет уязвимостей: ${miss.vulns.join(', ')}; записывайте только то, что нашёл инструмент`);
+        if (miss.package || !text.includes(a.version)) return fail(`report ${a.report} has no package ${a.name} version ${a.version}`);
+        if (miss.vulns.length) return fail(`report ${a.report} has no vulnerabilities: ${miss.vulns.join(', ')}; record only what the tool found`);
         const inv = s.sca.ensureInventory(run, mod);
         const rep = s.sca.addReport(inv.id, { path: a.report, sha256: sha256File(abs), size });
         const dst = svc.scaReportFile(pid, rep);
@@ -794,7 +794,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         const run = liveRun();
         const s = svc.store(pid);
         const mod = s.getModule(a.module_id);
-        if (!mod) return fail(`модуль ${a.module_id} не найден`);
+        if (!mod) return fail(`module ${a.module_id} not found`);
         const removed = s.sca.removePackage(s.sca.ensureInventory(run, mod).id, a.package_key);
         svc.onWrite(pid);
         return ok({ removed });
@@ -820,14 +820,14 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         const run = liveRun();
         const s = svc.store(pid);
         const mod = s.getModule(a.module_id);
-        if (!mod) return fail(`модуль ${a.module_id} не найден`);
+        if (!mod) return fail(`module ${a.module_id} not found`);
         // Generated lock files are not tracked: only manifests of the commit make the inventory stale (SPEC §5).
         const manifests = [...new Set(a.manifests.map((m) => m.trim()))];
         const bad = manifests.filter((m) => repoFileError(run.cwd, m));
-        if (bad.length) return fail(`файлы не найдены: ${bad.join(', ')}`);
+        if (bad.length) return fail(`files not found: ${bad.join(', ')}`);
         const tracked = new Set(execFileSync('git', ['ls-files', '--', ...manifests], { cwd: run.cwd, encoding: 'utf8' }).split('\n'));
         const generated = manifests.filter((m) => !tracked.has(m));
-        if (generated.length) return fail(`не отслеживаются git (сгенерированы?): ${generated.join(', ')}; укажите только файлы репозитория`);
+        if (generated.length) return fail(`not tracked by git (generated?): ${generated.join(', ')}; specify repository files only`);
         const inv = s.sca.ensureInventory(run, mod);
         s.sca.setSummary(inv.id, { ecosystems: a.ecosystems, tools: a.tools, dependenciesTotal: a.dependencies_total, manifests, notes: a.notes?.trim() || null });
         svc.onWrite(pid);
@@ -861,12 +861,12 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         checkVulns(pkg, [a.vuln_id]);
         const s = svc.store(pid);
         const evidence = a.evidence ?? [];
-        if (a.status !== 'needs_human' && !evidence.length) return fail('для reachable/not_reachable нужны ссылки на код (evidence)');
+        if (a.status !== 'needs_human' && !evidence.length) return fail('reachable/not_reachable requires code references (evidence)');
         checkFiles(run.cwd, evidence);
         const ref = scaRef(a.module_id, pkg.key, a.vuln_id);
         const findings = s.audit.findingsOfScaItem(ref);
         if (a.status === 'reachable' && !findings.length)
-          return fail('сначала запишите находку: find_similar, затем create_sca_finding или link_sca_finding');
+          return fail('record the finding first: find_similar, then create_sca_finding or link_sca_finding');
         const v = s.sca.addVerdict(
           {
             ...ref,
@@ -905,7 +905,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     async (a) =>
       guard({ kind: 'write', entity: scaPkgEntity(a) }, () => {
         const run = liveRun();
-        if (!checks.get(grant.runId)?.has(a.check_id)) return fail('нет такого check_id: сначала вызовите find_similar в этом прогоне');
+        if (!checks.get(grant.runId)?.has(a.check_id)) return fail('no such check_id: call find_similar in this run first');
         const { pkg } = currentPackage(a.module_id, a.package_key);
         checkVulns(pkg, a.vuln_ids);
         checkFiles(run.cwd, a.files);
@@ -971,11 +971,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     async (a) =>
       guard({ kind: 'write', entity: { type: POC_ENTITY, id: a.finding_id } }, () => {
         const run = liveRun();
-        if (!grant.baseUrl) return fail('у прогона нет тестового окружения');
+        if (!grant.baseUrl) return fail('the run has no test environment');
         const steps = a.steps ?? [];
-        if (a.outcome !== 'inconclusive' && !steps.length) return fail('для reproduced/not_reproduced нужны шаги с наблюдаемыми ответами (steps)');
+        if (a.outcome !== 'inconclusive' && !steps.length) return fail('reproduced/not_reproduced requires steps with observed responses (steps)');
         const s = svc.store(pid);
-        if (!s.audit.getFinding(a.finding_id)) return fail(`находка ${a.finding_id} не найдена`);
+        if (!s.audit.getFinding(a.finding_id)) return fail(`finding ${a.finding_id} not found`);
         const r = s.audit.addPocResult(
           { findingId: a.finding_id, outcome: a.outcome, summary: a.summary, steps, baseUrl: grant.baseUrl, commitSha: run.commitSha },
           by,

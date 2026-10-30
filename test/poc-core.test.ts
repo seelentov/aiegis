@@ -77,7 +77,7 @@ describe('PoC tester with a fake claude', () => {
     const d = core.findingDetails(pid, f.id);
     expect(d.poc).toMatchObject({ available: false, results: [], job: null });
     expect(d.poc.reason).toContain('poc.environment');
-    await expect(core.enqueuePoc(pid, f.id)).rejects.toThrow('недоступен');
+    await expect(core.enqueuePoc(pid, f.id)).rejects.toThrow('unavailable');
   });
 
   it('starts the instance, confines the session to base_url, stores the result and stops the instance', async () => {
@@ -94,7 +94,7 @@ describe('PoC tester with a fake claude', () => {
     const j = await core.enqueuePoc(pid, f.id);
     expect(String(j.payload.prompt)).toContain('`$AIEGIS_POC_ALICE_PASSWORD`');
     expect(String(j.payload.prompt)).not.toContain('pw-alice');
-    await expect(core.enqueuePoc(pid, f.id)).rejects.toThrow('уже есть задача');
+    await expect(core.enqueuePoc(pid, f.id)).rejects.toThrow('already has a queued job');
 
     const d = await settled(j);
     expect(d.status).toBe('done');
@@ -107,7 +107,7 @@ describe('PoC tester with a fake claude', () => {
     expect(log).toContain('secret=true');
     expect(log).toContain('shell token=absent');
     expect(log).toContain('scripts dir=true');
-    expect(log).toContain('нужны шаги');
+    expect(log).toContain('requires steps');
     expect(fs.readdirSync(path.join(data, pid, 'mcp')).filter((f) => f.startsWith(run.id))).toEqual([]);
     await expect(fetch(`${base}/`)).rejects.toThrow();
 
@@ -133,7 +133,7 @@ describe('PoC tester with a fake claude', () => {
     projectConfig({ ...cfg.poc, start_timeout_sec: 1, environment: { ...cfg.poc.environment, start: 'exit 7' } });
     const broken = await settled(await core.enqueuePoc(pid, finding('broken').id));
     expect(broken.status).toBe('failed');
-    expect(broken.error).toContain('тестовое окружение не поднялось');
+    expect(broken.error).toContain('the test environment did not start');
 
     core.setFindingStatus(pid, f.id, 'verified', '');
     await expect(core.enqueuePoc(pid, f.id)).rejects.toThrow('suspected');

@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import { LANGUAGES } from '../../shared/types';
+
+/** UI text: one string, or one per UI language (`{ en: ..., ru: ... }`). */
+export const TextSchema = z.union([z.string(), z.record(z.string(), z.string())]);
 
 export const InstructionsSchema = z.union([
   z.string(),
@@ -29,7 +33,7 @@ export const LevelSchema = z.looseObject(LevelShape);
 
 export const RoleSchema = z.looseObject({
   ...LevelShape,
-  title: z.string().optional(),
+  title: TextSchema.optional(),
   kind: z.enum(['interactive', 'background']).optional(),
   mcp_access: z.enum(['manage', 'scoped']).optional(),
 });
@@ -38,7 +42,7 @@ export const RoleSchema = z.looseObject({
 export const TaskSchema = z.looseObject({
   role: z.string().optional(),
   /** Job title template. */
-  title: z.string().optional(),
+  title: TextSchema.optional(),
   /** Prompt template file, relative to the directory of the config file that names it. */
   prompt: z.string().optional(),
 });
@@ -79,6 +83,8 @@ export const PocAccountSchema = z.looseObject({
 
 export const ConfigFileSchema = z.looseObject({
   ...LevelShape,
+  /** Read from the global config only. */
+  ui: z.looseObject({ language: z.enum(LANGUAGES).optional() }).optional(),
   claude: z
     .looseObject({
       binary: z.string().optional(),
@@ -154,6 +160,7 @@ export const ConfigFileSchema = z.looseObject({
   requirements: z.record(z.string(), LevelSchema).optional(),
 });
 
+export type Text = z.infer<typeof TextSchema>;
 export type Instructions = z.infer<typeof InstructionsSchema>;
 export type Level = z.infer<typeof LevelSchema>;
 export type RoleConfig = z.infer<typeof RoleSchema>;

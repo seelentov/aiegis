@@ -102,7 +102,7 @@ function parseJson(output: string, tool: string): unknown {
   try {
     return JSON.parse(text);
   } catch (e) {
-    throw new Error(`${tool}: вывод не является JSON (${(e as Error).message})`);
+    throw new Error(`${tool}: output is not JSON (${(e as Error).message})`);
   }
 }
 
@@ -189,7 +189,7 @@ export const normalizeSemgrep: Normalizer = (output, ctx) => {
 /** Masks every occurrence of a secret in a matched line. */
 function redact(text: string, secret: string): string {
   if (!secret) return text;
-  const mask = secret.length > 8 ? `${secret.slice(0, 4)}…[скрыто]` : '[скрыто]';
+  const mask = secret.length > 8 ? `${secret.slice(0, 4)}…[hidden]` : '[hidden]';
   return text.split(secret).join(mask);
 }
 
@@ -239,7 +239,7 @@ export const normalizeTrivy: Normalizer = (output, ctx) => {
         ruleId: id,
         severity: severityOf(v.Severity),
         title: str(v.Title) || id,
-        message: `${pkg}@${version}: ${str(v.Title) || id}${fixed ? ` (исправлено в ${fixed})` : ''}`,
+        message: `${pkg}@${version}: ${str(v.Title) || id}${fixed ? ` (fixed in ${fixed})` : ''}`,
         file,
         line: null,
         endLine: null,

@@ -40,7 +40,7 @@ describe('normalizers (fixture outputs of the real tools)', () => {
     const shifted = fixture('semgrep.json').replace('"line": 9', '"line": 12');
     expect(normalizeSemgrep(shifted, ctx('.'))[2].fingerprint).toBe(rows[2].fingerprint);
     expect(normalizeSemgrep('', ctx('.'))).toEqual([]);
-    expect(() => normalizeSemgrep('not json', ctx('.'))).toThrow(/не является JSON/);
+    expect(() => normalizeSemgrep('not json', ctx('.'))).toThrow(/is not JSON/);
   });
 
   it('semgrep: rule ids do not depend on where an absolute rule file lives; parse errors are warnings', () => {
@@ -76,7 +76,7 @@ describe('normalizers (fixture outputs of the real tools)', () => {
     const [r] = normalizeGitleaks(text, ctx('app', ['app/config.properties']));
     expect(r).toMatchObject({ kind: 'secret', ruleId: 'github-pat', severity: 'high', file: 'app/config.properties', line: 1, cwe: ['CWE-798'] });
     expect(JSON.stringify(r)).not.toContain(secret);
-    expect(r.snippet).toMatch(/^github\.token=ghp_…\[скрыто\]$/);
+    expect(r.snippet).toMatch(/^github\.token=ghp_…\[hidden\]$/);
     const moved = text.replace('"StartLine": 1', '"StartLine": 7');
     expect(normalizeGitleaks(moved, ctx('app'))[0].fingerprint).toBe(r.fingerprint);
   });
@@ -114,9 +114,9 @@ describe('scanner invocations and targets', () => {
       { args: ['dir', '--report-path', '/tmp/r0', 'a'], target: 'a', report: '/tmp/r0' },
       { args: ['dir', '--report-path', '/tmp/r1', 'b'], target: 'b', report: '/tmp/r1' },
     ]);
-    expect(() => buildInvocations('s', ['{{paths}}'], ['a'], () => 'r')).toThrow(/неизвестная подстановка \{\{paths\}\}/);
-    expect(() => buildInvocations('s', ['scan'], ['a'], () => 'r')).toThrow(/ровно одна/);
-    expect(() => buildInvocations('s', ['--x={{targets}}'], ['a'], () => 'r')).toThrow(/отдельным аргументом/);
+    expect(() => buildInvocations('s', ['{{paths}}'], ['a'], () => 'r')).toThrow(/unknown placeholder \{\{paths\}\}/);
+    expect(() => buildInvocations('s', ['scan'], ['a'], () => 'r')).toThrow(/exactly one/);
+    expect(() => buildInvocations('s', ['--x={{targets}}'], ['a'], () => 'r')).toThrow(/separate argument/);
   });
 
   it('module globs -> scan targets; coverage of targets', () => {
@@ -226,7 +226,7 @@ describe('signal store', () => {
     const x = s.addSuppression(rec);
     expect(() => s.db.prepare('UPDATE suppressions SET reason = ? WHERE id = ?').run('other', x.id)).toThrow(/append-only/);
     expect(s.revokeSuppression(x.id, 'me', 'wrong').revokeReason).toBe('wrong');
-    expect(() => s.revokeSuppression(x.id, 'me', 'again')).toThrow(/уже отозвано/);
+    expect(() => s.revokeSuppression(x.id, 'me', 'again')).toThrow(/already revoked/);
     expect(() => s.db.prepare('UPDATE suppressions SET revoke_reason = ? WHERE id = ?').run('z', x.id)).toThrow(/append-only/);
     expect(() => s.db.prepare('DELETE FROM suppressions').run()).toThrow(/append-only/);
   });

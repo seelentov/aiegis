@@ -12,6 +12,7 @@ import type {
   FindingInput,
   FindingStatus,
   Job,
+  Language,
   Matrix,
   MatrixEstimate,
   MatrixScope,
@@ -154,6 +155,7 @@ export interface AiegisApi {
   listConfigFiles(projectId: string | null): ConfigFileInfo[];
   readConfigFile(projectId: string | null, file: string): string;
   writeConfigFile(projectId: string | null, file: string, text: string): void;
+  uiLanguage(): Language;
 }
 
 export type ApiMethod = keyof AiegisApi;

@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import { ConfigFileSchema, SETTINGS_KEYS, type ConfigFile, type Level } from './schema';
+import { ConfigFileSchema, SETTINGS_KEYS, type ConfigFile, type Level, type Text } from './schema';
+import type { Language } from '../../shared/types';
 import type { PocAccount } from '../poc';
 import { mergeSettings, resolveLevels, type EffectiveLevel, type Layer, type ReadText, type SourceMap } from './cascade';
 
@@ -22,8 +23,8 @@ export interface LoadedFile {
   data: ConfigFile;
 }
 
-export const SOURCE_GLOBAL = 'глобальный';
-export const SOURCE_PROJECT = 'проект';
+export const SOURCE_GLOBAL = 'global';
+export const SOURCE_PROJECT = 'project';
 
 export function globalConfigPath(globalDir: string): string {
   return path.join(globalDir, 'config.yaml');
@@ -43,7 +44,7 @@ export function parseConfigText(text: string, file: string): ConfigFile {
   try {
     raw = YAML.parse(text) ?? {};
   } catch (e) {
-    throw new ConfigError(`${file}: ошибка YAML: ${(e as Error).message}`);
+    throw new ConfigError(`${file}: YAML error: ${(e as Error).message}`);
   }
   const parsed = ConfigFileSchema.safeParse(raw);
   if (!parsed.success) {
@@ -57,6 +58,17 @@ export function loadConfigFile(file: string): LoadedFile {
   const baseDir = path.dirname(file);
   if (!fs.existsSync(file)) return { path: file, baseDir, exists: false, data: {} };
   return { path: file, baseDir, exists: true, data: parseConfigText(fs.readFileSync(file, 'utf8'), file) };
+}
+
+/** UI language from the global config. */
+export function uiLanguage(global: LoadedFile): Language {
+  return global.data.ui?.language ?? 'en';
+}
+
+/** Picks the text for the UI language; falls back to English, then to any variant. */
+export function localized(text: Text | undefined, lang: Language): string | undefined {
+  if (text === undefined || typeof text === 'string') return text;
+  return text[lang] ?? text.en ?? Object.values(text)[0];
 }
 
 export interface RoleInfo {
@@ -124,9 +136,9 @@ const SCANNER_KEYS: (keyof ScannerSettings)[] = ['enabled', 'binary', 'format', 
 /** A configured scanner with every field set; a missing field is a configuration error. */
 export function scannerSettings(settings: Settings, name: string): ScannerSettings {
   const s = settings.scanners[name];
-  if (!s) throw new ConfigError(`сканер scanners.${name} не описан в конфигурации`);
+  if (!s) throw new ConfigError(`scanner scanners.${name} is not configured`);
   const missing = SCANNER_KEYS.filter((k) => s[k] === undefined);
-  if (missing.length) throw new ConfigError(`в конфигурации не заданы: ${missing.map((k) => `scanners.${name}.${k}`).join(', ')}`);
+  if (missing.length) throw new ConfigError(`missing in the config: ${missing.map((k) => `scanners.${name}.${k}`).join(', ')}`);
   return s as ScannerSettings;
 }
 
@@ -136,7 +148,7 @@ export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
   role: string;
-  title: string;
+  title: Text;
   prompt: string;
 }
 
@@ -201,7 +213,7 @@ const readText: ReadText = (file) => {
   try {
     return fs.readFileSync(file, 'utf8');
   } catch {
-    throw new ConfigError(`не найден файл инструкций: ${file}`);
+    throw new ConfigError(`instruction file not found: ${file}`);
   }
 };
 
@@ -221,12 +233,12 @@ export function listRoles(loc: ConfigLocation): RoleInfo[] {
 function roleInfo(name: string, global: LoadedFile, project?: LoadedFile): RoleInfo {
   const g = global.data.roles?.[name];
   const p = project?.data.roles?.[name];
-  if (!g && !p) throw new ConfigError(`роль "${name}" не описана ни в одном конфиге`);
+  if (!g && !p) throw new ConfigError(`role "${name}" is not defined in any config`);
   const kind = p?.kind ?? g?.kind;
   const access = p?.mcp_access ?? g?.mcp_access;
-  if (!kind) throw new ConfigError(`роль "${name}": не задано поле kind`);
-  if (!access) throw new ConfigError(`роль "${name}": не задано поле mcp_access`);
-  return { name, title: p?.title ?? g?.title ?? name, kind, mcp_access: access };
+  if (!kind) throw new ConfigError(`role "${name}": field kind is not set`);
+  if (!access) throw new ConfigError(`role "${name}": field mcp_access is not set`);
+  return { name, title: localized(p?.title ?? g?.title, uiLanguage(global)) ?? name, kind, mcp_access: access };
 }
 
 function levelOf(obj: Level | undefined): Level {
@@ -240,20 +252,20 @@ export function buildLayers(target: ResolveTarget, global: LoadedFile, project?:
   const layers: Layer[] = [{ source: SOURCE_GLOBAL, baseDir: global.baseDir, level: levelOf(global.data) }];
   if (project) layers.push({ source: SOURCE_PROJECT, baseDir: project.baseDir, level: levelOf(project.data) });
   const gRole = global.data.roles?.[target.role];
-  if (gRole) layers.push({ source: `роль ${target.role} (${SOURCE_GLOBAL})`, baseDir: global.baseDir, level: levelOf(gRole) });
+  if (gRole) layers.push({ source: `role ${target.role} (${SOURCE_GLOBAL})`, baseDir: global.baseDir, level: levelOf(gRole) });
   const pRole = project?.data.roles?.[target.role];
-  if (pRole && project) layers.push({ source: `роль ${target.role} (${SOURCE_PROJECT})`, baseDir: project.baseDir, level: levelOf(pRole) });
+  if (pRole && project) layers.push({ source: `role ${target.role} (${SOURCE_PROJECT})`, baseDir: project.baseDir, level: levelOf(pRole) });
   if (target.module && project) {
     const m = project.data.modules?.[target.module];
-    if (m) layers.push({ source: `модуль ${target.module}`, baseDir: project.baseDir, level: levelOf(m) });
+    if (m) layers.push({ source: `module ${target.module}`, baseDir: project.baseDir, level: levelOf(m) });
   }
   if (target.matrix && project) {
     const m = project.data.matrices?.[target.matrix];
-    if (m) layers.push({ source: `матрица ${target.matrix}`, baseDir: project.baseDir, level: levelOf(m) });
+    if (m) layers.push({ source: `matrix ${target.matrix}`, baseDir: project.baseDir, level: levelOf(m) });
   }
   if (target.item && project) {
     const r = project.data.requirements?.[target.item];
-    if (r) layers.push({ source: `пункт ${target.item}`, baseDir: project.baseDir, level: levelOf(r) });
+    if (r) layers.push({ source: `item ${target.item}`, baseDir: project.baseDir, level: levelOf(r) });
   }
   return layers;
 }
@@ -265,7 +277,7 @@ export function resolveSettings(global: LoadedFile, project?: LoadedFile): { set
     { source: SOURCE_PROJECT, value: project ? pick(project.data) : undefined },
   ]);
   const missing = REQUIRED_SETTINGS.filter((k) => getPath(value, k) === undefined);
-  if (missing.length) throw new ConfigError(`в конфигурации не заданы: ${missing.join(', ')}`);
+  if (missing.length) throw new ConfigError(`missing in the config: ${missing.join(', ')}`);
   return { settings: value as unknown as Settings, sources };
 }
 

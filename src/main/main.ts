@@ -14,7 +14,7 @@ function api(): ApiImpl {
   return {
     listProjects: () => core.listProjects(),
     pickAndAddProject: async () => {
-      const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Выберите git-репозиторий' });
+      const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Choose a git repository' });
       if (r.canceled || !r.filePaths[0]) return null;
       return core.addProject(r.filePaths[0]);
     },
@@ -54,7 +54,7 @@ function api(): ApiImpl {
     pickDocumentFile: async () => {
       const r = await dialog.showOpenDialog(win!, {
         properties: ['openFile'],
-        title: 'Выберите документ',
+        title: 'Choose a document',
         filters: [{ name: 'MD, PDF, DOCX', extensions: ['md', 'markdown', 'txt', 'pdf', 'docx'] }],
       });
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
@@ -100,7 +100,7 @@ function api(): ApiImpl {
     scaView: (pid) => core.scaView(pid),
     scaItemDetails: (pid, id) => core.scaItemDetails(pid, id),
     pickScaInputFile: async () => {
-      const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], title: 'Файл с зависимостями (lock-файл, SBOM, отчёт сканера)' });
+      const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], title: 'Dependency file (lock file, SBOM, scanner report)' });
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
     },
     addScaInput: (pid, file, o) => core.addScaInput(pid, file, o),
@@ -126,6 +126,7 @@ function api(): ApiImpl {
     listConfigFiles: (pid) => core.listConfigFiles(pid),
     readConfigFile: (pid, file) => core.readConfigFile(pid, file),
     writeConfigFile: (pid, file, text) => core.writeConfigFile(pid, file, text),
+    uiLanguage: () => core.uiLanguage(),
   };
 }
 

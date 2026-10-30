@@ -12,7 +12,7 @@ export function detectFormat(filename: string): DocFormat {
   if (ext === '.md' || ext === '.markdown' || ext === '.txt') return 'md';
   if (ext === '.pdf') return 'pdf';
   if (ext === '.docx') return 'docx';
-  throw new Error(`формат ${ext || filename} не поддерживается: нужен MD, PDF или DOCX`);
+  throw new Error(`format ${ext || filename} is not supported: MD, PDF or DOCX is required`);
 }
 
 export function sha256File(file: string): string {
@@ -50,7 +50,7 @@ export function documentText(dir: string): string | null {
 export function agentFile(dir: string): string {
   if (fs.existsSync(path.join(dir, TEXT_FILE))) return TEXT_FILE;
   const src = fs.readdirSync(dir).find((f) => f.startsWith(`${SOURCE_BASENAME}.`));
-  if (!src) throw new Error(`в ${dir} нет файла документа`);
+  if (!src) throw new Error(`no document file in ${dir}`);
   return src;
 }
 

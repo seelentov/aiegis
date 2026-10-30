@@ -104,11 +104,11 @@ export function matchesRequirement(f: Pick<RawFinding, 'kind' | 'cwe' | 'ruleId'
 export function suppressionLabel(s: Suppression, names: { module?: string | null; requirement?: string | null } = {}): string {
   switch (s.scope) {
     case 'finding':
-      return `${s.scanner} ${s.ruleId} в ${s.file}${s.line ? `:${s.line}` : ''}`;
+      return `${s.scanner} ${s.ruleId} in ${s.file}${s.line ? `:${s.line}` : ''}`;
     case 'rule_glob':
       return `${s.scanner} ${s.ruleId} × ${s.globs.join(', ')}`;
     case 'requirement_module':
-      return `пункт ${names.requirement ?? s.requirementId} × модуль ${names.module ?? s.moduleId}`;
+      return `item ${names.requirement ?? s.requirementId} × module ${names.module ?? s.moduleId}`;
   }
 }
 

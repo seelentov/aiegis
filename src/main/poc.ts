@@ -29,16 +29,16 @@ export interface PocEnvironment {
 /** The configured test environment, or why the tester is unavailable. */
 export function pocEnvironment(poc: Settings['poc']): { env: PocEnvironment } | { reason: string } {
   const e = poc.environment;
-  if (!e) return { reason: 'в конфигурации проекта не описано тестовое окружение (poc.environment)' };
+  if (!e) return { reason: 'the project config does not describe a test environment (poc.environment)' };
   const missing = (['start', 'healthcheck', 'base_url'] as const).filter((k) => !e[k]?.trim());
-  if (missing.length) return { reason: `в poc.environment не заданы: ${missing.join(', ')}` };
+  if (missing.length) return { reason: `poc.environment is missing: ${missing.join(', ')}` };
   let url: URL;
   try {
     url = new URL(e.base_url!);
   } catch {
-    return { reason: `poc.environment.base_url: неверный URL ${e.base_url}` };
+    return { reason: `poc.environment.base_url: invalid URL ${e.base_url}` };
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return { reason: 'poc.environment.base_url: нужен http или https' };
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return { reason: 'poc.environment.base_url: http or https is required' };
   return { env: { start: e.start!, healthcheck: e.healthcheck!, stop: e.stop?.trim() || null, base_url: e.base_url!, accounts: e.accounts ?? {} } };
 }
 
@@ -55,7 +55,7 @@ export const secretEnvName = (account: string, secret: string) => `AIEGIS_POC_${
 function keychain(service: string, account: string): Promise<string> {
   return new Promise((resolve, reject) =>
     execFile('security', ['find-generic-password', '-s', service, '-a', account, '-w'], (err, out) =>
-      err ? reject(new Error(`секрет не найден в keychain (service ${service}, account ${account})`)) : resolve(out.replace(/\n$/, '')),
+      err ? reject(new Error(`secret not found in keychain (service ${service}, account ${account})`)) : resolve(out.replace(/\n$/, '')),
     ),
   );
 }
@@ -68,7 +68,7 @@ export async function resolveSecrets(accounts: Record<string, PocAccount>, env =
       const key = secretEnvName(name, secret);
       if ('env' in ref) {
         const v = env[ref.env];
-        if (v === undefined) throw new Error(`учётка ${name}: не задана переменная окружения ${ref.env} (${secret})`);
+        if (v === undefined) throw new Error(`account ${name}: environment variable ${ref.env} is not set (${secret})`);
         out[key] = v;
       } else {
         out[key] = await keychain(ref.keychain.service, ref.keychain.account);
@@ -129,9 +129,9 @@ export function hookDecision(baseUrl: string, input: { tool_name?: string; tool_
   if (input.tool_name === 'WebFetch') urls.push(String(ti.url ?? ''));
   if (input.tool_name === 'Bash') {
     const cmd = String(ti.command ?? '');
-    if (ti.dangerouslyDisableSandbox) return 'команды тестировщика выполняются только в песочнице';
+    if (ti.dangerouslyDisableSandbox) return 'tester commands run only in the sandbox';
     const opt = REDIRECT_OPTS.exec(cmd);
-    if (opt) return `опция ${opt[2]} перенаправляет запрос; разрешены только запросы на ${origin}`;
+    if (opt) return `option ${opt[2]} redirects the request; only requests to ${origin} are allowed`;
     urls.push(...(cmd.match(URL_RE) ?? []));
   }
   for (const u of urls) {
@@ -139,9 +139,9 @@ export function hookDecision(baseUrl: string, input: { tool_name?: string; tool_
     try {
       o = new URL(u).origin;
     } catch {
-      return `не удалось разобрать URL ${u}`;
+      return `cannot parse URL ${u}`;
     }
-    if (o !== origin) return `запрос на ${u} запрещён: тестировщик обращается только к ${origin}`;
+    if (o !== origin) return `request to ${u} is forbidden: the tester only talks to ${origin}`;
   }
   return null;
 }
@@ -207,13 +207,13 @@ export class PocInstance {
     const deadline = Date.now() + this.o.startTimeoutSec * 1000;
     const interval = this.o.healthcheckIntervalSec * 1000;
     for (;;) {
-      if (signal.aborted) throw new Error('остановлено');
-      if (this.exitCode !== undefined && this.exitCode !== 0) throw new Error(`команда start завершилась с кодом ${this.exitCode}`);
+      if (signal.aborted) throw new Error('stopped');
+      if (this.exitCode !== undefined && this.exitCode !== 0) throw new Error(`start command exited with code ${this.exitCode}`);
       if ((await runShell(this.env.healthcheck, { ...this.o, log: () => undefined }, interval, signal)) === 0) {
-        this.o.log('[aiegis] окружение готово\n');
+        this.o.log('[aiegis] environment ready\n');
         return;
       }
-      if (Date.now() > deadline) throw new Error(`окружение не прошло healthcheck за ${this.o.startTimeoutSec} с`);
+      if (Date.now() > deadline) throw new Error(`environment did not pass the healthcheck within ${this.o.startTimeoutSec} s`);
       await new Promise((r) => setTimeout(r, interval));
     }
   }
@@ -222,7 +222,7 @@ export class PocInstance {
     if (this.env.stop) {
       this.o.log(`$ ${this.env.stop}\n`);
       const code = await runShell(this.env.stop, this.o, this.o.stopTimeoutSec * 1000);
-      if (code !== 0) this.o.log(`[aiegis] команда stop завершилась с кодом ${code}\n`);
+      if (code !== 0) this.o.log(`[aiegis] stop command exited with code ${code}\n`);
     }
     const child = this.child;
     if (!child?.pid) return;

@@ -75,7 +75,7 @@ describe('MCP server with run tokens', () => {
 
     const bad = await c.callTool({ name: 'submit_result', arguments: { entity_type: 'task', entity_id: 'j2', summary: 'x' } });
     expect(bad.isError).toBe(true);
-    expect(text(bad)).toMatch(/вне scope/);
+    expect(text(bad)).toMatch(/outside the token scope/);
     expect(store.listResults({ entityId: 'j2' })).toHaveLength(0);
 
     const manage = await c.callTool({ name: 'enqueue_task', arguments: { prompt: 'p' } });
@@ -126,7 +126,7 @@ describe('MCP module and entry point tools', () => {
     const g = tokens.issue({ projectId: 'p1', role: 'modules', access: 'scoped', sessionId: 's', runId: run.id, scope: [{ type: 'module_map', id: 'p1' }] });
     const c = await connect(g.token);
     const none = await c.callTool({ name: 'upsert_module', arguments: { name: 'svc', globs: ['nope/**'], description: 'd' } });
-    expect(text(none)).toMatch(/не совпадают/);
+    expect(text(none)).toMatch(/match no repository file/);
     const res = await c.callTool({ name: 'upsert_module', arguments: { name: 'svc', globs: ['svc/**'], description: 'service' } });
     expect(JSON.parse(text(res))).toMatchObject({ name: 'svc', matched_files: 2 });
     // Same name updates the same module.
@@ -137,7 +137,7 @@ describe('MCP module and entry point tools', () => {
       name: 'upsert_entry_point',
       arguments: { module_id: mods[0].id, kind: 'http', name: '/x', handler_file: 'svc/Api.java', handler_line: 1, auth: 'none' },
     });
-    expect(text(ep)).toMatch(/вне scope/);
+    expect(text(ep)).toMatch(/outside the token scope/);
     await c.close();
   });
 
@@ -158,18 +158,18 @@ describe('MCP module and entry point tools', () => {
     expect(JSON.parse(text(plugin))).toMatchObject({ saved: 'plugin  AuthPlugin.authenticate', entries_in_snapshot: 2 });
     await c.callTool({ name: 'remove_entry_point', arguments: { module_id: mod.id, kind: 'plugin', name: 'AuthPlugin.authenticate' } });
     const missing = await c.callTool({ name: 'upsert_entry_point', arguments: { ...args, handler_file: 'svc/Nope.java' } });
-    expect(text(missing)).toMatch(/не найден/);
+    expect(text(missing)).toMatch(/not found/);
     const foreign = await c.callTool({ name: 'upsert_entry_point', arguments: { ...args, module_id: other.id } });
-    expect(text(foreign)).toMatch(/вне scope/);
+    expect(text(foreign)).toMatch(/outside the token scope/);
     const markup = await c.callTool({ name: 'upsert_module', arguments: { name: 'x', globs: ['svc/**'], description: 'd' } });
-    expect(text(markup)).toMatch(/вне scope/);
+    expect(text(markup)).toMatch(/outside the token scope/);
 
     const snap = store.snapshotOf(run.id, mod.id)!;
     expect(store.listEntryPoints(snap.id)[0]).toMatchObject({ callChain: [{ file: 'svc/Repo.java', sink: 'SQL' }], params: [{ name: 'user' }] });
     store.finishRun(run.id, 'succeeded', { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, costUsd: 0 });
     store.finalizeSnapshots(run.id, true);
     const late = await c.callTool({ name: 'upsert_entry_point', arguments: args });
-    expect(text(late)).toMatch(/завершён/);
+    expect(text(late)).toMatch(/has finished/);
     const read = JSON.parse(text(await c.callTool({ name: 'get_entry_points', arguments: { module_id: mod.id } })));
     expect(read.snapshot.id).toBe(snap.id);
     expect(read.entry_points).toHaveLength(1);
@@ -195,13 +195,13 @@ describe('MCP requirement, matrix and finding tools', () => {
     const c = await connect(g.token);
     const args = { version_id: v.id, key: 'A-1', text: 'Endpoints check authorization', section: 'Access', quote: 'every endpoint must check  authorization' };
     expect(JSON.parse(text(await c.callTool({ name: 'add_requirement', arguments: args })))).toMatchObject({ saved: 'A-1', items_in_version: 1 });
-    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, quote: 'made up' } }))).toMatch(/цитата не найдена/);
-    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, version_id: other.id } }))).toMatch(/вне scope/);
+    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, quote: 'made up' } }))).toMatch(/quote is not in the document/);
+    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, version_id: other.id } }))).toMatch(/outside the token scope/);
     expect(a.listItems(v.id)).toMatchObject([{ key: 'A-1', review: 'pending', author: 'ai:requirements', runId: run.id }]);
     a.setVersionStatus(v.id, 'review');
     a.reviewItems(v.id, a.listItems(v.id).map((i) => i.id), 'accepted');
     a.approveVersion(v.id, 'human');
-    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, key: 'A-2' } }))).toMatch(/утверждена/);
+    expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, key: 'A-2' } }))).toMatch(/already approved/);
 
     // Re-import: the unchanged item is carried over; re-extracting its key or sentence is rejected.
     docText = '# Access\nEvery endpoint must check authorization.\nTokens must expire.\n';
@@ -210,9 +210,9 @@ describe('MCP requirement, matrix and finding tools', () => {
     const g2 = tokens.issue({ projectId: 'p1', role: 'requirements', access: 'scoped', sessionId: 's', runId: run.id, scope: [{ type: 'doc_version', id: v2.id }] });
     const c2 = await connect(g2.token);
     const args2 = { ...args, version_id: v2.id };
-    expect(text(await c2.callTool({ name: 'add_requirement', arguments: args2 }))).toMatch(/A-1 перенесён/);
+    expect(text(await c2.callTool({ name: 'add_requirement', arguments: args2 }))).toMatch(/A-1 was carried over/);
     expect(text(await c2.callTool({ name: 'add_requirement', arguments: { ...args2, key: 'A-1a', quote: 'every endpoint must check authorization. tokens must expire.' } }))).toMatch(
-      /A-1 перенесён/,
+      /A-1 was carried over/,
     );
     expect(JSON.parse(text(await c2.callTool({ name: 'add_requirement', arguments: { ...args2, key: 'A-2', quote: 'Tokens must expire.' } })))).toMatchObject({ saved: 'A-2' });
     await c2.close();
@@ -234,9 +234,9 @@ describe('MCP requirement, matrix and finding tools', () => {
     };
     const evidence = [{ file: 'svc/Api.java', line: 1, note: 'check' }];
     expect((await call('set_verdict', { ...cell, status: 'pass', reason: 'ok' })).text).toMatch(/evidence/);
-    expect((await call('set_verdict', { ...cell, status: 'pass', reason: 'ok', evidence: [{ file: 'svc/Nope.java' }] })).text).toMatch(/не найден/);
+    expect((await call('set_verdict', { ...cell, status: 'pass', reason: 'ok', evidence: [{ file: 'svc/Nope.java' }] })).text).toMatch(/not found/);
     expect((await call('set_verdict', { ...cell, status: 'finding', reason: 'bad', evidence })).text).toMatch(/find_similar/);
-    expect((await call('set_verdict', { module_id: mod.id, requirement_id: 'other', status: 'n/a', reason: 'x' })).text).toMatch(/вне scope/);
+    expect((await call('set_verdict', { module_id: mod.id, requirement_id: 'other', status: 'n/a', reason: 'x' })).text).toMatch(/outside the token scope/);
     expect((await call('create_finding', { ...cell, check_id: 'nope', title: 't', description: 'd', severity: 'high', files: evidence })).text).toMatch(/find_similar/);
 
     const sim = JSON.parse((await call('find_similar', { module_id: mod.id, files: ['svc/Api.java'], cwe: 'CWE-639' })).text);
@@ -252,14 +252,14 @@ describe('MCP requirement, matrix and finding tools', () => {
 
     // A second agent finds the same flaw: the candidate is returned and linked instead of duplicated.
     const again = JSON.parse((await call('find_similar', { module_id: mod.id, files: ['svc/Api.java'], cwe: 'cwe-639' })).text);
-    expect(again.candidates[0]).toMatchObject({ finding_id: created.finding_id, reasons: expect.arrayContaining(['тот же CWE-639']) });
+    expect(again.candidates[0]).toMatchObject({ finding_id: created.finding_id, reasons: expect.arrayContaining(['same CWE-639']) });
     expect((await call('link_finding', { ...cell, finding_id: created.finding_id })).err).toBe(false);
     expect(a.listFindings()).toHaveLength(1);
 
     const tri = await call('triage_cell', { ...cell, applicable: false, reason: 'no HTTP' });
     expect(JSON.parse(tri.text).status).toBe('n/a');
     expect(a.latestVerdicts().get(`${mod.id}/${item.requirementId}`)).toMatchObject({ status: 'n/a', reason: 'no HTTP' });
-    expect((await call('recheck_cells', { cells: [cell] })).text).toMatch(/прав управления/);
+    expect((await call('recheck_cells', { cells: [cell] })).text).toMatch(/no manage access/);
     await c.close();
   });
 });

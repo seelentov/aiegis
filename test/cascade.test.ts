@@ -98,7 +98,7 @@ describe('mergeSettings', () => {
 
 describe('config files', () => {
   it('rejects invalid YAML and schema errors with the file name', () => {
-    expect(() => parseConfigText('a: [', 'x.yaml')).toThrow(/x\.yaml: ошибка YAML/);
+    expect(() => parseConfigText('a: [', 'x.yaml')).toThrow(/x\.yaml: YAML error/);
     expect(() => parseConfigText('queue: { parallelism: 0 }', 'x.yaml')).toThrow(/queue\.parallelism/);
   });
 
@@ -113,7 +113,7 @@ describe('config files', () => {
       expect(cfg.level.instructions.length).toBeGreaterThan(0);
     }
     const task = resolveConfig({ globalDir: g }, { role: 'task' });
-    expect(task.level.model).toEqual({ value: 'haiku', source: 'роль task (глобальный)' });
+    expect(task.level.model).toEqual({ value: 'haiku', source: 'role task (global)' });
     expect(effectiveAllow(task.level)).not.toContain('Edit');
   });
 
@@ -178,19 +178,19 @@ describe('config files', () => {
     write(path.join(repo, '.aiegis/instructions/project.md'), 'PROJECT RULES');
     const cfg = resolveConfig({ globalDir: g, projectRoot: repo }, { role: 'task', module: 'auth' });
     expect(cfg.layers.map((l) => l.source)).toEqual([
-      'глобальный',
-      'проект',
-      'роль task (глобальный)',
-      'роль task (проект)',
-      'модуль auth',
+      'global',
+      'project',
+      'role task (global)',
+      'role task (project)',
+      'module auth',
     ]);
-    expect(cfg.level.model).toEqual({ value: 'module-model', source: 'модуль auth' });
-    expect(cfg.level.effort).toEqual({ value: 'high', source: 'роль task (проект)' });
-    expect(cfg.level.instructions.map((i) => i.source)).toEqual(['проект', 'роль task (глобальный)']);
+    expect(cfg.level.model).toEqual({ value: 'module-model', source: 'module auth' });
+    expect(cfg.level.effort).toEqual({ value: 'high', source: 'role task (project)' });
+    expect(cfg.level.instructions.map((i) => i.source)).toEqual(['project', 'role task (global)']);
     expect(effectiveAllow(cfg.level)).not.toContain('Grep');
     expect(cfg.settings.queue.parallelism).toBe(5);
-    expect(cfg.settingsSources['queue.parallelism']).toBe('проект');
-    expect(cfg.settingsSources['limits.max_tokens_per_run']).toBe('глобальный');
+    expect(cfg.settingsSources['queue.parallelism']).toBe('project');
+    expect(cfg.settingsSources['limits.max_tokens_per_run']).toBe('global');
   });
 
   it('scanners: shipped set, project overrides per leaf, missing fields fail loudly, new scanners are merged in', () => {
@@ -202,11 +202,11 @@ describe('config files', () => {
     expect(Object.keys(settings.scanners)).toEqual(['semgrep', 'gitleaks', 'trivy', 'custom']);
     expect(scannerSettings(settings, 'semgrep')).toMatchObject({ enabled: true, binary: 'semgrep', format: 'semgrep' });
     expect(scannerSettings(settings, 'trivy').enabled).toBe(false);
-    expect(sources['scanners.trivy.enabled']).toBe('проект');
+    expect(sources['scanners.trivy.enabled']).toBe('project');
     expect(settings.signals).toMatchObject({ max_per_call: 7, exclude_kinds: ['vuln'], auto_scan: true });
     expect(settings.suppressions).toEqual({ few_shot_limit: 5, apply_stale: false });
     expect(() => scannerSettings(settings, 'custom')).toThrow(/scanners\.custom\.format/);
-    expect(() => scannerSettings(settings, 'nope')).toThrow(/не описан/);
+    expect(() => scannerSettings(settings, 'nope')).toThrow(/is not configured/);
 
     const old = tmpDir();
     write(path.join(old, 'config.yaml'), 'scanners:\n  semgrep: { enabled: false }\n');
@@ -219,6 +219,6 @@ describe('config files', () => {
     write(path.join(g, 'config.yaml'), 'roles: { r: { kind: background, mcp_access: scoped } }\n');
     expect(() => resolveConfig({ globalDir: g }, { role: 'r' })).toThrow(ConfigError);
     expect(() => resolveConfig({ globalDir: g }, { role: 'r' })).toThrow(/queue\.parallelism/);
-    expect(() => resolveConfig({ globalDir: g }, { role: 'nope' })).toThrow(/не описана/);
+    expect(() => resolveConfig({ globalDir: g }, { role: 'nope' })).toThrow(/is not defined/);
   });
 });

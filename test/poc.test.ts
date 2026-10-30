@@ -11,7 +11,7 @@ const bash = (command: string, extra: Record<string, unknown> = {}) => ({ tool_n
 describe('poc environment', () => {
   it('is unavailable without environment or with missing fields', () => {
     expect(pocEnvironment(base)).toEqual({ reason: expect.stringContaining('poc.environment') });
-    expect(pocEnvironment({ ...base, environment: { start: 'x', base_url: 'http://a' } })).toEqual({ reason: 'в poc.environment не заданы: healthcheck' });
+    expect(pocEnvironment({ ...base, environment: { start: 'x', base_url: 'http://a' } })).toEqual({ reason: 'poc.environment is missing: healthcheck' });
     expect(pocEnvironment({ ...base, environment: { start: 'x', healthcheck: 'y', base_url: 'ftp://a' } })).toEqual({ reason: expect.stringContaining('http') });
     expect(pocEnvironment({ ...base, environment: { start: 'x', healthcheck: 'y', stop: ' ', base_url: 'http://127.0.0.1:8080' } })).toEqual({
       env: { start: 'x', healthcheck: 'y', stop: null, base_url: 'http://127.0.0.1:8080', accounts: {} },
@@ -48,11 +48,11 @@ describe('tester sandbox and hook', () => {
     expect(hookDecision(b, bash('curl -s http://127.0.0.1:8080/orders/2 -H "X: 1"'))).toBeNull();
     expect(hookDecision(b, bash('python3 .aiegis-poc/x/poc.py'))).toBeNull();
     expect(hookDecision(b, { tool_name: 'Read', tool_input: { file_path: 'http://evil' } })).toBeNull();
-    expect(hookDecision(b, bash('curl http://127.0.0.1:9090/'))).toContain('запрещён');
+    expect(hookDecision(b, bash('curl http://127.0.0.1:9090/'))).toContain('forbidden');
     expect(hookDecision(b, bash("curl 'https://evil.test/?q=1'"))).toContain('evil.test');
     expect(hookDecision(b, bash('curl -x http://127.0.0.1:8080 http://127.0.0.1:8080/'))).toContain('-x');
     expect(hookDecision(b, bash('curl --proxy=h:1 http://127.0.0.1:8080/'))).toContain('--proxy');
-    expect(hookDecision(b, bash('ls', { dangerouslyDisableSandbox: true }))).toContain('песочниц');
+    expect(hookDecision(b, bash('ls', { dangerouslyDisableSandbox: true }))).toContain('sandbox');
     expect(hookDecision(b, { tool_name: 'WebFetch', tool_input: { url: 'https://evil.test' } })).toContain('evil.test');
   });
 });
@@ -84,7 +84,7 @@ describe('test instance', () => {
   it('fails when start exits with an error or the healthcheck never passes', async () => {
     const dir = tmpDir();
     const env = { start: 'exit 3', healthcheck: 'false', stop: null, base_url: 'http://127.0.0.1:1', accounts: {} };
-    await expect(new PocInstance(env, opts(dir)).start(new AbortController().signal)).rejects.toThrow('кодом 3');
+    await expect(new PocInstance(env, opts(dir)).start(new AbortController().signal)).rejects.toThrow('code 3');
     const slow = new PocInstance({ ...env, start: 'sleep 30' }, { ...opts(dir), startTimeoutSec: 1 });
     await expect(slow.start(new AbortController().signal)).rejects.toThrow('healthcheck');
     await slow.stop();

@@ -20,6 +20,7 @@ import type {
   FindingInput,
   FindingStatus,
   Job,
+  Language,
   Matrix,
   MatrixEstimate,
   MatrixScope,
@@ -74,6 +75,7 @@ import {
   globalConfigPath,
   listRoles,
   loadConfigFile,
+  localized,
   parseConfigText,
   projectConfigDir,
   projectConfigPath,
@@ -81,6 +83,7 @@ import {
   resolveSettings,
   scannerSettings,
   SOURCE_PROJECT,
+  uiLanguage,
   type EffectiveConfig,
   type RoleInfo,
   type ScannerSettings,
@@ -281,10 +284,10 @@ export class Core extends EventEmitter {
 
   async start(): Promise<void> {
     const sync = ensureGlobalDefaults(this.paths.defaultsDir, this.paths.globalDir);
-    if (sync.added.length) this.notice('info', `В глобальный конфиг добавлены новые настройки по умолчанию: ${sync.added.join(', ')}`);
-    if (sync.updated.length) this.notice('info', `Обновлены файлы по умолчанию: ${sync.updated.join(', ')}`);
+    if (sync.added.length) this.notice('info', `New default settings added to the global config: ${sync.added.join(', ')}`);
+    if (sync.updated.length) this.notice('info', `Default files updated: ${sync.updated.join(', ')}`);
     if (sync.outdated.length) {
-      this.notice('warn', `В новой версии изменились файлы по умолчанию, которые вы правили, — перенесите изменения вручную (${this.paths.defaultsDir}): ${sync.outdated.join(', ')}`);
+      this.notice('warn', `Default files you edited changed in the new version; merge your changes manually (${this.paths.defaultsDir}): ${sync.outdated.join(', ')}`);
     }
     await this.mcp.start();
     for (const p of this.registry.list()) {
@@ -365,7 +368,7 @@ export class Core extends EventEmitter {
       this.lastSettings = resolveSettings(loadConfigFile(globalConfigPath(this.paths.globalDir))).settings;
     } catch (e) {
       if (!this.lastSettings) throw e;
-      this.notice('error', `Глобальный конфиг не читается, используются последние корректные настройки: ${(e as Error).message}`);
+      this.notice('error', `The global config cannot be read, the last valid settings are used: ${(e as Error).message}`);
     }
     return this.lastSettings!;
   }
@@ -394,7 +397,7 @@ export class Core extends EventEmitter {
       const s = this.store(job.projectId);
       const cells = mp.cells.map(parseCellId);
       const mod = s.getModule(cells[0].moduleId);
-      if (!mod) throw new Error(`модуль ${cells[0].moduleId} удалён`);
+      if (!mod) throw new Error(`module ${cells[0].moduleId} deleted`);
       const matrix = s.audit.getMatrix(mp.matrix_id);
       const item = cells.length === 1 ? s.audit.currentItem(cells[0].requirementId) : undefined;
       return this.resolve(job.projectId, job.role, mod.name, { matrix: matrix?.name, item: item?.key });
@@ -402,7 +405,7 @@ export class Core extends EventEmitter {
     const moduleId = job.entityType === MODULE_ENTITY || job.entityType === SCA_MODULE_ENTITY ? job.entityId : scaPayload(job)?.module_id;
     if (!moduleId) return this.resolve(job.projectId, job.role);
     const mod = this.store(job.projectId).getModule(moduleId);
-    if (!mod) throw new Error(`модуль ${moduleId} удалён`);
+    if (!mod) throw new Error(`module ${moduleId} deleted`);
     return this.resolve(job.projectId, job.role, mod.name);
   }
 
@@ -469,8 +472,12 @@ export class Core extends EventEmitter {
   private assertEditable(projectId: string | null, file: string): string {
     const abs = path.resolve(file);
     const ok = this.editableRoots(projectId).some(({ dir }) => abs.startsWith(path.resolve(dir) + path.sep));
-    if (!ok || !(abs.endsWith('.yaml') || abs.endsWith('.md'))) throw new Error(`файл ${file} нельзя редактировать`);
+    if (!ok || !(abs.endsWith('.yaml') || abs.endsWith('.md'))) throw new Error(`file ${file} cannot be edited`);
     return abs;
+  }
+
+  uiLanguage(): Language {
+    return uiLanguage(loadConfigFile(globalConfigPath(this.paths.globalDir)));
   }
 
   readConfigFile(projectId: string | null, file: string): string {
@@ -500,7 +507,7 @@ export class Core extends EventEmitter {
   runDetails(projectId: string, runId: string): { run: Run; results: ResultRecord[]; log: string | null } {
     const s = this.store(projectId);
     const run = s.getRun(runId);
-    if (!run) throw new Error(`прогон ${runId} не найден`);
+    if (!run) throw new Error(`run ${runId} not found`);
     return { run, results: s.listResults({ runId }), log: run.logPath };
   }
 
@@ -517,7 +524,7 @@ export class Core extends EventEmitter {
     id?: string,
   ): Job {
     const cfg = this.resolve(projectId, t.role);
-    if (cfg.role.kind !== 'background') throw new ConfigError(`роль ${t.role} не фоновая`);
+    if (cfg.role.kind !== 'background') throw new ConfigError(`role ${t.role} is not a background role`);
     const job = this.store(projectId).addJob(
       {
         type: AGENT_JOB,
@@ -541,7 +548,7 @@ export class Core extends EventEmitter {
 
   cancelJob(projectId: string, jobId: string): void {
     const job = this.store(projectId).getJob(jobId);
-    if (!job) throw new Error(`задача ${jobId} не найдена`);
+    if (!job) throw new Error(`job ${jobId} not found`);
     this.queue.stop(job, 'cancelled');
   }
 
@@ -564,9 +571,9 @@ export class Core extends EventEmitter {
   /** Stops the background run of a job and opens its session interactively (SPEC §1, Q3). */
   async takeOver(projectId: string, jobId: string): Promise<string> {
     const job = this.store(projectId).getJob(jobId);
-    if (!job) throw new Error(`задача ${jobId} не найдена`);
+    if (!job) throw new Error(`job ${jobId} not found`);
     const active = this.activeRuns.get(jobId);
-    if (!active) throw new Error('задача не выполняется');
+    if (!active) throw new Error('the job is not running');
     this.queue.stop(job, 'taken_over');
     await active.done;
     return this.openRun(projectId, active.runId);
@@ -580,11 +587,11 @@ export class Core extends EventEmitter {
     const root = this.project(projectId).root;
     const { settings, sources } = resolveSettings(files.global, loadConfigFile(projectConfigPath(root)));
     const t = settings.tasks[kind];
-    if (!t) throw new ConfigError(`в конфигурации не задана задача tasks.${kind}`);
+    if (!t) throw new ConfigError(`task tasks.${kind} is not configured`);
     const dir = sources[`tasks.${kind}.prompt`] === SOURCE_PROJECT ? projectConfigDir(root) : this.paths.globalDir;
     const file = path.resolve(dir, t.prompt);
-    if (!fs.existsSync(file)) throw new ConfigError(`tasks.${kind}.prompt: не найден файл ${file}`);
-    return { role: t.role, title: t.title, template: fs.readFileSync(file, 'utf8'), file };
+    if (!fs.existsSync(file)) throw new ConfigError(`tasks.${kind}.prompt: file ${file} not found`);
+    return { role: t.role, title: localized(t.title, uiLanguage(files.global))!, template: fs.readFileSync(file, 'utf8'), file };
   }
 
   taskRole(projectId: string, kind: string): string {
@@ -593,7 +600,7 @@ export class Core extends EventEmitter {
 
   private assertNotQueued(projectId: string, entity: EntityRef): void {
     const active = this.store(projectId).activeJobFor(entity.type, entity.id);
-    if (active) throw new Error(`для этой сущности уже есть задача в очереди: «${active.title}»`);
+    if (active) throw new Error(`this entity already has a queued job: “${active.title}”`);
   }
 
   /** Queues the AI module markup of the repository; `hint` narrows or redirects it. */
@@ -621,7 +628,7 @@ export class Core extends EventEmitter {
   async enqueueEntryPoints(projectId: string, moduleId: string, sha?: string): Promise<Job> {
     const p = this.project(projectId);
     const mod = this.store(projectId).getModule(moduleId);
-    if (!mod) throw new Error(`модуль ${moduleId} не найден`);
+    if (!mod) throw new Error(`module ${moduleId} not found`);
     const entity = { type: MODULE_ENTITY, id: mod.id };
     this.assertNotQueued(projectId, entity);
     const spec = this.taskSpec(projectId, 'entry_points');
@@ -678,14 +685,14 @@ export class Core extends EventEmitter {
     const globs = m.globs.map((g) => g.trim()).filter(Boolean);
     const err = globsError(globs);
     if (err) throw new Error(err);
-    if (!(await this.previewGlobs(projectId, globs)).count) throw new Error('globs не совпадают ни с одним файлом репозитория');
+    if (!(await this.previewGlobs(projectId, globs)).count) throw new Error('the globs match no repository file');
     const mod = this.store(projectId).saveModule({ ...m, globs, description: m.description.trim() }, { author: 'human', runId: null });
     this.send({ type: 'modules-changed', projectId });
     return mod;
   }
 
   removeModule(projectId: string, moduleId: string, reason: string): void {
-    if (!reason.trim()) throw new Error('укажите причину удаления');
+    if (!reason.trim()) throw new Error('specify the reason for deletion');
     this.store(projectId).removeModule(moduleId, reason.trim(), { author: 'human', runId: null });
     this.send({ type: 'modules-changed', projectId });
   }
@@ -757,15 +764,15 @@ export class Core extends EventEmitter {
   /** Imports a file as a new document or a new version of `documentId` and queues requirement extraction. */
   async importDocument(projectId: string, file: string, o: { documentId?: string; title?: string } = {}): Promise<DocVersionView> {
     const format = detectFormat(file);
-    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) throw new Error(`файл ${file} не найден`);
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) throw new Error(`file ${file} not found`);
     const a = this.store(projectId).audit;
     const sha = sha256File(file);
     if (o.documentId) {
       const doc = a.listDocuments().find((d) => d.id === o.documentId);
-      if (!doc) throw new Error(`документ ${o.documentId} не найден`);
+      if (!doc) throw new Error(`document ${o.documentId} not found`);
       const open = doc.versions.find((v) => v.status === 'extracting' || v.status === 'review');
-      if (open) throw new Error(`у документа есть неутверждённая версия v${open.n}: утвердите или аннулируйте её`);
-      if (doc.current?.sha256 === sha) throw new Error('файл совпадает с текущей утверждённой версией');
+      if (open) throw new Error(`the document has an unapproved version v${open.n}: approve or discard it`);
+      if (doc.current?.sha256 === sha) throw new Error('the file matches the current approved version');
     }
     this.taskSpec(projectId, 'requirements');
     const versionId = crypto.randomUUID();
@@ -788,7 +795,7 @@ export class Core extends EventEmitter {
     const p = this.project(projectId);
     const a = this.store(projectId).audit;
     const v = a.getVersion(versionId);
-    if (!v) throw new Error(`версия ${versionId} не найдена`);
+    if (!v) throw new Error(`version ${versionId} not found`);
     const entity = { type: DOC_VERSION_ENTITY, id: versionId };
     this.assertNotQueued(projectId, entity);
     const spec = this.taskSpec(projectId, 'requirements');
@@ -817,7 +824,7 @@ export class Core extends EventEmitter {
   async retryExtraction(projectId: string, versionId: string): Promise<Job> {
     const a = this.store(projectId).audit;
     const v = a.getVersion(versionId);
-    if (!v || (v.status !== 'failed' && v.status !== 'extracting')) throw new Error('повторить можно только неудавшееся извлечение');
+    if (!v || (v.status !== 'failed' && v.status !== 'extracting')) throw new Error('only a failed extraction can be retried');
     a.setVersionStatus(versionId, 'extracting');
     const job = await this.enqueueExtraction(projectId, versionId);
     this.auditChanged(projectId);
@@ -828,10 +835,10 @@ export class Core extends EventEmitter {
   setVersionState(projectId: string, versionId: string, status: 'review' | 'discarded'): void {
     const s = this.store(projectId);
     const v = s.audit.getVersion(versionId);
-    if (!v) throw new Error(`версия ${versionId} не найдена`);
-    if (v.status === 'approved') throw new Error('утверждённая версия неизменяема');
-    if (s.activeJobFor(DOC_VERSION_ENTITY, versionId)) throw new Error('извлечение ещё идёт');
-    if (status === 'review' && !v.itemCount) throw new Error('в версии нет пунктов');
+    if (!v) throw new Error(`version ${versionId} not found`);
+    if (v.status === 'approved') throw new Error('an approved version is immutable');
+    if (s.activeJobFor(DOC_VERSION_ENTITY, versionId)) throw new Error('the extraction is still running');
+    if (status === 'review' && !v.itemCount) throw new Error('the version has no items');
     s.audit.setVersionStatus(versionId, status);
     this.auditChanged(projectId);
   }
@@ -840,7 +847,7 @@ export class Core extends EventEmitter {
     const s = this.store(projectId);
     const a = s.audit;
     const version = a.getVersion(versionId);
-    if (!version) throw new Error(`версия ${versionId} не найдена`);
+    if (!version) throw new Error(`version ${versionId} not found`);
     const job = s.latestJobFor(DOC_VERSION_ENTITY, versionId);
     const dir = this.docDir(projectId, versionId);
     return {
@@ -855,7 +862,7 @@ export class Core extends EventEmitter {
 
   reviewItems(projectId: string, versionId: string, itemIds: string[], review: ReviewState): void {
     const v = this.store(projectId).audit.getVersion(versionId);
-    if (!v || v.status === 'approved') throw new Error('версия недоступна для ревью');
+    if (!v || v.status === 'approved') throw new Error('the version is not available for review');
     this.store(projectId).audit.reviewItems(versionId, itemIds, review);
     this.auditChanged(projectId);
   }
@@ -864,7 +871,7 @@ export class Core extends EventEmitter {
   saveItem(projectId: string, versionId: string, it: { key?: string | null; text: string; section: string; quote: string }): RequirementItem {
     const a = this.store(projectId).audit;
     const v = a.getVersion(versionId);
-    if (!v || v.status === 'approved' || v.status === 'discarded') throw new Error('версия недоступна для правки');
+    if (!v || v.status === 'approved' || v.status === 'discarded') throw new Error('the version is not editable');
     const item = a.upsertItem(versionId, it, { author: 'human', runId: null }, 'accepted');
     this.auditChanged(projectId);
     return item;
@@ -883,8 +890,8 @@ export class Core extends EventEmitter {
 
   saveMatrix(projectId: string, m: { id?: string; name: string; documentIds: string[]; moduleIds: string[] }): Matrix {
     const s = this.store(projectId);
-    for (const d of m.documentIds) if (!s.audit.getDocumentTitle(d)) throw new Error(`документ ${d} не найден`);
-    for (const id of m.moduleIds) if (!s.getModule(id)) throw new Error(`модуль ${id} не найден`);
+    for (const d of m.documentIds) if (!s.audit.getDocumentTitle(d)) throw new Error(`document ${d} not found`);
+    for (const id of m.moduleIds) if (!s.getModule(id)) throw new Error(`module ${id} not found`);
     const saved = s.audit.saveMatrix(m);
     this.auditChanged(projectId);
     return saved;
@@ -892,7 +899,7 @@ export class Core extends EventEmitter {
 
   private matrixOf(s: ProjectStore, matrixId: string): Matrix {
     const m = s.audit.getMatrix(matrixId);
-    if (!m) throw new Error(`матрица ${matrixId} не найдена`);
+    if (!m) throw new Error(`matrix ${matrixId} not found`);
     return m;
   }
 
@@ -1085,7 +1092,7 @@ export class Core extends EventEmitter {
   async runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Promise<Job[]> {
     const matrix = this.matrixOf(this.store(projectId), matrixId);
     const { free } = await this.stageCells(projectId, matrix, stage, scope);
-    if (!free.length) throw new Error('нет ячеек для проверки');
+    if (!free.length) throw new Error('no cells to check');
     return this.enqueueBatches(projectId, matrix, stage, this.planCells(projectId, stage, free));
   }
 
@@ -1097,13 +1104,13 @@ export class Core extends EventEmitter {
     let busy = 0;
     for (const id of uniq(ids)) {
       const c = parseCellId(id);
-      if (!this.cellAlive(s, c)) throw new Error(`ячейка ${id} не найдена: модуль удалён или требование выведено`);
+      if (!this.cellAlive(s, c)) throw new Error(`cell ${id} not found: the module was deleted or the requirement removed`);
       if (busyMap.has(id)) {
         busy++;
         continue;
       }
       const matrix = matrixId ? this.matrixOf(s, matrixId) : this.matricesOfCell(s, c)[0];
-      if (!matrix) throw new Error(`ячейка ${id} не входит ни в одну матрицу`);
+      if (!matrix) throw new Error(`cell ${id} belongs to no matrix`);
       const g = groups.get(matrix.id) ?? { matrix, cells: [] };
       g.cells.push(c);
       groups.set(matrix.id, g);
@@ -1119,7 +1126,7 @@ export class Core extends EventEmitter {
   /** Verdict re-check of cells; a single cell is its own session. */
   async recheckCells(projectId: string, cells: string[], matrixId?: string): Promise<Job[]> {
     const { groups, busy } = this.recheckGroups(projectId, cells, matrixId);
-    if (!groups.length) throw new Error(busy ? 'эти ячейки уже в очереди' : 'нет ячеек для проверки');
+    if (!groups.length) throw new Error(busy ? 'these cells are already queued' : 'no cells to check');
     const jobs: Job[] = [];
     for (const g of groups) jobs.push(...(await this.enqueueBatches(projectId, g.matrix, 'verdicts', this.planCells(projectId, 'verdicts', g.cells))));
     return jobs;
@@ -1155,10 +1162,10 @@ export class Core extends EventEmitter {
     const s = this.store(projectId);
     const spec = this.taskSpec(projectId, STAGE_TASK[stage]);
     const mod = s.getModule(cells[0].moduleId);
-    if (!mod) throw new Error(`модуль ${cells[0].moduleId} не найден`);
+    if (!mod) throw new Error(`module ${cells[0].moduleId} not found`);
     const items = cells.map((c) => {
       const it = s.audit.currentItem(c.requirementId);
-      if (!it) throw new Error(`требование ${c.requirementId} не найдено`);
+      if (!it) throw new Error(`requirement ${c.requirementId} not found`);
       return it;
     });
     const vars = {
@@ -1180,20 +1187,20 @@ export class Core extends EventEmitter {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const ref = parseCellId(id);
-    if (!VERDICT_STATUSES.includes(v.status)) throw new Error(`неизвестный статус ${v.status}`);
+    if (!VERDICT_STATUSES.includes(v.status)) throw new Error(`unknown status ${v.status}`);
     const reason = v.reason.trim();
-    if (!reason) throw new Error('укажите обоснование');
+    if (!reason) throw new Error('specify the rationale');
     const item = s.audit.currentItem(ref.requirementId);
     const mod = s.getModule(ref.moduleId);
-    if (!item || !mod) throw new Error('ячейка не найдена: модуль удалён или требование выведено');
+    if (!item || !mod) throw new Error('cell not found: the module was deleted or the requirement removed');
     const evidence = v.evidence.filter((e) => e.file.trim());
-    if ((v.status === 'pass' || v.status === 'finding') && !evidence.length) throw new Error('для pass/finding нужны ссылки на код');
+    if ((v.status === 'pass' || v.status === 'finding') && !evidence.length) throw new Error('pass/finding requires code references');
     for (const e of evidence) {
       const err = repoFileError(p.root, e.file);
       if (err) throw new Error(err);
     }
     const findings = s.audit.findingsOfCell(ref);
-    if (v.status === 'finding' && !findings.length) throw new Error('сначала создайте или свяжите находку для этой ячейки');
+    if (v.status === 'finding' && !findings.length) throw new Error('create or link a finding for this cell first');
     const touched = uniq([...evidence.map((e) => e.file), ...(v.status === 'finding' ? findings.flatMap((f) => f.files.map((x) => x.file)) : [])]).sort();
     const saved = s.audit.addVerdict(
       {
@@ -1228,7 +1235,7 @@ export class Core extends EventEmitter {
     const s = this.store(projectId);
     const a = s.audit;
     const finding = a.getFinding(id);
-    if (!finding) throw new Error(`находка ${id} не найдена`);
+    if (!finding) throw new Error(`finding ${id} not found`);
     const events = a.findingEvents(id);
     const limit = this.projectSettings(projectId).findings.similar_limit;
     const runIds = uniq([finding.runId, ...events.map((e) => e.runId)].filter((x): x is string => Boolean(x)));
@@ -1262,7 +1269,7 @@ export class Core extends EventEmitter {
 
   private pocEnv(projectId: string): PocEnvironment {
     const e = pocEnvironment(this.projectSettings(projectId).poc);
-    if ('reason' in e) throw new ConfigError(`PoC-тестировщик недоступен: ${e.reason}`);
+    if ('reason' in e) throw new ConfigError(`PoC tester unavailable: ${e.reason}`);
     return e.env;
   }
 
@@ -1271,9 +1278,9 @@ export class Core extends EventEmitter {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const f = s.audit.getFinding(findingId);
-    if (!f) throw new Error(`находка ${findingId} не найдена`);
-    if (f.mergedInto) throw new Error('находка объединена с другой');
-    if (f.status !== 'suspected') throw new Error('PoC-тестировщик запускается только на предполагаемой (suspected) находке');
+    if (!f) throw new Error(`finding ${findingId} not found`);
+    if (f.mergedInto) throw new Error('the finding is merged into another one');
+    if (f.status !== 'suspected') throw new Error('the PoC tester runs only on a suspected finding');
     const env = this.pocEnv(projectId);
     const entity = { type: POC_ENTITY, id: f.id };
     this.assertNotQueued(projectId, entity);
@@ -1325,8 +1332,8 @@ export class Core extends EventEmitter {
   }
 
   setFindingStatus(projectId: string, id: string, status: FindingStatus, reason: string): Finding {
-    if (!FINDING_STATUSES.includes(status)) throw new Error(`неизвестный статус ${status}`);
-    if ((status === 'false_positive' || status === 'accepted_risk') && !reason.trim()) throw new Error('укажите причину');
+    if (!FINDING_STATUSES.includes(status)) throw new Error(`unknown status ${status}`);
+    if ((status === 'false_positive' || status === 'accepted_risk') && !reason.trim()) throw new Error('specify the reason');
     const f = this.store(projectId).audit.setFindingStatus(id, status, reason.trim() || null, { author: 'human', runId: null });
     this.auditChanged(projectId);
     return f;
@@ -1343,8 +1350,8 @@ export class Core extends EventEmitter {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const ref = parseCellId(id);
-    if (!this.cellAlive(s, ref)) throw new Error('ячейка не найдена');
-    if (!input.title.trim()) throw new Error('укажите заголовок');
+    if (!this.cellAlive(s, ref)) throw new Error('cell not found');
+    if (!input.title.trim()) throw new Error('specify the title');
     for (const e of input.files) {
       const err = repoFileError(p.root, e.file);
       if (err) throw new Error(err);
@@ -1357,22 +1364,22 @@ export class Core extends EventEmitter {
   linkFinding(projectId: string, findingId: string, id: string): Finding {
     const s = this.store(projectId);
     const ref = parseCellId(id);
-    if (!this.cellAlive(s, ref)) throw new Error('ячейка не найдена');
+    if (!this.cellAlive(s, ref)) throw new Error('cell not found');
     const f = s.audit.linkFinding(findingId, ref, { author: 'human', runId: null });
     this.auditChanged(projectId);
     return f;
   }
 
-  /** "Открыть сессию для фикса": interactive session in the working directory with the finding as the initial prompt. */
+  /** "Open fix session": interactive session in the working directory with the finding as the initial prompt. */
   async openFixSession(projectId: string, findingId: string): Promise<string> {
     const p = this.project(projectId);
     const s = this.store(projectId);
     let f = s.audit.getFinding(findingId);
-    if (!f) throw new Error(`находка ${findingId} не найдена`);
+    if (!f) throw new Error(`finding ${findingId} not found`);
     while (f.mergedInto) f = s.audit.getFinding(f.mergedInto)!;
     const spec = this.taskSpec(projectId, 'fix');
     const cfg = this.resolve(projectId, spec.role);
-    if (cfg.role.kind !== 'interactive') throw new ConfigError(`tasks.fix: роль ${spec.role} не интерактивная`);
+    if (cfg.role.kind !== 'interactive') throw new ConfigError(`tasks.fix: role ${spec.role} is not interactive`);
     const fl = f;
     const vars = {
       project: p.name,
@@ -1383,7 +1390,7 @@ export class Core extends EventEmitter {
       description: fl.description,
       files: fl.files.map((e) => `- ${e.file}${e.line ? `:${e.line}` : ''}${e.note ? ` — ${e.note}` : ''}`).join('\n'),
       recommendation: fl.recommendation ?? '—',
-      cells: fl.cells.map((c) => this.cellLabel(s, c)).map((l) => `- ${l.key ?? l.requirementId}: ${l.text ?? ''} (модуль ${l.moduleName ?? l.moduleId})`).join('\n') || '—',
+      cells: fl.cells.map((c) => this.cellLabel(s, c)).map((l) => `- ${l.key ?? l.requirementId}: ${l.text ?? ''} (module ${l.moduleName ?? l.moduleId})`).join('\n') || '—',
     };
     return this.spawnInteractive(projectId, {
       role: spec.role,
@@ -1421,13 +1428,13 @@ export class Core extends EventEmitter {
       let sc: ScannerSettings;
       try {
         sc = scannerSettings(settings, name);
-        if (!NORMALIZERS[sc.format]) throw new ConfigError(`scanners.${name}.format: неизвестный формат ${sc.format}, доступны: ${Object.keys(NORMALIZERS).join(', ')}`);
+        if (!NORMALIZERS[sc.format]) throw new ConfigError(`scanners.${name}.format: unknown format ${sc.format}, available: ${Object.keys(NORMALIZERS).join(', ')}`);
       } catch (e) {
         out.push({ ...base, available: false, version: null, error: (e as Error).message });
         continue;
       }
       if (!sc.enabled) {
-        out.push({ ...base, available: false, version: null, error: 'выключен в конфигурации' });
+        out.push({ ...base, available: false, version: null, error: 'disabled in the config' });
         continue;
       }
       const c = await this.checkBinary(sc, refresh);
@@ -1440,9 +1447,9 @@ export class Core extends EventEmitter {
   private async reportScanners(): Promise<void> {
     try {
       const bad = (await this.scannerStatus(null)).filter((s) => s.enabled && !s.available);
-      if (bad.length) this.notice('warn', `Сканеры недоступны и будут пропущены: ${bad.map((s) => `${s.name} (${s.error})`).join('; ')}`);
+      if (bad.length) this.notice('warn', `Scanners are unavailable and will be skipped: ${bad.map((s) => `${s.name} (${s.error})`).join('; ')}`);
     } catch (e) {
-      this.notice('error', `Проверка сканеров: ${(e as Error).message}`);
+      this.notice('error', `Scanner check: ${(e as Error).message}`);
     }
   }
 
@@ -1483,14 +1490,14 @@ export class Core extends EventEmitter {
       const job = s.addJob({
         type: SCAN_JOB,
         role: st.name,
-        title: `Сканер ${st.name}: ${want.join(', ')} @ ${sha.slice(0, 8)}`,
+        title: `Scanner ${st.name}: ${want.join(', ')} @ ${sha.slice(0, 8)}`,
         entityType: SCAN_ENTITY,
         entityId: scanEntityId(st.name, sha, want),
         payload: { scanner: st.name, commit_sha: sha, targets: want } satisfies ScanPayload,
       });
       out.jobs.push(job);
     }
-    if (out.unavailable.length) this.notice('warn', `Сканеры недоступны, пропущены: ${out.unavailable.join(', ')}`, projectId);
+    if (out.unavailable.length) this.notice('warn', `Scanners unavailable, skipped: ${out.unavailable.join(', ')}`, projectId);
     if (out.jobs.length) {
       this.send({ type: 'jobs-changed', projectId });
       this.send({ type: 'signals-changed', projectId });
@@ -1499,13 +1506,13 @@ export class Core extends EventEmitter {
     return out;
   }
 
-  /** "Сканировать": modules (null = whole repository) at HEAD. */
+  /** "Scan": modules (null = whole repository) at HEAD. */
   async runScanners(projectId: string, o: { moduleIds: string[] | null }): Promise<{ jobs: Job[]; cached: string[]; unavailable: string[] }> {
     const s = this.store(projectId);
     let targets = [REPO_TARGET];
     if (o.moduleIds) {
       const mods = o.moduleIds.length ? o.moduleIds.map((id) => s.getModule(id)).filter((m): m is Module => Boolean(m)) : s.listModules();
-      if (!mods.length) throw new Error('нет модулей для сканирования');
+      if (!mods.length) throw new Error('no modules to scan');
       targets = globTargets(mods.flatMap((m) => m.globs));
     }
     return this.ensureScans(projectId, await headSha(this.project(projectId).root), targets);
@@ -1533,9 +1540,9 @@ export class Core extends EventEmitter {
     const { scanner, commit_sha: sha, targets } = scanPayload(job)!;
     const sc = scannerSettings(this.projectSettings(p.id), scanner);
     const normalize = NORMALIZERS[sc.format];
-    if (!normalize) return { kind: 'failed', error: `scanners.${scanner}.format: неизвестный формат ${sc.format}` };
+    if (!normalize) return { kind: 'failed', error: `scanners.${scanner}.format: unknown format ${sc.format}` };
     const check = await this.checkBinary(sc);
-    if (!check.available) return { kind: 'failed', error: `сканер ${scanner} недоступен: ${check.error}` };
+    if (!check.available) return { kind: 'failed', error: `scanner ${scanner} unavailable: ${check.error}` };
     const cwd = await this.worktreeCache(p).ensure(sha);
     if (signal.aborted) return { kind: 'cancelled' };
     const scan = s.signals.startScan({ scanner, format: sc.format, commitSha: sha, targets, jobId: job.id });
@@ -1553,11 +1560,11 @@ export class Core extends EventEmitter {
         commands.push([sc.binary, ...inv.args]);
         const r = await runProcess(sc.binary, inv.args, cwd, sc.timeout_sec * 1000, signal);
         if (r.killed === 'aborted') {
-          finish('failed', 'отменено');
+          finish('failed', 'cancelled');
           return { kind: 'cancelled' };
         }
-        if (r.killed === 'timeout') throw new Error(`${scanner}: превышено время ${sc.timeout_sec} с`);
-        if (r.code === null || !sc.ok_exit_codes.includes(r.code)) throw new Error(`${scanner}: код выхода ${r.code}: ${r.stderr.trim().slice(-1500)}`);
+        if (r.killed === 'timeout') throw new Error(`${scanner}: timed out after ${sc.timeout_sec} s`);
+        if (r.code === null || !sc.ok_exit_codes.includes(r.code)) throw new Error(`${scanner}: exit code ${r.code}: ${r.stderr.trim().slice(-1500)}`);
         const output = inv.report ? (fs.existsSync(inv.report) ? fs.readFileSync(inv.report, 'utf8') : '') : r.stdout;
         rows.push(...normalize(output, { root: cwd, target: inv.target, exists, args: inv.args, warn: (w) => warnings.add(w) }));
       }
@@ -1628,7 +1635,7 @@ export class Core extends EventEmitter {
     return m.find((v) => suppressionApplies(v.state, applyStale)) ?? m[0] ?? null;
   }
 
-  /** "Сигналы": normalized results at a commit (default: HEAD if scanned, else the newest scanned commit). */
+  /** "Signals": normalized results at a commit (default: HEAD if scanned, else the newest scanned commit). */
   async signalsView(projectId: string, commit?: string | null): Promise<SignalsView> {
     const s = this.store(projectId);
     const head = await headSha(this.project(projectId).root);
@@ -1661,7 +1668,7 @@ export class Core extends EventEmitter {
   async signalDetails(projectId: string, id: string): Promise<SignalDetails> {
     const s = this.store(projectId);
     const f = s.signals.getFinding(id);
-    if (!f) throw new Error(`сигнал ${id} не найден`);
+    if (!f) throw new Error(`signal ${id} not found`);
     const scan = s.signals.getScan(f.scanId)!;
     const all: SuppressionView[] = [];
     for (const x of s.signals.listSuppressions()) {
@@ -1689,9 +1696,9 @@ export class Core extends EventEmitter {
     const s = this.store(projectId);
     const settings = this.projectSettings(projectId);
     const mod = s.getModule(q.moduleId);
-    if (!mod) throw new Error(`модуль ${q.moduleId} не найден`);
+    if (!mod) throw new Error(`module ${q.moduleId} not found`);
     const item = q.requirementId ? s.audit.currentItem(q.requirementId) : undefined;
-    if (q.requirementId && !item) throw new Error(`требование ${q.requirementId} не найдено среди утверждённых`);
+    if (q.requirementId && !item) throw new Error(`requirement ${q.requirementId} not found among approved ones`);
     const commit = q.commit ?? (await headSha(this.project(projectId).root));
     const need = globTargets(mod.globs);
     const scanners = await this.scannerStatus(projectId);
@@ -1704,7 +1711,7 @@ export class Core extends EventEmitter {
       const covering = s.signals.completeScans().filter((x) => x.scanner === name && covers(x.targets, need));
       const at = covering.find((x) => x.commitSha === commit) ?? covering[0];
       if (!at) {
-        scanInfo.push({ scanner: name, scanned: false, note: st && !st.available ? `недоступен: ${st.error}` : 'модуль не сканировался' });
+        scanInfo.push({ scanner: name, scanned: false, note: st && !st.available ? `unavailable: ${st.error}` : 'the module was not scanned' });
         continue;
       }
       const unparsed = at.warnings.filter((w) => matchesGlobs(w.match(/(\S+?\.\w+):\d+/)?.[1] ?? '', mod.globs)).length;
@@ -1836,22 +1843,22 @@ export class Core extends EventEmitter {
   /** Manual suppression (SPEC §4, Q18): reason, author and commit are mandatory, expiry optional. */
   async createSuppression(projectId: string, input: SuppressionInput, replaces: string | null = null): Promise<Suppression> {
     const s = this.store(projectId);
-    if (!SUPPRESSION_SCOPES.includes(input.scope)) throw new Error(`неизвестный scope ${input.scope}`);
+    if (!SUPPRESSION_SCOPES.includes(input.scope)) throw new Error(`unknown scope ${input.scope}`);
     const reason = input.reason.trim();
-    if (!reason) throw new Error('укажите причину подавления');
+    if (!reason) throw new Error('specify the suppression reason');
     const expiresAt = input.expiresAt?.trim() || null;
-    if (expiresAt && (!/^\d{4}-\d{2}-\d{2}$/.test(expiresAt) || expiresAt < today())) throw new Error('срок — дата в будущем в формате ГГГГ-ММ-ДД');
+    if (expiresAt && (!/^\d{4}-\d{2}-\d{2}$/.test(expiresAt) || expiresAt < today())) throw new Error('the expiry must be a future date in YYYY-MM-DD format');
     const author = await this.authorName(projectId);
     const base = { reason, author, expiresAt, replaces, scanner: null, ruleId: null, fingerprint: null, globs: [], file: null, line: null, requirementId: null, moduleId: null, touchedFiles: [], moduleGlobs: [] };
     let rec: Omit<Suppression, 'id' | 'createdAt' | 'revokedAt' | 'revokedBy' | 'revokeReason'>;
     if (input.scope === 'requirement_module') {
       const item = input.requirementId ? s.audit.currentItem(input.requirementId) : undefined;
       const mod = input.moduleId ? s.getModule(input.moduleId) : undefined;
-      if (!item || !mod) throw new Error('выберите утверждённое требование и модуль');
+      if (!item || !mod) throw new Error('choose an approved requirement and a module');
       rec = { ...base, scope: 'requirement_module', requirementId: item.requirementId, moduleId: mod.id, moduleGlobs: mod.globs, commitSha: await headSha(this.project(projectId).root) };
     } else {
       const f = input.signalId ? s.signals.getFinding(input.signalId) : undefined;
-      if (!f) throw new Error('подавление правила или находки создаётся из сигнала');
+      if (!f) throw new Error('a rule or finding suppression is created from a signal');
       const sha = s.signals.getScan(f.scanId)!.commitSha;
       if (input.scope === 'finding') {
         rec = { ...base, scope: 'finding', scanner: f.scanner, ruleId: f.ruleId, fingerprint: f.fingerprint, file: f.file, line: f.line, touchedFiles: [f.file], commitSha: sha };
@@ -1859,7 +1866,7 @@ export class Core extends EventEmitter {
         const globs = (input.globs ?? []).map((g) => g.trim()).filter(Boolean);
         const err = globsError(globs);
         if (err) throw new Error(err);
-        if (!matchesGlobs(f.file, globs)) throw new Error(`globs не покрывают файл сигнала ${f.file}`);
+        if (!matchesGlobs(f.file, globs)) throw new Error(`the globs do not cover the signal file ${f.file}`);
         rec = { ...base, scope: 'rule_glob', scanner: f.scanner, ruleId: f.ruleId, globs, touchedFiles: this.ruleFiles(projectId, sha, f.scanner, f.ruleId, globs), commitSha: sha };
       }
     }
@@ -1869,7 +1876,7 @@ export class Core extends EventEmitter {
   }
 
   async revokeSuppression(projectId: string, id: string, reason: string): Promise<Suppression> {
-    if (!reason.trim()) throw new Error('укажите причину отзыва');
+    if (!reason.trim()) throw new Error('specify the reason for revoking');
     const x = this.store(projectId).signals.revokeSuppression(id, await this.authorName(projectId), reason.trim());
     this.send({ type: 'signals-changed', projectId });
     return x;
@@ -1879,28 +1886,28 @@ export class Core extends EventEmitter {
   async renewSuppression(projectId: string, id: string, expiresAt?: string | null): Promise<Suppression> {
     const s = this.store(projectId);
     const old = s.signals.getSuppression(id);
-    if (!old) throw new Error(`подавление ${id} не найдено`);
-    if (old.revokedAt) throw new Error('подавление отозвано');
+    if (!old) throw new Error(`suppression ${id} not found`);
+    if (old.revokedAt) throw new Error('the suppression is revoked');
     const head = await headSha(this.project(projectId).root);
     const author = await this.authorName(projectId);
     const exp = expiresAt === undefined ? (old.expiresAt && old.expiresAt >= today() ? old.expiresAt : null) : expiresAt?.trim() || null;
-    if (exp && (!/^\d{4}-\d{2}-\d{2}$/.test(exp) || exp < today())) throw new Error('срок — дата в будущем в формате ГГГГ-ММ-ДД');
+    if (exp && (!/^\d{4}-\d{2}-\d{2}$/.test(exp) || exp < today())) throw new Error('the expiry must be a future date in YYYY-MM-DD format');
     let touched = old.touchedFiles;
     let moduleGlobs = old.moduleGlobs;
     if (old.scope === 'rule_glob' && s.signals.completeScans(head).some((x) => x.scanner === old.scanner)) touched = this.ruleFiles(projectId, head, old.scanner!, old.ruleId!, old.globs);
     if (old.scope === 'requirement_module') {
       const mod = old.moduleId ? s.getModule(old.moduleId) : undefined;
-      if (!mod || !old.requirementId || !s.audit.currentItem(old.requirementId)) throw new Error('модуль удалён или требование выведено');
+      if (!mod || !old.requirementId || !s.audit.currentItem(old.requirementId)) throw new Error('the module was deleted or the requirement removed');
       moduleGlobs = mod.globs;
     }
     const { id: _i, createdAt: _c, revokedAt: _r, revokedBy: _b, revokeReason: _x, ...rest } = old;
     const saved = s.signals.addSuppression({ ...rest, author, commitSha: head, touchedFiles: touched, moduleGlobs, expiresAt: exp, replaces: old.id });
-    s.signals.revokeSuppression(old.id, author, `подтверждено заново на ${head.slice(0, 8)}`);
+    s.signals.revokeSuppression(old.id, author, `confirmed again at ${head.slice(0, 8)}`);
     this.send({ type: 'signals-changed', projectId });
     return saved;
   }
 
-  /** Current requirements of all documents (suppression scope "пункт × модуль"). */
+  /** Current requirements of all documents (suppression scope "item × module"). */
   currentRequirements(projectId: string): (RequirementItem & { documentTitle: string })[] {
     const a = this.store(projectId).audit;
     return a.currentItems(a.listDocuments().map((d) => d.id));
@@ -1946,8 +1953,8 @@ export class Core extends EventEmitter {
   /** Uploads a ready-made dependency file (lock file, SBOM, scanner report) for a module or the whole project. */
   async addScaInput(projectId: string, file: string, o: { moduleId: string | null; note: string }): Promise<ScaInput> {
     const s = this.store(projectId);
-    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) throw new Error(`файл ${file} не найден`);
-    if (o.moduleId && !s.getModule(o.moduleId)) throw new Error(`модуль ${o.moduleId} не найден`);
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) throw new Error(`file ${file} not found`);
+    if (o.moduleId && !s.getModule(o.moduleId)) throw new Error(`module ${o.moduleId} not found`);
     const id = crypto.randomUUID();
     const filename = path.basename(file);
     const input = { id, filename } as ScaInput;
@@ -1990,7 +1997,7 @@ export class Core extends EventEmitter {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const mod = s.getModule(moduleId);
-    if (!mod) throw new Error(`модуль ${moduleId} не найден`);
+    if (!mod) throw new Error(`module ${moduleId} not found`);
     const entity = { type: SCA_MODULE_ENTITY, id: mod.id };
     this.assertNotQueued(projectId, entity);
     const spec = this.taskSpec(projectId, 'sca_inventory');
@@ -2122,11 +2129,11 @@ export class Core extends EventEmitter {
   /** Current package of an item's module inventory; throws if the item is gone. */
   private scaTarget(s: ProjectStore, ref: ScaItemRef): { mod: Module; inv: ScaInventory; pkg: ScaPackage; vuln: ScaVuln } {
     const mod = s.getModule(ref.moduleId);
-    if (!mod) throw new Error(`модуль ${ref.moduleId} не найден`);
+    if (!mod) throw new Error(`module ${ref.moduleId} not found`);
     const inv = s.sca.latestInventory(mod.id);
     const pkg = inv && s.sca.listPackages(inv.id).find((p) => p.key === ref.packageKey);
     const vuln = pkg?.vulns.find((v) => v.vulnId === ref.vulnId);
-    if (!inv || !pkg || !vuln) throw new Error(`уязвимости ${ref.vulnId} пакета ${ref.packageKey} нет в текущей инвентаризации модуля`);
+    if (!inv || !pkg || !vuln) throw new Error(`vulnerability ${ref.vulnId} of package ${ref.packageKey} is not in the current module inventory`);
     return { mod, inv, pkg, vuln };
   }
 
@@ -2171,7 +2178,7 @@ export class Core extends EventEmitter {
   /** Absolute path of a stored inventory report (to open it). */
   scaReportPath(projectId: string, reportId: string): string {
     const r = this.store(projectId).sca.getReport(reportId);
-    if (!r) throw new Error(`отчёт ${reportId} не найден`);
+    if (!r) throw new Error(`report ${reportId} not found`);
     return this.scaReportFile(projectId, r);
   }
 
@@ -2219,7 +2226,7 @@ export class Core extends EventEmitter {
     const want = o.items
       ? all.filter((x) => o.items!.includes(scaItemId(x)))
       : all.filter((x) => (o.scope === 'stale' ? x.stale : x.status === 'not_checked'));
-    if (o.items && want.length !== uniq(o.items).length) throw new Error('часть SCA-пунктов не найдена в текущих инвентаризациях');
+    if (o.items && want.length !== uniq(o.items).length) throw new Error('some SCA items are not in the current inventories');
     return { free: want.filter((x) => !x.activeJob), busy: want.filter((x) => x.activeJob).length };
   }
 
@@ -2274,7 +2281,7 @@ export class Core extends EventEmitter {
     const s = this.store(projectId);
     const sha = await headSha(this.project(projectId).root);
     const { free, busy } = await this.scaSelect(projectId, o);
-    if (!free.length) throw new Error(busy ? 'эти SCA-пункты уже в очереди' : 'нет SCA-пунктов для проверки');
+    if (!free.length) throw new Error(busy ? 'these SCA items are already queued' : 'no SCA items to check');
     const plan = await this.scaPlan(projectId, sha, free);
     for (const x of plan.auto) {
       const { mod, pkg } = this.scaTarget(s, x);
@@ -2284,7 +2291,7 @@ export class Core extends EventEmitter {
           packageKey: x.packageKey,
           vulnId: x.vulnId,
           status: 'not_reachable',
-          reason: `Префильтр: файлы модуля не ссылаются на пакет (имена импорта: ${pkg.importNames.join(', ')}).`,
+          reason: `Prefilter: the module files do not refer to the package (import names: ${pkg.importNames.join(', ')}).`,
           evidence: [],
           commitSha: sha,
           touchedFiles: [],
@@ -2340,9 +2347,9 @@ export class Core extends EventEmitter {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const ref = parseScaItemId(id);
-    if (!SCA_STATUSES.includes(v.status)) throw new Error(`неизвестный статус ${v.status}`);
+    if (!SCA_STATUSES.includes(v.status)) throw new Error(`unknown status ${v.status}`);
     const reason = v.reason.trim();
-    if (!reason) throw new Error('укажите обоснование');
+    if (!reason) throw new Error('specify the rationale');
     const { mod, pkg } = this.scaTarget(s, ref);
     const evidence = v.evidence.filter((e) => e.file.trim());
     for (const e of evidence) {
@@ -2350,7 +2357,7 @@ export class Core extends EventEmitter {
       if (err) throw new Error(err);
     }
     const findings = s.audit.findingsOfScaItem(ref);
-    if (v.status === 'reachable' && !findings.length) throw new Error('сначала создайте или свяжите находку для этой уязвимости');
+    if (v.status === 'reachable' && !findings.length) throw new Error('create or link a finding for this vulnerability first');
     const saved = s.sca.addVerdict(
       {
         ...ref,
@@ -2373,7 +2380,7 @@ export class Core extends EventEmitter {
     const s = this.store(projectId);
     const ref = parseScaItemId(id);
     this.scaTarget(s, ref);
-    if (!input.title.trim()) throw new Error('укажите заголовок');
+    if (!input.title.trim()) throw new Error('specify the title');
     for (const e of input.files) {
       const err = repoFileError(p.root, e.file);
       if (err) throw new Error(err);
@@ -2398,7 +2405,7 @@ export class Core extends EventEmitter {
 
   private async execute(job: Job, signal: AbortSignal): Promise<JobOutcome> {
     if (job.type === SCAN_JOB) return this.executeScanJob(job, signal);
-    if (job.type !== AGENT_JOB) return { kind: 'failed', error: `неизвестный тип задачи ${job.type}` };
+    if (job.type !== AGENT_JOB) return { kind: 'failed', error: `unknown job type ${job.type}` };
     const p = this.project(job.projectId);
     const s = this.store(job.projectId);
     const prep = await this.prepareJob(job);
@@ -2487,7 +2494,7 @@ export class Core extends EventEmitter {
           await instance.start(signal);
         } catch (e) {
           const status: RunStatus = !signal.aborted ? 'failed' : signal.reason === 'taken_over' ? 'taken_over' : 'cancelled';
-          const error = `тестовое окружение не поднялось: ${(e as Error).message}`;
+          const error = `the test environment did not start: ${(e as Error).message}`;
           this.finishRun(p.id, runId, status, zeroUsage(), status === 'failed' ? error : null);
           return status === 'failed' ? { kind: 'failed', error } : { kind: status };
         }
@@ -2544,7 +2551,7 @@ export class Core extends EventEmitter {
     if (!remaining.length) return null;
     if (remaining.length !== mp.cells.length) {
       const matrix = s.audit.getMatrix(mp.matrix_id);
-      if (!matrix) throw new Error(`матрица ${mp.matrix_id} не найдена`);
+      if (!matrix) throw new Error(`matrix ${mp.matrix_id} not found`);
       const t = await this.renderMatrixTask(job.projectId, matrix, mp.stage, remaining.map(parseCellId), String(job.payload.commit_sha));
       s.setJobPayload(job.id, { ...job.payload, cells: remaining, prompt: t.prompt });
       job = s.getJob(job.id)!;
@@ -2596,20 +2603,20 @@ export class Core extends EventEmitter {
   private missingOutputs(job: Job, runId: string): string | null {
     const s0 = this.store(job.projectId);
     if (job.entityType === SCA_MODULE_ENTITY && s0.sca.inventoryOf(runId, job.entityId)?.status !== 'complete')
-      return 'прогон завершился, но инвентаризация не записана: агент не вызвал set_inventory_summary';
+      return 'the run finished, but no inventory was recorded: the agent did not call set_inventory_summary';
     if (job.entityType === POC_ENTITY && !s0.audit.pocResults({ runIds: [runId] }).length)
-      return 'прогон завершился, но результат PoC не записан: агент не вызвал set_poc_result';
+      return 'the run finished, but no PoC result was recorded: the agent did not call set_poc_result';
     const sp = scaPayload(job);
     if (sp) {
       const left = this.openScaVulns(job, sp);
-      return left.length ? `прогон завершился, но без вердикта осталось уязвимостей: ${left.length}; «Повторить» перезапустит только их` : null;
+      return left.length ? `the run finished, but vulnerabilities left without a verdict: ${left.length}; “Retry” reruns only them` : null;
     }
     const mp = matrixPayload(job);
     if (!mp) return null;
     const covered = this.coveredCells(job, mp.stage);
     const s = this.store(job.projectId);
     const left = mp.cells.filter((c) => !covered.has(c) && this.cellAlive(s, parseCellId(c)));
-    return left.length ? `прогон завершился, но без результата осталось ячеек: ${left.length}; «Повторить» перезапустит только их` : null;
+    return left.length ? `the run finished, but cells left without a result: ${left.length}; “Retry” reruns only them` : null;
   }
 
   /** Finalizes a run together with what it was building: entry point snapshots, requirement extraction. */
@@ -2673,7 +2680,7 @@ export class Core extends EventEmitter {
         tracker.feed(ev);
         this.terminals.append(o.terminalId, formatEvent(ev));
         if (billableTokens(tracker.summary.usage) > o.maxTokens) {
-          this.terminals.append(o.terminalId, `\x1b[31m[aiegis] превышен лимит токенов на прогон (${o.maxTokens})\x1b[0m\r\n`);
+          this.terminals.append(o.terminalId, `\x1b[31m[aiegis] token limit per run exceeded (${o.maxTokens})\x1b[0m\r\n`);
           stop('token_limit');
         }
       };
@@ -2685,7 +2692,7 @@ export class Core extends EventEmitter {
         stderr = (stderr + d).slice(-4000);
         this.terminals.append(o.terminalId, `\x1b[2m${d.replace(/\r?\n/g, '\r\n')}\x1b[0m`);
       });
-      child.on('error', (e) => (spawnError = `не удалось запустить ${cmd.binary}: ${e.message}`));
+      child.on('error', (e) => (spawnError = `cannot start ${cmd.binary}: ${e.message}`));
       child.stdin.on('error', () => undefined);
       child.stdin.end(prompt);
 
@@ -2705,7 +2712,7 @@ export class Core extends EventEmitter {
           status = 'succeeded';
         } else {
           status = 'failed';
-          error = spawnError ?? sum.result?.text ?? (stderr.trim() || `код выхода ${code}`);
+          error = spawnError ?? sum.result?.text ?? (stderr.trim() || `exit code ${code}`);
         }
         resolve({ status, usage: sum.usage, error, rateLimitResetsAt: sum.rateLimitResetsAt });
       });
@@ -2720,7 +2727,7 @@ export class Core extends EventEmitter {
    */
   async openRun(projectId: string, runId: string): Promise<string> {
     const run = this.store(projectId).getRun(runId);
-    if (!run) throw new Error(`прогон ${runId} не найден`);
+    if (!run) throw new Error(`run ${runId} not found`);
     if (run.jobId) {
       const active = this.activeRuns.get(run.jobId);
       if (active?.runId === runId) return active.terminalId;
@@ -2752,7 +2759,7 @@ export class Core extends EventEmitter {
     }
   }
 
-  /** "Новая сессия": interactive claude in the user's working directory with the free-session role. */
+  /** "New session": interactive claude in the user's working directory with the free-session role. */
   async newSession(projectId: string): Promise<string> {
     const p = this.project(projectId);
     const role = this.sessionsSettings(projectId).free_role;
@@ -2838,7 +2845,7 @@ export class Core extends EventEmitter {
         this.mcp.forgetRun(runId);
         fs.rmSync(mcpPath, { force: true });
         this.removeTesterFiles(projectId, runId);
-        this.finishRun(projectId, runId, 'exited', zeroUsage(), code === 0 ? null : `код выхода ${code}`);
+        this.finishRun(projectId, runId, 'exited', zeroUsage(), code === 0 ? null : `exit code ${code}`);
         this.send({ type: 'runs-changed', projectId });
         if (o.cwd === p.root) void this.checkCommits(projectId, o.commitSha, o.entity);
       },
@@ -2852,10 +2859,10 @@ export class Core extends EventEmitter {
     try {
       const after = await headSha(this.project(projectId).root);
       if (after === before) return;
-      const text = `Сессия изменила HEAD: ${before.slice(0, 8)} → ${after.slice(0, 8)}.`;
+      const text = `The session changed HEAD: ${before.slice(0, 8)} → ${after.slice(0, 8)}.`;
       const offer = await this.recheckOffer(projectId, before, after, entity?.type === FINDING_ENTITY ? entity.id : null);
       if (offer) this.notice('info', `${text} ${offer.reason}`, projectId, offer);
-      else this.notice('info', `${text} Связанных ячеек матрицы нет.`, projectId);
+      else this.notice('info', `${text} No linked matrix cells.`, projectId);
     } catch {
       /* repository may be mid-rebase; nothing to report */
     }
@@ -2872,18 +2879,18 @@ export class Core extends EventEmitter {
     const cells = uniq([...linked, ...affected]).filter((c) => this.cellAlive(s, parseCellId(c)) && this.matricesOfCell(s, parseCellId(c)).length);
     if (!cells.length) return null;
     const parts = [
-      linked.length ? `связанных с находкой: ${linked.length}` : '',
-      affected.length ? `затронутых изменениями: ${affected.length}` : '',
+      linked.length ? `linked to the finding: ${linked.length}` : '',
+      affected.length ? `affected by the changes: ${affected.length}` : '',
     ].filter(Boolean);
-    return { cells, reason: `Предлагается перепроверить ячейки матрицы (${parts.join(', ')}).` };
+    return { cells, reason: `Recheck of matrix cells suggested (${parts.join(', ')}).` };
   }
 
   /** Opens the session in an external terminal (macOS). The token lives until the app exits. */
   async openExternal(projectId: string, runId: string): Promise<void> {
     const run = this.store(projectId).getRun(runId);
-    if (!run) throw new Error(`прогон ${runId} не найден`);
-    if (run.jobId && this.activeRuns.get(run.jobId)?.runId === runId) throw new Error('фоновый прогон ещё идёт — сначала выполните перехват');
-    if (this.liveSessions.has(run.sessionId)) throw new Error('сессия уже открыта во встроенном терминале');
+    if (!run) throw new Error(`run ${runId} not found`);
+    if (run.jobId && this.activeRuns.get(run.jobId)?.runId === runId) throw new Error('the background run is still going: take it over first');
+    if (this.liveSessions.has(run.sessionId)) throw new Error('the session is already open in the built-in terminal');
     const cwd = await this.ensureCwd(projectId, run);
     const entity = run.entityType && run.entityId ? { type: run.entityType, id: run.entityId } : null;
     const { runId: newRunId, cmd } = this.interactiveSetup(

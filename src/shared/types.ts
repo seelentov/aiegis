@@ -1,5 +1,8 @@
 // Types shared between main and renderer.
 
+export const LANGUAGES = ['en', 'ru'] as const;
+export type Language = (typeof LANGUAGES)[number];
+
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'taken_over';
 
 export interface Job {

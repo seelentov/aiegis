@@ -25,7 +25,7 @@ export class ProjectRegistry {
 
   get(id: string): Project {
     const p = this.list().find((x) => x.id === id);
-    if (!p) throw new Error(`проект ${id} не найден`);
+    if (!p) throw new Error(`project ${id} not found`);
     return p;
   }
 
@@ -34,7 +34,7 @@ export class ProjectRegistry {
     try {
       root = fs.realpathSync(await repoRoot(dir));
     } catch {
-      throw new Error(`${dir} не является git-репозиторием`);
+      throw new Error(`${dir} is not a git repository`);
     }
     const id = crypto.createHash('sha256').update(root).digest('hex').slice(0, 16);
     const list = this.list();

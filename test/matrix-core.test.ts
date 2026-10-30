@@ -78,7 +78,7 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     docId = view.document.id;
     expect(view.version).toMatchObject({ n: 1, status: 'extracting', format: 'md' });
     const j = job(view.job!.id);
-    expect(j).toMatchObject({ role: 'requirements', entityType: 'doc_version', entityId: view.version.id, title: 'Требования: Mini guide v1' });
+    expect(j).toMatchObject({ role: 'requirements', entityType: 'doc_version', entityId: view.version.id, title: 'Requirements: Mini guide v1' });
     expect(String(j.payload.prompt)).toContain('the file `text.md`');
     const done = await settled(j);
     expect(done.status).toBe('done');
@@ -96,12 +96,12 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
       ['OUT-1', 'Output', 'added', 'pending'],
       ['OUT-2', 'Output', 'added', 'pending'],
     ]);
-    expect(() => core.approveVersion(pid, view.version.id)).toThrow(/не просмотрено/);
+    expect(() => core.approveVersion(pid, view.version.id)).toThrow(/not reviewed/);
     core.reviewItems(pid, view.version.id, v.items.map((i) => i.id), 'accepted');
     core.saveItem(pid, view.version.id, { key: 'SEC-1', text: 'No secrets in source code.', section: 'Secrets', quote: '' });
     core.approveVersion(pid, view.version.id);
     expect(core.listDocuments(pid)[0].current?.itemCount).toBe(5);
-    await expect(core.importDocument(pid, file, { documentId: docId })).rejects.toThrow(/совпадает/);
+    await expect(core.importDocument(pid, file, { documentId: docId })).rejects.toThrow(/matches the current/);
   });
 
   it('matrix: dry-run estimate, n/a triage, verdict batches by group with findings', async () => {
@@ -114,7 +114,7 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     const est = await core.estimateMatrix(pid, matrixId, 'triage', 'pending');
     expect(est).toMatchObject({ stage: 'triage', role: 'matrix-triage', sessions: 1, cells: 5, tokensPerCell: 4500, tokensPerCellSource: 'config', tokens: 22500 });
     const [tj] = await core.runMatrix(pid, matrixId, 'triage', 'pending');
-    expect(tj.title).toBe('Отсев n/a: mini × svc');
+    expect(tj.title).toBe('n/a triage: mini × svc');
     expect((await core.matrixView(pid, matrixId)).cells.every((c) => c.activeJob?.id === tj.id)).toBe(true);
     expect((await settled(tj)).status).toBe('done');
     const triaged = await core.matrixView(pid, matrixId);
@@ -132,16 +132,16 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
       ['Secrets', 1],
     ]);
     const jobs = await core.runMatrix(pid, matrixId, 'verdicts', 'pending');
-    expect(jobs.map((j) => j.title)).toEqual(['Вердикты: mini × svc / Access control', 'Вердикты: mini × svc / Output', 'Вердикты: mini × svc / Secrets']);
-    await expect(core.recheckCells(pid, jobs[0].payload.cells as string[])).rejects.toThrow(/уже в очереди/);
+    expect(jobs.map((j) => j.title)).toEqual(['Verdicts: mini × svc / Access control', 'Verdicts: mini × svc / Output', 'Verdicts: mini × svc / Secrets']);
+    await expect(core.recheckCells(pid, jobs[0].payload.cells as string[])).rejects.toThrow(/already queued/);
     const done = await Promise.all(jobs.map(settled));
     // Cell-level atomicity (SPEC §7): the access batch left AUTH-1 without a verdict; retry re-runs only that cell.
     expect(done.map((d) => d.status)).toEqual(['failed', 'done', 'done']);
-    expect(done[0].error).toMatch(/без результата осталось ячеек: 1/);
+    expect(done[0].error).toMatch(/cells left without a result: 1/);
     const access = core.store(pid).getRun(done[0].lastRunId!)!;
-    expect(access.configSnapshot).toMatchObject({ effort: { value: 'matrix-effort', source: 'матрица mini' } });
+    expect(access.configSnapshot).toMatchObject({ effort: { value: 'matrix-effort', source: 'matrix mini' } });
     expect(access.scope).toHaveLength(2);
-    expect(core.store(pid).getRun(done[2].lastRunId!)!.configSnapshot).toMatchObject({ model: { value: 'item-model', source: 'пункт SEC-1' } });
+    expect(core.store(pid).getRun(done[2].lastRunId!)!.configSnapshot).toMatchObject({ model: { value: 'item-model', source: 'item SEC-1' } });
     core.retryJob(pid, jobs[0].id);
     expect((await settled(jobs[0])).status).toBe('done');
     const runs = core.store(pid).jobRuns(jobs[0].id);
@@ -164,13 +164,13 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     const v = await core.matrixView(pid, matrixId);
     const auth1 = v.requirements.find((r) => r.key === 'AUTH-1')!;
     const id = `${moduleId}/${auth1.requirementId}`;
-    await expect(core.setVerdict(pid, id, { status: 'pass', reason: 'ok', evidence: [] })).rejects.toThrow(/ссылки на код/);
+    await expect(core.setVerdict(pid, id, { status: 'pass', reason: 'ok', evidence: [] })).rejects.toThrow(/code references/);
     await core.setVerdict(pid, id, { status: 'needs_human', reason: 'role model is in the gateway', evidence: [] });
     const d = await core.cellDetails(pid, id, matrixId);
     expect(d.verdicts[0]).toMatchObject({ author: 'human', status: 'needs_human', run: null });
     expect(d.verdicts.map((x) => x.author)).toEqual(['human', 'ai:matrix']);
     expect(d.triage[0].applicable).toBe(true);
-    expect(d.config?.effort).toEqual({ value: 'matrix-effort', source: 'матрица mini' });
+    expect(d.config?.effort).toEqual({ value: 'matrix-effort', source: 'matrix mini' });
 
     // Code change in the module: AI verdicts made before become stale; untouched files do not matter.
     write(path.join(repo, 'lib', 'Util.java'), 'class Util { int x; }');
@@ -211,7 +211,7 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
 
   it('findings: status with reason, merge, fix session in the working copy offers re-checks after a commit', async () => {
     const [f] = core.listFindings(pid);
-    expect(() => core.setFindingStatus(pid, f.id, 'false_positive', ' ')).toThrow(/причину/);
+    expect(() => core.setFindingStatus(pid, f.id, 'false_positive', ' ')).toThrow(/specify the reason/);
     core.setFindingStatus(pid, f.id, 'verified', 'reproduced');
     const cell = `${f.cells[0].moduleId}/${f.cells[0].requirementId}`;
     const dup = core.createFinding(pid, cell, { title: 'IDOR again', description: 'd', severity: 'medium', cwe: 'CWE-639', entryPoint: null, files: [{ file: 'svc/Api.java' }], recommendation: null });

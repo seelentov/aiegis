@@ -80,7 +80,7 @@ describe('scanners, raw findings and suppressions with a fake scanner', () => {
   it('availability check: missing binaries are reported, disabled scanners are not run', async () => {
     const st = await core.scannerStatus(pid);
     expect(st.find((s) => s.name === 'fake')).toMatchObject({ available: true, version: 'fake-scanner 1.2.3', error: null });
-    expect(st.find((s) => s.name === 'ghost')).toMatchObject({ available: false, error: 'aiegis-no-such-scanner не найден в PATH' });
+    expect(st.find((s) => s.name === 'ghost')).toMatchObject({ available: false, error: 'aiegis-no-such-scanner not found in PATH' });
     expect(st.find((s) => s.name === 'semgrep')).toMatchObject({ enabled: false, available: false });
     await waitFor(() => events.find((e) => e.type === 'notice' && /ghost/.test(e.text)));
   });
@@ -123,14 +123,14 @@ describe('scanners, raw findings and suppressions with a fake scanner', () => {
 
     const view = await core.signalsView(pid);
     const test = view.signals.find((s) => s.file === 'svc/test/ApiTest.java')!;
-    await expect(core.createSuppression(pid, { scope: 'rule_glob', signalId: test.id, globs: ['svc/test/**'], reason: ' ' })).rejects.toThrow(/причину/);
-    await expect(core.createSuppression(pid, { scope: 'rule_glob', signalId: test.id, globs: ['lib/**'], reason: 'x' })).rejects.toThrow(/не покрывают/);
+    await expect(core.createSuppression(pid, { scope: 'rule_glob', signalId: test.id, globs: ['svc/test/**'], reason: ' ' })).rejects.toThrow(/suppression reason/);
+    await expect(core.createSuppression(pid, { scope: 'rule_glob', signalId: test.id, globs: ['lib/**'], reason: 'x' })).rejects.toThrow(/do not cover/);
     const rg = await core.createSuppression(pid, { scope: 'rule_glob', signalId: test.id, globs: ['svc/test/**'], reason: 'test code' });
     expect(rg).toMatchObject({ author: 'Alice <alice@example.com>', commitSha: head(), ruleId: 'fake.tainted-input', touchedFiles: ['svc/test/ApiTest.java'] });
     const a2 = view.signals.find((s) => s.file === 'svc/Api.java' && s.line === 2)!;
     const one = await core.createSuppression(pid, { scope: 'finding', signalId: a2.id, reason: 'validated by the filter', expiresAt: '2999-01-01' });
     expect(one).toMatchObject({ fingerprint: a2.fingerprint, file: 'svc/Api.java', line: 2, expiresAt: '2999-01-01' });
-    await expect(core.createSuppression(pid, { scope: 'finding', signalId: a2.id, reason: 'x', expiresAt: '2000-01-01' })).rejects.toThrow(/в будущем/);
+    await expect(core.createSuppression(pid, { scope: 'finding', signalId: a2.id, reason: 'x', expiresAt: '2000-01-01' })).rejects.toThrow(/future date/);
 
     const after = await core.signalSlice(pid, { moduleId });
     expect(after).toMatchObject({ total: 1, suppressed: 2 });
@@ -146,7 +146,7 @@ describe('scanners, raw findings and suppressions with a fake scanner', () => {
     expect(cell.cell_suppression).toEqual([{ state: 'active', reason: 'validated by the gateway', author: 'Alice <alice@example.com>' }]);
     expect((await core.signalSlice(pid, { moduleId })).total).toBe(1);
 
-    await expect(core.revokeSuppression(pid, one.id, '')).rejects.toThrow(/причину отзыва/);
+    await expect(core.revokeSuppression(pid, one.id, '')).rejects.toThrow(/reason for revoking/);
     await core.revokeSuppression(pid, one.id, 'filter removed');
     expect((await core.signalSlice(pid, { moduleId })).total).toBe(2);
     expect((await core.listSuppressions(pid)).find((s) => s.id === one.id)?.state).toBe('revoked');
