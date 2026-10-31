@@ -59,6 +59,25 @@ if (!args.includes('-p')) {
     // Matrix prompts list cells as "- requirement_id `<id>` — <key> (<section>): <text>".
     const reqLines = [...prompt.matchAll(/^- requirement_id `([^`]+)` — [^:]+: (.*)$/gm)].map((m) => ({ id: m[1], text: m[2] }));
     const moduleOf = () => /module_id `([^`]+)`/.exec(prompt)[1];
+    if (prompt.includes('Plan the security requirement documents')) {
+      const bad = await mcp('plan_security_documents', { documents: [{ slug: 'x', title: 'X', key_prefix: 'XX', scope: 's', modules: ['nope'], sections: ['A'] }] });
+      const r = await mcp('plan_security_documents', {
+        documents: [
+          { slug: 'authn', title: 'Authentication', key_prefix: 'AUTHN', scope: 'login of svc', modules: ['svc'], sections: ['Login', 'Sessions'] },
+          { slug: 'data', title: 'Data protection', key_prefix: 'DATA', scope: 'stored data', modules: [], sections: ['Storage'] },
+        ],
+      });
+      return done(`${bad.content[0].text} ${r.content[0].text}`);
+    }
+    if (prompt.includes('Write the security requirement document')) {
+      const slug = /\(slug `([^`]+)`/.exec(prompt)[1];
+      const prefix = /requirement ids `([A-Z0-9]+)-<n>`/.exec(prompt)[1];
+      const changed = prompt.includes(`**${prefix}-1** [First]`) ? 'v2' : 'v1';
+      const md = `# Doc ${slug}\n\nScope.\n\n## First\n\n- **${prefix}-1** Every request must be authenticated.\n  Why: context.\n- **${prefix}-2** Tokens must expire (${changed}).\n\n## Second\n\n- **${prefix}-3** Secrets must not be logged.\n`;
+      const bad = await mcp('save_security_document', { slug, markdown: '# T\n\n- **ZZ-1** no section' });
+      const r = await mcp('save_security_document', { slug, markdown: md });
+      return done(`${bad.content[0].text} ${r.content[0].text}`);
+    }
     if (prompt.includes('Extract the requirements')) {
       const versionId = /document_version id `([^`]+)`/.exec(prompt)[1];
       const file = /the file `([^`]+)`/.exec(prompt)[1];

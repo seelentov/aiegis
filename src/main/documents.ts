@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { DocFormat } from '../shared/types';
+import type { DocFormat, DocPlanEntry } from '../shared/types';
 
 /** File names inside a document version directory (`<data>/<project>/documents/<version-id>/`). */
 export const SOURCE_BASENAME = 'source';
@@ -59,4 +59,68 @@ export function sourceFile(dir: string): string | null {
   if (!fs.existsSync(dir)) return null;
   const src = fs.readdirSync(dir).find((f) => f.startsWith(`${SOURCE_BASENAME}.`));
   return src ? path.join(dir, src) : null;
+}
+
+/** Generated security documents (SPEC §22): a plan job splits the application into documents, one job writes each. */
+export const DOC_PLAN_ENTITY = 'doc_plan';
+export const DOC_GEN_ENTITY = 'doc_gen';
+
+
+/**
+ * Validates a document plan: unique slugs and key prefixes, known modules, every module covered by some document,
+ * slugs of earlier generated documents keep their key prefix.
+ */
+export function checkDocPlan(plan: DocPlanEntry[], moduleNames: string[], existing: DocPlanEntry[]): void {
+  if (!plan.length) throw new Error('the plan has no documents');
+  const seen = (what: string, values: string[]) => {
+    const dup = values.find((v, i) => values.indexOf(v) !== i);
+    if (dup) throw new Error(`duplicate ${what} ${dup}`);
+  };
+  seen('slug', plan.map((d) => d.slug));
+  seen('key_prefix', plan.map((d) => d.key_prefix));
+  for (const d of plan) {
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(d.slug)) throw new Error(`slug ${d.slug}: use lowercase kebab-case`);
+    if (!/^[A-Z][A-Z0-9]{1,9}$/.test(d.key_prefix)) throw new Error(`key_prefix ${d.key_prefix}: 2-10 uppercase letters or digits`);
+    if (!d.sections.length) throw new Error(`document ${d.slug} has no sections`);
+    const unknown = d.modules.filter((m) => !moduleNames.includes(m));
+    if (unknown.length) throw new Error(`document ${d.slug}: unknown modules ${unknown.join(', ')}; see list_modules`);
+    const prev = existing.find((e) => e.slug === d.slug);
+    if (prev && prev.key_prefix !== d.key_prefix) throw new Error(`document ${d.slug} keeps its key_prefix ${prev.key_prefix}`);
+    const other = existing.find((e) => e.slug !== d.slug && e.key_prefix === d.key_prefix);
+    if (other) throw new Error(`key_prefix ${d.key_prefix} belongs to the generated document ${other.slug}`);
+  }
+  if (!plan.some((d) => !d.modules.length)) {
+    const covered = new Set(plan.flatMap((d) => d.modules));
+    const left = moduleNames.filter((m) => !covered.has(m));
+    if (left.length) throw new Error(`modules not covered by any document: ${left.join(', ')}`);
+  }
+}
+
+export interface GeneratedItem {
+  key: string;
+  text: string;
+  section: string;
+}
+
+/**
+ * Requirements of a generated document: lines `- **PREFIX-n** text` under `## Section` headings.
+ * Other lines (scope, context, indented rationale) are prose for humans and are not parsed.
+ */
+export function parseGeneratedDoc(md: string, prefix: string): { title: string; items: GeneratedItem[] } {
+  const title = /^#\s+(.+)$/m.exec(md)?.[1].trim();
+  if (!title) throw new Error('the document has no "# Title" heading');
+  let section = '';
+  const items: GeneratedItem[] = [];
+  for (const line of md.split('\n')) {
+    const h = /^##\s+(.+)$/.exec(line);
+    if (h) section = h[1].trim();
+    const m = /^[-*]\s+\*\*([A-Za-z][A-Za-z0-9]*-\d+):?\*\*:?\s+(.+)$/.exec(line.trim());
+    if (!m) continue;
+    if (!m[1].startsWith(`${prefix}-`)) throw new Error(`requirement ${m[1]}: ids of this document start with ${prefix}-`);
+    if (!section) throw new Error(`requirement ${m[1]} is not under a "## Section" heading`);
+    if (items.some((i) => i.key === m[1])) throw new Error(`duplicate requirement id ${m[1]}`);
+    items.push({ key: m[1], text: m[2].trim(), section });
+  }
+  if (!items.length) throw new Error(`no requirements found: write each as a list item "- **${prefix}-1** The application must …"`);
+  return { title, items };
 }

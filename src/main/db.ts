@@ -524,6 +524,10 @@ const MIGRATIONS: string[] = [
   CREATE TRIGGER poc_results_no_delete BEFORE DELETE ON poc_results
   BEGIN SELECT RAISE(ABORT, 'poc results are append-only'); END;
   `,
+  `
+  -- Plan entry (JSON) of a document written by AI; null for uploaded documents.
+  ALTER TABLE documents ADD COLUMN generated TEXT;
+  `,
 ];
 
 export function migrate(db: DB): void {

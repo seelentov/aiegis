@@ -41,6 +41,12 @@ const server = new AiegisMcpServer(tokens, {
   pocCheck: () => {
     throw new Error('not used here');
   },
+  saveDocPlan: () => {
+    throw new Error('not used here');
+  },
+  saveGeneratedDoc: () => {
+    throw new Error('not used here');
+  },
   onWrite: () => undefined,
 });
 

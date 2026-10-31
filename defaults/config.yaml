@@ -230,6 +230,19 @@ tasks:
     role: requirements
     title: { en: "Requirements: {{document_title}} v{{version_n}}", ru: "Требования: {{document_title}} v{{version_n}}" }
     prompt: instructions/tasks/requirements.md
+  # AI-written security documents covering the whole application: a plan splits it into documents, then one
+  # session writes each; a written document becomes a version for review without an extraction run.
+  # Placeholders: project, hint, modules, generated (earlier generated documents), uploaded (uploaded documents).
+  doc_plan:
+    role: doc-author
+    title: { en: "Security documents: plan", ru: "Документы безопасности: план" }
+    prompt: instructions/tasks/doc-plan.md
+  # One planned document. Placeholders: project, title, slug, key_prefix, scope, modules, sections, other_documents,
+  # previous (approved requirements of its current version), hint.
+  doc_write:
+    role: doc-author
+    title: { en: "Security document: {{title}}", ru: "Документ безопасности: {{title}}" }
+    prompt: instructions/tasks/doc-write.md
   # Cheap n/a triage of a module against matrix requirements.
   # Placeholders: project, matrix, module_id, module_name, module_globs, module_description, requirements.
   matrix_triage:
@@ -317,6 +330,19 @@ roles:
     permissions:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash"]
+
+  # Writes security requirement documents of the application from its code (plan and each document).
+  doc-author:
+    title: { en: "Security document author", ru: "Автор документов безопасности" }
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: medium
+    instructions:
+      file: instructions/roles/doc-author.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git ls-files:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
   matrix-triage:
     title: { en: "n/a triage", ru: "Отсев n/a" }

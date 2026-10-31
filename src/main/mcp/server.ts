@@ -15,6 +15,7 @@ import {
   SIGNAL_KINDS,
   VERDICT_STATUSES,
   type CellDetails,
+  type DocPlanEntry,
   type Evidence,
   type Finding,
   type Job,
@@ -24,7 +25,7 @@ import {
   type ScaReport,
 } from '../../shared/types';
 import type { Settings } from '../config/loader';
-import { sha256File } from '../documents';
+import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, sha256File } from '../documents';
 import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { CARRIED_AUTHOR } from '../audit-store';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
@@ -61,6 +62,9 @@ export interface McpServices {
   ): Promise<PocEnvironment>;
   /** env-setup's own start of the environment: start it in the background, poll it, or stop it. */
   pocCheck(projectId: string, action: 'start' | 'status' | 'stop', waitSec?: number): Promise<{ state: string; error: string | null; output: string }>;
+  /** Generated documents (SPEC §22): kept for the run, applied by the app when it succeeds. */
+  saveDocPlan(projectId: string, runId: string, plan: DocPlanEntry[]): void;
+  saveGeneratedDoc(projectId: string, runId: string, slug: string, md: string): { title: string; sections: Record<string, number> };
   /** Called after an agent wrote something, so the UI can refresh. */
   onWrite(projectId: string): void;
 }
@@ -366,6 +370,46 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         const item = a.upsertItem(version_id, { key, text, section, quote }, by);
         svc.onWrite(pid);
         return ok({ saved: item.key, requirement_id: item.requirementId, items_in_version: a.listItems(version_id).length });
+      }),
+  );
+
+  server.registerTool(
+    'plan_security_documents',
+    {
+      description: `Record the plan of security requirement documents for the whole application (scope ${DOC_PLAN_ENTITY}:<project-id>). Every module must be covered by some document (modules: [] = all modules); slug and key_prefix of an existing generated document must be kept. A repeated call replaces the plan. When the run succeeds, the app queues one writing session per document.`,
+      inputSchema: {
+        documents: z
+          .array(
+            z.object({
+              slug: z.string().describe('Stable kebab-case id of the document, e.g. "authn-sessions"'),
+              title: z.string().min(1),
+              key_prefix: z.string().describe('Uppercase prefix of requirement ids, e.g. "AUTHN" (ids AUTHN-1, AUTHN-2, …)'),
+              scope: z.string().min(1).describe('What the document covers and why: components, data, trust boundaries'),
+              modules: z.array(z.string()).describe('Module names it applies to; [] = all modules'),
+              sections: z.array(z.string().min(1)).min(1).describe('Section headings: each becomes a group of requirements'),
+            }),
+          )
+          .min(1),
+      },
+    },
+    async ({ documents }) =>
+      guard({ kind: 'write', entity: { type: DOC_PLAN_ENTITY, id: pid } }, () => {
+        liveRun();
+        svc.saveDocPlan(pid, grant.runId, documents);
+        return ok({ saved: documents.map((d) => `${d.slug} (${d.key_prefix}): ${d.sections.length} sections`) });
+      }),
+  );
+
+  server.registerTool(
+    'save_security_document',
+    {
+      description: `Record the whole Markdown text of the document your run writes (scope ${DOC_GEN_ENTITY}:<slug>): "# Title", then "## Section" headings with requirements as list items "- **<PREFIX>-<n>** <one requirement sentence>". A repeated call replaces the text. When the run succeeds, the document becomes a new version for human review.`,
+      inputSchema: { slug: z.string(), markdown: z.string().min(1) },
+    },
+    async ({ slug, markdown }) =>
+      guard({ kind: 'write', entity: { type: DOC_GEN_ENTITY, id: slug } }, () => {
+        liveRun();
+        return ok({ saved: svc.saveGeneratedDoc(pid, grant.runId, slug, markdown) });
       }),
   );
 

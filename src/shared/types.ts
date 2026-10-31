@@ -192,7 +192,21 @@ export interface DocumentSummary {
   versions: DocVersion[];
   /** Latest approved version: the requirements matrices use. */
   current: DocVersion | null;
+  /** Plan entry of a document written by AI (SPEC §22); null for uploaded documents. */
+  generated: DocPlanEntry | null;
 }
+
+/** One planned document; kept on the document so regeneration keeps its slug and key prefix. */
+export interface DocPlanEntry {
+  slug: string;
+  title: string;
+  key_prefix: string;
+  scope: string;
+  /** Module names the document applies to; empty = all modules. */
+  modules: string[];
+  sections: string[];
+}
+
 
 export type ReviewState = 'pending' | 'accepted' | 'rejected';
 

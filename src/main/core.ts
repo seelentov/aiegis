@@ -11,6 +11,7 @@ import type {
   CellDetails,
   CellLabel,
   ConfigFileInfo,
+  DocPlanEntry,
   DocumentSummary,
   DocVersionView,
   EffectiveConfigView,
@@ -94,7 +95,20 @@ import {
   type Settings,
 } from './config/loader';
 import { openDb } from './db';
-import { agentFile, detectFormat, documentText, sha256File, sourceFile, stageDocument } from './documents';
+import {
+  agentFile,
+  checkDocPlan,
+  detectFormat,
+  DOC_GEN_ENTITY,
+  DOC_PLAN_ENTITY,
+  documentText,
+  parseGeneratedDoc,
+  sha256File,
+  SOURCE_BASENAME,
+  sourceFile,
+  stageDocument,
+  TEXT_FILE,
+} from './documents';
 import { CARRIED_AUTHOR } from './audit-store';
 import { changedFiles, headSha } from './git';
 import {
@@ -107,6 +121,7 @@ import {
   matchesGlobs,
   parseCellId,
   planBatches,
+  quoteFound,
   rankSimilar,
   reqHash,
   SNAPSHOT_VALIDITY,
@@ -172,7 +187,7 @@ import {
   SUPPRESSION_VALIDITY,
   type SignalQuery,
 } from './signals';
-import { ProjectStore } from './store';
+import { ProjectStore, type Authorship } from './store';
 import { Terminals } from './terminals';
 import { WorktreeCache } from './worktrees';
 
@@ -278,6 +293,8 @@ export class Core extends EventEmitter {
       scaSettings: (pid) => this.projectSettings(pid).sca,
       scaReportFile: (pid, r) => this.scaReportFile(pid, r),
       setPocEnvironment: (pid, e) => this.setPocEnvironment(pid, e),
+      saveDocPlan: (pid, runId, plan) => this.saveDocPlan(pid, runId, plan),
+      saveGeneratedDoc: (pid, runId, slug, md) => this.saveGeneratedDoc(pid, runId, slug, md),
       pocCheck: (pid, action, waitSec) => this.pocCheck(pid, action, waitSec),
       onWrite: (pid) => {
         this.send({ type: 'runs-changed', projectId: pid });
@@ -868,6 +885,170 @@ export class Core extends EventEmitter {
     if (s.activeJobFor(DOC_VERSION_ENTITY, versionId)) throw new Error('the extraction is still running');
     if (status === 'review' && !v.itemCount) throw new Error('the version has no items');
     s.audit.setVersionStatus(versionId, status);
+    this.auditChanged(projectId);
+  }
+
+  // --- generated documents (SPEC §22) ---
+
+  private docGenFile(projectId: string, runId: string, ext: 'plan.json' | 'md'): string {
+    return path.join(projectDataDir(this.paths, projectId), 'doc-gen', `${runId}.${ext}`);
+  }
+
+  private modulesText(projectId: string, names?: string[]): string {
+    const mods = this.store(projectId).listModules().filter((m) => !names?.length || names.includes(m.name));
+    return mods.length ? mods.map((m) => `- ${m.name} (module_id ${m.id}): ${m.globs.join(', ')} — ${m.description}`).join('\n') : '(none)';
+  }
+
+  /** Queues the plan of AI-written security documents that together cover the whole application. */
+  async enqueueDocPlan(projectId: string, hint: string): Promise<Job> {
+    const p = this.project(projectId);
+    const entity = { type: DOC_PLAN_ENTITY, id: projectId };
+    this.assertNotQueued(projectId, entity);
+    const spec = this.taskSpec(projectId, 'doc_plan');
+    this.taskSpec(projectId, 'doc_write');
+    const docs = this.store(projectId).audit.listDocuments();
+    const list = (lines: string[]) => (lines.length ? lines.join('\n') : '(none)');
+    const vars = {
+      project: p.name,
+      hint: hint.trim() || '(none)',
+      modules: this.modulesText(projectId),
+      generated: list(
+        docs.flatMap((d) =>
+          d.generated
+            ? [`- slug ${d.generated.slug}, key_prefix ${d.generated.key_prefix}: "${d.title}" — ${d.generated.scope} (modules: ${d.generated.modules.join(', ') || 'all'}; sections: ${d.generated.sections.join('; ')})`]
+            : [],
+        ),
+      ),
+      uploaded: list(docs.filter((d) => !d.generated).map((d) => `- "${d.title}"${d.current ? ` (${d.current.itemCount} approved requirements)` : ' (not approved)'}`)),
+    };
+    return this.addAgentJob(
+      projectId,
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity, payload: { hint } },
+      await headSha(p.root),
+    );
+  }
+
+  /** Queues the writing of one planned document; `plan` names the other documents so they do not overlap. */
+  private async enqueueDocWrite(projectId: string, entry: DocPlanEntry, plan: DocPlanEntry[], hint: string): Promise<Job> {
+    const p = this.project(projectId);
+    const entity = { type: DOC_GEN_ENTITY, id: entry.slug };
+    this.assertNotQueued(projectId, entity);
+    const a = this.store(projectId).audit;
+    const doc = a.listDocuments().find((d) => d.generated?.slug === entry.slug);
+    const open = doc?.versions.find((v) => v.status === 'extracting' || v.status === 'review');
+    if (open) throw new Error(`“${doc!.title}” has an unapproved version v${open.n}: approve or discard it first`);
+    const spec = this.taskSpec(projectId, 'doc_write');
+    const prev = doc?.current ? a.listItems(doc.current.id).filter((i) => i.review === 'accepted') : [];
+    const others = plan.filter((e) => e.slug !== entry.slug);
+    const vars = {
+      project: p.name,
+      title: entry.title,
+      slug: entry.slug,
+      key_prefix: entry.key_prefix,
+      scope: entry.scope,
+      modules: `${entry.modules.length ? 'these modules' : 'all modules'}:\n${this.modulesText(projectId, entry.modules)}`,
+      sections: entry.sections.map((x) => `- ${x}`).join('\n'),
+      other_documents: others.length ? others.map((e) => `- "${e.title}" (${e.key_prefix}): ${e.scope}`).join('\n') : '(none)',
+      previous: prev.length ? prev.map((i) => `- **${i.key}** [${i.section}] ${i.quote}`).join('\n') : '(none)',
+      hint: hint.trim() || '(none)',
+    };
+    return this.addAgentJob(
+      projectId,
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity, payload: { entry, plan, hint } },
+      await headSha(p.root),
+    );
+  }
+
+  /** Rewrites one generated document from its stored plan entry (new version, reviewed like any other). */
+  async regenerateDocument(projectId: string, documentId: string, hint: string): Promise<Job> {
+    const docs = this.store(projectId).audit.listDocuments();
+    const entry = docs.find((d) => d.id === documentId)?.generated;
+    if (!entry) throw new Error('only a document written by AI can be regenerated');
+    const job = await this.enqueueDocWrite(projectId, entry, docs.flatMap((d) => (d.generated ? [d.generated] : [])), hint);
+    this.auditChanged(projectId);
+    return job;
+  }
+
+  /** The background job of a token's run: generated-document tools write for it only. */
+  private docGenJob(projectId: string, runId: string, type: string): Job {
+    const s = this.store(projectId);
+    const jobId = s.getRun(runId)?.jobId;
+    const job = jobId ? s.getJob(jobId) : undefined;
+    if (job?.entityType !== type) throw new Error('documents are recorded only by the background run of their job');
+    return job;
+  }
+
+  /** plan_security_documents: validated, kept for the run; the app queues the writers when the run succeeds. */
+  saveDocPlan(projectId: string, runId: string, plan: DocPlanEntry[]): void {
+    this.docGenJob(projectId, runId, DOC_PLAN_ENTITY);
+    const existing = this.store(projectId).audit.listDocuments().flatMap((d) => (d.generated ? [d.generated] : []));
+    checkDocPlan(plan, this.store(projectId).listModules().map((m) => m.name), existing);
+    const file = this.docGenFile(projectId, runId, 'plan.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(plan, null, 2));
+  }
+
+  /** save_security_document: validated, kept for the run; imported as a new version when the run succeeds. */
+  saveGeneratedDoc(projectId: string, runId: string, slug: string, md: string): { title: string; sections: Record<string, number> } {
+    const entry = this.docGenJob(projectId, runId, DOC_GEN_ENTITY).payload.entry as DocPlanEntry;
+    if (entry.slug !== slug) throw new Error(`this run writes the document ${entry.slug}`);
+    const { title, items } = parseGeneratedDoc(md, entry.key_prefix);
+    const file = this.docGenFile(projectId, runId, 'md');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, md);
+    const sections: Record<string, number> = {};
+    for (const i of items) sections[i.section] = (sections[i.section] ?? 0) + 1;
+    return { title, sections };
+  }
+
+  /** After a successful run: a plan queues its writers, a written document becomes a version in review. Returns an error. */
+  private async completeDocGen(job: Job, runId: string): Promise<string | null> {
+    if (job.entityType === DOC_PLAN_ENTITY) {
+      const file = this.docGenFile(job.projectId, runId, 'plan.json');
+      if (!fs.existsSync(file)) return 'the run finished, but no plan was recorded: the agent did not call plan_security_documents';
+      const plan = JSON.parse(fs.readFileSync(file, 'utf8')) as DocPlanEntry[];
+      const skipped: string[] = [];
+      for (const e of plan) await this.enqueueDocWrite(job.projectId, e, plan, String(job.payload.hint ?? '')).catch((err: Error) => skipped.push(`${e.title}: ${err.message}`));
+      if (skipped.length) this.notice('warn', `Documents not queued for writing: ${skipped.join('; ')}`, job.projectId);
+      return null;
+    }
+    if (job.entityType !== DOC_GEN_ENTITY) return null;
+    const file = this.docGenFile(job.projectId, runId, 'md');
+    if (!fs.existsSync(file)) return 'the run finished, but no document was recorded: the agent did not call save_security_document';
+    try {
+      this.importGenerated(job.projectId, job.payload.entry as DocPlanEntry, fs.readFileSync(file, 'utf8'), { author: `ai:${job.role}`, runId });
+      return null;
+    } catch (e) {
+      return (e as Error).message;
+    }
+  }
+
+  /**
+   * A written document becomes a new version without an extraction run: its requirement lines are parsed, unchanged
+   * ones are carried over from the previous approved version (SPEC §19), the rest wait for review.
+   */
+  private importGenerated(projectId: string, entry: DocPlanEntry, md: string, by: Authorship): void {
+    const a = this.store(projectId).audit;
+    const doc = a.listDocuments().find((d) => d.generated?.slug === entry.slug);
+    const open = doc?.versions.find((v) => v.status === 'extracting' || v.status === 'review');
+    if (open) throw new Error(`“${doc!.title}” has an unapproved version v${open.n}: approve or discard it, then retry`);
+    const sha = crypto.createHash('sha256').update(md).digest('hex');
+    if (doc?.current?.sha256 === sha) return;
+    const { items } = parseGeneratedDoc(md, entry.key_prefix);
+    const versionId = crypto.randomUUID();
+    const dir = this.docDir(projectId, versionId);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${SOURCE_BASENAME}.md`), md);
+    fs.writeFileSync(path.join(dir, TEXT_FILE), md);
+    const documentId = doc?.id ?? a.createDocument(entry.title);
+    a.setGenerated(documentId, entry);
+    const version = a.addVersion(documentId, { filename: `${entry.slug}.md`, format: 'md', sha256: sha }, versionId);
+    const carried = a.carryOverItems(version, md);
+    for (const it of items) {
+      if (carried.some((c) => c.key === it.key || quoteFound(c.quote, it.text) || quoteFound(it.text, c.quote))) continue;
+      a.upsertItem(versionId, { ...it, quote: it.text }, by);
+    }
+    a.setVersionStatus(versionId, 'review');
     this.auditChanged(projectId);
   }
 
@@ -2666,7 +2847,7 @@ export class Core extends EventEmitter {
       this.finishRun(p.id, runId, res.status, res.usage, res.error);
       switch (res.status) {
         case 'succeeded': {
-          const missing = this.missingOutputs(job, runId);
+          const missing = this.missingOutputs(job, runId) ?? (await this.completeDocGen(job, runId));
           return missing ? { kind: 'failed', error: missing } : { kind: 'done' };
         }
         case 'cancelled':

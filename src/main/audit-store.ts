@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { DB } from './db';
 import type {
   DocFormat,
+  DocPlanEntry,
   DocumentSummary,
   DocVersion,
   DocVersionStatus,
@@ -188,6 +189,10 @@ export class AuditStore {
     return id;
   }
 
+  setGenerated(id: string, entry: DocPlanEntry): void {
+    this.db.prepare('UPDATE documents SET generated = ? WHERE id = ?').run(JSON.stringify(entry), id);
+  }
+
   getDocumentTitle(id: string): string | undefined {
     return (this.db.prepare('SELECT title FROM documents WHERE id = ?').get(id) as { title: string } | undefined)?.title;
   }
@@ -203,6 +208,7 @@ export class AuditStore {
         createdAt: d.created_at as string,
         versions: vs,
         current: vs.find((v) => v.status === 'approved') ?? null,
+        generated: d.generated ? (JSON.parse(d.generated as string) as DocPlanEntry) : null,
       };
     });
   }
