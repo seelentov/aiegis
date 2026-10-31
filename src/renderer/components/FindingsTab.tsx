@@ -19,14 +19,18 @@ interface Props {
 export function FindingsTab({ project, revision, run, selection, onSelect }: Props) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [modules, setModules] = useState<ModuleSummary[]>([]);
+  const [docOf, setDocOf] = useState<Map<string, string>>(new Map());
   const [merged, setMerged] = useState(false);
 
   useEffect(() => {
     void run(api.listFindings(project.id)).then((f) => f && setFindings(f));
     void api.listModules(project.id).then(setModules);
+    void api.currentRequirements(project.id).then((r) => setDocOf(new Map(r.map((i) => [i.requirementId, i.documentTitle]))));
   }, [project.id, revision, run]);
 
   const moduleName = (id: string | null) => modules.find((m) => m.id === id)?.name ?? '—';
+  // shortcut: several documents join into one value, so the enum filter matches the exact combination.
+  const documents = (f: Finding) => [...new Set(f.cells.map((c) => docOf.get(c.requirementId)).filter(Boolean))].sort().join(', ');
   const g = useGrid(
     'findings',
     findings.filter((f) => merged || !f.mergedInto),
@@ -36,6 +40,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
       { key: 'status', title: tr('Status'), text: (f) => FINDING_STATUS[f.status], filter: 'enum' },
       { key: 'cwe', title: 'CWE', text: (f) => f.cwe ?? '' },
       { key: 'module', title: tr('Module'), text: (f) => moduleName(f.moduleId), filter: 'enum' },
+      { key: 'document', title: tr('Document'), text: documents, filter: 'enum' },
       { key: 'links', title: tr('Links') },
       { key: 'created', title: tr('Created'), text: (f) => `${time(f.createdAt)} ${f.author}`, sort: (f) => f.createdAt },
     ],
@@ -72,6 +77,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
               </td>
               <td className="mono">{f.cwe ?? ''}</td>
               <td>{moduleName(f.moduleId)}</td>
+              <td>{documents(f)}</td>
               <td className="small">
                 {f.cells.length > 0 && <div>{tr('cells {n}', { n: f.cells.length })}</div>}
                 {f.scaItems.length > 0 && <div>SCA {f.scaItems.length}</div>}
