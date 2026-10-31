@@ -253,7 +253,8 @@ export function App() {
             {running > 0 && <div className="progress" role="progressbar" aria-label={tr('jobs running: {n}', { n: running })} />}
           </header>
           <div className="workspace" style={{ gridTemplateColumns: details ? `minmax(0, 1fr) auto ${detailsW}px` : 'minmax(0, 1fr)' }}>
-            <section className="content" tabIndex={-1}>
+            {/* Remount per project: tabs keep project-scoped ids (e.g. the selected matrix) in local state. */}
+            <section key={project?.id} className="content" tabIndex={-1}>
               {tab === 'settings' ? (
                 <SettingsTab project={project} run={run} notify={notify} />
               ) : !project ? (
