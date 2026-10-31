@@ -83,6 +83,10 @@ export interface AiegisApi {
   pickDocumentFile(): string | null;
   /** New document (title) or new version of `documentId`; queues requirement extraction. */
   importDocument(projectId: string, file: string, o: { documentId?: string; title?: string }): DocVersionView;
+  /** Queues the plan of AI-written security documents covering the application; writers follow the plan. */
+  enqueueDocPlan(projectId: string, hint: string): Job;
+  /** Queues a rewrite of one AI-written document from its plan entry. */
+  regenerateDocument(projectId: string, documentId: string, hint: string): Job;
   docVersion(projectId: string, versionId: string): DocVersionView;
   retryExtraction(projectId: string, versionId: string): Job;
   setVersionState(projectId: string, versionId: string, status: 'review' | 'discarded'): void;

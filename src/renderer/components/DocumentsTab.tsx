@@ -170,7 +170,7 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
                 <td>{i.section}</td>
                 <td>
                   <div>{i.text}</div>
-                  {i.quote && <div className="muted small quote">«{i.quote}»</div>}
+                  {i.quote && i.quote !== i.text && <div className="muted small quote">«{i.quote}»</div>}
                   <div className="muted small">{i.author}</div>
                 </td>
                 <td>{REVIEW[i.review]}</td>
@@ -210,6 +210,7 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
   const [versionId, setVersionId] = useState<string | null>(null);
   const [view, setView] = useState<DocVersionView | null>(null);
   const [title, setTitle] = useState('');
+  const [hint, setHint] = useState('');
 
   useEffect(() => {
     void run(api.listDocuments(project.id)).then((d) => d && setDocs(d));
@@ -237,6 +238,10 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
     }
   };
 
+  const generate = async () => {
+    if (await run(api.enqueueDocPlan(project.id, hint))) setHint('');
+  };
+
   return (
     <div className="documents-tab">
       <div className="toolbar">
@@ -244,6 +249,22 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
         <IconButton icon="upload" className="primary" title={tr('Upload a document: MD, PDF or DOCX')} label={tr('Upload document')} onClick={() => void importFile()} />
         {g.count}
       </div>
+      <details className="card" open={docs.length === 0}>
+        <summary>{tr('Write security documents with AI')}</summary>
+        <div className="form">
+          <label className="wide">
+            {tr('Hints (optional): focus, standards to follow, document language; also used by “Rewrite”')}
+            <textarea rows={2} value={hint} onChange={(e) => setHint(e.target.value)} />
+          </label>
+          <IconButton
+            icon="wand"
+            className="primary"
+            title={tr('AI plans documents that cover the whole application, then writes each one; every document goes to review')}
+            label={tr('Write documents')}
+            onClick={() => void generate()}
+          />
+        </div>
+      </details>
       <table className="grid compact">
         {g.head}
         <tbody>
@@ -254,8 +275,9 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
           )}
           {g.rows.map((d) => (
             <tr key={d.id}>
-              <td>
+              <td title={d.generated?.scope}>
                 <strong>{d.title}</strong>
+                {d.generated && <span className="muted small"> · {tr('AI · {prefix}', { prefix: d.generated.key_prefix })}</span>}
               </td>
               <td>{d.current ? `v${d.current.n} · ${tr('items {n}', { n: d.current.itemCount })}` : <span className="muted">{tr('not approved')}</span>}</td>
               <td>
@@ -266,6 +288,9 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
                 ))}
               </td>
               <td className="actions">
+                {d.generated && (
+                  <IconButton icon="wand" title={tr('Rewrite with AI: a new version for review')} onClick={() => void run(api.regenerateDocument(project.id, d.id, hint))} />
+                )}
                 <IconButton icon="filePlus" title={tr('Upload a new version')} onClick={() => void importFile(d.id)} />
               </td>
             </tr>

@@ -182,6 +182,14 @@ export const RU: Record<string, string> = {
   'AI module markup': 'Разметка модулей ИИ',
   'Hints (optional): which parts of the repository to mark up, how to name them': 'Указания (необязательно): какие части репозитория размечать, как именовать',
   'Mark up modules with AI': 'Разметить модули с помощью ИИ',
+  'Write security documents with AI': 'Составить документы безопасности с помощью ИИ',
+  'Hints (optional): focus, standards to follow, document language; also used by “Rewrite”':
+    'Указания (необязательно): акценты, стандарты, язык документов; учитываются и при «Переписать»',
+  'AI plans documents that cover the whole application, then writes each one; every document goes to review':
+    'ИИ планирует документы, покрывающие всё приложение, затем пишет каждый; каждый документ проходит ревью',
+  'Write documents': 'Составить документы',
+  'AI · {prefix}': 'ИИ · {prefix}',
+  'Rewrite with AI: a new version for review': 'Переписать с помощью ИИ: новая версия на ревью',
   'Mark up': 'Разметить',
   'No modules. Run the markup or add a module.': 'Модулей нет. Запустите разметку или добавьте модуль.',
   'run {id}': 'прогон {id}',

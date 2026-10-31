@@ -60,6 +60,8 @@ function api(): ApiImpl {
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
     },
     importDocument: (pid, file, o) => core.importDocument(pid, file, o),
+    enqueueDocPlan: (pid, hint) => core.enqueueDocPlan(pid, hint),
+    regenerateDocument: (pid, id, hint) => core.regenerateDocument(pid, id, hint),
     docVersion: (pid, id) => core.docVersion(pid, id),
     retryExtraction: (pid, id) => core.retryExtraction(pid, id),
     setVersionState: (pid, id, st) => core.setVersionState(pid, id, st),
