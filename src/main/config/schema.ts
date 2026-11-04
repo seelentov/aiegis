@@ -123,6 +123,13 @@ export const ConfigFileSchema = z.looseObject({
   limits: z.looseObject({ max_tokens_per_run: z.number().int().min(1).optional() }).optional(),
   terminal: z.looseObject({ external_app: z.string().optional(), keep_ended_streams: z.number().int().min(0).optional() }).optional(),
   sessions: z.looseObject({ free_role: z.string().optional(), default_task_role: z.string().optional() }).optional(),
+  schedules: z
+    .looseObject({
+      min_interval_minutes: z.number().int().min(1).optional(),
+      catch_up_window_hours: z.number().min(0).optional(),
+      max_tokens_per_firing: z.number().int().min(1).optional(),
+    })
+    .optional(),
   matrix: z
     .looseObject({
       batch_size: z.number().int().min(1).optional(),
@@ -198,6 +205,7 @@ export const SETTINGS_KEYS = [
   'limits',
   'terminal',
   'sessions',
+  'schedules',
   'matrix',
   'findings',
   'tasks',

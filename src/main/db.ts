@@ -547,6 +547,37 @@ const MIGRATIONS: string[] = [
   -- Plan entry (JSON) of a document written by AI; null for uploaded documents.
   ALTER TABLE documents ADD COLUMN generated TEXT;
   `,
+  `
+  -- Removed schedules stay: their firings refer to them (SPEC §25).
+  CREATE TABLE schedules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    cron TEXT NOT NULL,
+    action TEXT NOT NULL,
+    max_tokens INTEGER,
+    enabled INTEGER NOT NULL,
+    next_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    removed_at TEXT
+  );
+  CREATE UNIQUE INDEX schedules_name ON schedules(name) WHERE removed_at IS NULL;
+  CREATE TABLE schedule_firings (
+    id TEXT PRIMARY KEY,
+    schedule_id TEXT NOT NULL REFERENCES schedules(id),
+    trigger_kind TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    reason TEXT,
+    job_ids TEXT NOT NULL,
+    scheduled_at TEXT,
+    fired_at TEXT NOT NULL
+  );
+  CREATE INDEX schedule_firings_schedule ON schedule_firings(schedule_id, fired_at);
+  CREATE TRIGGER schedule_firings_no_update BEFORE UPDATE ON schedule_firings
+  BEGIN SELECT RAISE(ABORT, 'schedule firings are append-only'); END;
+  CREATE TRIGGER schedule_firings_no_delete BEFORE DELETE ON schedule_firings
+  BEGIN SELECT RAISE(ABORT, 'schedule firings are append-only'); END;
+  `,
 ];
 
 export function migrate(db: DB): void {
