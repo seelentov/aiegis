@@ -5,7 +5,12 @@ import { dirsOf, envOf, type ClaudeCommand } from '../claude/args';
 import { parseRule, type PiRunConfig } from './permissions';
 
 /** The aiegis pi extension, bundled next to main.js (scripts/build.mjs). */
-export const PI_EXTENSION = path.join(__dirname, 'pi-extension.mjs');
+export let PI_EXTENSION = path.join(__dirname, 'pi-extension.mjs');
+
+/** The single executable unpacks the extension elsewhere. */
+export function setPiExtension(file: string): void {
+  PI_EXTENSION = file;
+}
 
 /** Contents of the run file the extension reads: MCP server, permission rules, extra directories. */
 export function piRunConfig(

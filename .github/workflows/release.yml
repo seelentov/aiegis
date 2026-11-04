@@ -42,3 +42,25 @@ jobs:
         run: |
           shopt -s nullglob
           gh release upload "$TAG" release/*.{dmg,zip,exe,AppImage,deb} --clobber
+
+  service:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # No native modules in the service: the install scripts only prepare Electron.
+      - run: npm ci --ignore-scripts
+      - run: npm run dist:service
+      - run: gh release upload "$TAG" release/aiegis-*-linux-* --clobber

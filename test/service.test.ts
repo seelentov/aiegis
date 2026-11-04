@@ -10,6 +10,7 @@ import { UI_METHODS } from '../src/shared/api';
 import { Client, NotRunning } from '../src/cli/client';
 import { parseArgs, pickProject, runCli, table, type Io } from '../src/cli/cli';
 import { COMMANDS } from '../src/cli/commands';
+import { extractRuntime, MANIFEST_ASSET } from '../src/cli/runtime';
 import { listen } from '../src/cli/service';
 import { coreApi } from '../src/main/api';
 import { ensureGlobalDefaults } from '../src/main/config/loader';
@@ -262,6 +263,42 @@ describe('terminals', () => {
     expect(t.list().map((x) => x.runId)).toEqual(['b', 'c']);
     t.markEnded(ids[2]);
     expect(t.list().map((x) => x.runId)).toEqual(['c']);
+  });
+});
+
+describe('runtime of the single executable', () => {
+  const asset = (files: Record<string, string>) => (key: string) => {
+    if (!(key in files)) throw new Error(`no asset ${key}`);
+    return new TextEncoder().encode(files[key]).buffer as ArrayBuffer;
+  };
+  const build = (text: string) => ({
+    [MANIFEST_ASSET]: JSON.stringify([{ path: 'a/run', mode: 0o755, sha256: text }]),
+    'a/run': text,
+  });
+
+  it('unpacks with modes, keeps a current directory, replaces an old one', () => {
+    const data = tmpDir();
+    const first = extractRuntime(data, asset(build('one')));
+    expect(fs.readFileSync(path.join(first, 'a/run'), 'utf8')).toBe('one');
+    expect(fs.statSync(path.join(first, 'a/run')).mode & 0o777).toBe(0o755);
+
+    fs.writeFileSync(path.join(first, 'marker'), '');
+    expect(extractRuntime(data, asset(build('one')))).toBe(first);
+    expect(fs.existsSync(path.join(first, 'marker'))).toBe(true);
+
+    const second = extractRuntime(data, asset(build('two')));
+    expect(second).not.toBe(first);
+    expect(fs.existsSync(first)).toBe(false);
+    expect(fs.readdirSync(path.join(data, 'runtime'))).toEqual([path.basename(second)]);
+  });
+
+  it('a failed unpack leaves no current directory', () => {
+    const data = tmpDir();
+    const files: Record<string, string> = build('one');
+    delete files['a/run'];
+    expect(() => extractRuntime(data, asset(files))).toThrow(/no asset/);
+    const left = fs.readdirSync(path.join(data, 'runtime'));
+    expect(left.filter((d) => !d.endsWith('.tmp'))).toEqual([]);
   });
 });
 
