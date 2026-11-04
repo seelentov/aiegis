@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { git } from './git';
+import { getLogger } from './log';
+
+const log = getLogger('git');
 
 /** Detached git worktrees cached by commit SHA, stored outside the repository (SPEC §1, Q6). */
 export class WorktreeCache {
@@ -27,11 +30,15 @@ export class WorktreeCache {
   private async create(sha: string): Promise<string> {
     const wt = this.pathFor(sha);
     if (fs.existsSync(path.join(wt, '.git'))) {
-      const head = await git(wt, ['rev-parse', 'HEAD']).catch(() => '');
+      const head = await git(wt, ['rev-parse', 'HEAD']).catch((e: Error) => {
+        log.warn('worktree %s is broken and will be recreated: %s', wt, e.message);
+        return '';
+      });
       if (head === sha) return wt;
       fs.rmSync(wt, { recursive: true, force: true });
     }
     fs.mkdirSync(this.dir, { recursive: true });
+    log.debug('creating worktree %s', wt);
     await git(this.repoRoot, ['worktree', 'prune']);
     await git(this.repoRoot, ['worktree', 'add', '--detach', wt, sha]);
     return wt;

@@ -4,8 +4,11 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { EVENT_CHANNEL, invokeChannel, type ApiImpl, type ApiMethod } from '../shared/api';
 import type { AppEvent } from '../shared/types';
 import { Core } from './core';
+import { getLogger, shutdownLogging } from './log';
 import { resolveAppPaths } from './paths';
 import { adoptLoginShellPath } from './shell-env';
+
+const log = getLogger('core');
 
 let core: Core;
 let win: BrowserWindow | null = null;
@@ -137,7 +140,11 @@ function registerIpc(): void {
   const impl = api();
   for (const name of Object.keys(impl) as ApiMethod[]) {
     const fn = impl[name] as (...a: unknown[]) => unknown;
-    ipcMain.handle(invokeChannel(name), async (_e, ...args: unknown[]) => fn(...args));
+    // Name only: arguments carry prompts and config text.
+    ipcMain.handle(invokeChannel(name), async (_e, ...args: unknown[]) => {
+      log.debug('api %s', name);
+      return fn(...args);
+    });
   }
 }
 
@@ -172,19 +179,21 @@ if (process.platform === 'win32') app.setAppUserModelId('io.github.seelentov.aie
 app.whenReady().then(async () => {
   // Before anything spawns `claude` or scanners: Finder/Dock launches lack the user's shell PATH.
   await adoptLoginShellPath();
-  core = new Core(resolveAppPaths(path.join(__dirname, '..', 'defaults')));
+  core = new Core(resolveAppPaths(path.join(__dirname, '..', 'defaults')), { logging: true });
   core.on('event', (ev: AppEvent) => win?.webContents.send(EVENT_CHANNEL, ev));
   await core.start();
   registerIpc();
   createWindow();
 });
 
+process.on('unhandledRejection', (e) => log.error('unhandled rejection: %s', e));
+
 let quitting = false;
 app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
   quitting = true;
-  core.shutdown().finally(() => app.quit());
+  core.shutdown().finally(() => shutdownLogging().finally(() => app.quit()));
 });
 
 app.on('window-all-closed', () => app.quit());

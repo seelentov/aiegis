@@ -820,6 +820,9 @@ export interface EffectiveConfigView {
   settings: { key: string; value: string; source: string }[];
 }
 
+export const LOG_LEVELS = ['error', 'warn', 'info', 'debug', 'trace'] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
 export type AppEvent =
   | { type: 'jobs-changed'; projectId: string }
   | { type: 'runs-changed'; projectId: string }

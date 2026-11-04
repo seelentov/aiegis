@@ -81,6 +81,7 @@ import {
   listRoles,
   loadConfigFile,
   localized,
+  loggingSettings,
   parseConfigText,
   projectConfigDir,
   projectConfigPath,
@@ -95,6 +96,7 @@ import {
   type Settings,
 } from './config/loader';
 import { openDb } from './db';
+import { configureLogging, getLogger } from './log';
 import {
   agentFile,
   checkDocPlan,
@@ -253,6 +255,10 @@ function snapshot(cfg: EffectiveConfig): unknown {
   };
 }
 
+const log = getLogger('core');
+const agentLog = getLogger('agent');
+const scanLog = getLogger('scanners');
+
 /** Everything the app does, independent of Electron (used by the window process and by headless runners). */
 export class Core extends EventEmitter {
   readonly registry: ProjectRegistry;
@@ -275,7 +281,11 @@ export class Core extends EventEmitter {
   private readonly authors = new Map<string, string>();
   private lastSettings: Settings | null = null;
 
-  constructor(readonly paths: AppPaths) {
+  /** `logging`: entry points turn it on; tests stay silent. */
+  constructor(
+    readonly paths: AppPaths,
+    private readonly opts: { logging?: boolean } = {},
+  ) {
     super();
     this.registry = new ProjectRegistry(paths.dataDir);
     this.mcp = new AiegisMcpServer(this.tokens, {
@@ -328,6 +338,8 @@ export class Core extends EventEmitter {
 
   async start(): Promise<void> {
     const sync = ensureGlobalDefaults(this.paths.defaultsDir, this.paths.globalDir);
+    this.applyLogging();
+    log.info('starting: data in %s, %d projects', this.paths.dataDir, this.registry.list().length);
     if (sync.added.length) this.notice('info', `New default settings added to the global config: ${sync.added.join(', ')}`);
     if (sync.updated.length) this.notice('info', `Default files updated: ${sync.updated.join(', ')}`);
     if (sync.outdated.length) {
@@ -347,6 +359,7 @@ export class Core extends EventEmitter {
   }
 
   async shutdown(): Promise<void> {
+    log.info('shutting down');
     for (const job of this.allRunningJobs()) this.queue.stop(job, 'cancelled');
     await Promise.all([...this.activeRuns.values()].map((r) => r.done));
     await Promise.all(this.activeScans.values());
@@ -361,6 +374,7 @@ export class Core extends EventEmitter {
   }
 
   notice(level: 'info' | 'warn' | 'error', text: string, projectId?: string, recheck?: RecheckOffer): void {
+    log[level]('notice: %s', text);
     this.send({ type: 'notice', level, text, projectId, recheck });
   }
 
@@ -406,6 +420,15 @@ export class Core extends EventEmitter {
   }
 
   // --- configuration ---
+
+  private applyLogging(): void {
+    if (!this.opts.logging) return;
+    try {
+      configureLogging(loggingSettings(loadConfigFile(globalConfigPath(this.paths.globalDir))), path.join(this.paths.dataDir, 'logs'));
+    } catch (e) {
+      this.notice('error', `Logging settings: ${(e as Error).message}`);
+    }
+  }
 
   private globalSettings(): Settings {
     try {
@@ -536,7 +559,10 @@ export class Core extends EventEmitter {
     if (abs.endsWith('.yaml')) parseConfigText(text, abs);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, text);
-    if (abs === globalConfigPath(this.paths.globalDir)) this.queue.pump();
+    if (abs === globalConfigPath(this.paths.globalDir)) {
+      this.applyLogging();
+      this.queue.pump();
+    }
   }
 
   // --- jobs ---
@@ -1204,7 +1230,8 @@ export class Core extends EventEmitter {
     if (module) {
       try {
         config = this.effectiveView(projectId, this.taskRole(projectId, STAGE_TASK.verdicts), module.name, { matrix: matrix?.name, item: item?.key });
-      } catch {
+      } catch (e) {
+        log.warn('effective config of a cell: %s', (e as Error).message);
         config = null;
       }
     }
@@ -1830,9 +1857,13 @@ export class Core extends EventEmitter {
     const normalize = NORMALIZERS[sc.format];
     if (!normalize) return { kind: 'failed', error: `scanners.${scanner}.format: unknown format ${sc.format}` };
     const check = await this.checkBinary(sc);
-    if (!check.available) return { kind: 'failed', error: `scanner ${scanner} unavailable: ${check.error}` };
+    if (!check.available) {
+      scanLog.warn('%s unavailable: %s', scanner, check.error);
+      return { kind: 'failed', error: `scanner ${scanner} unavailable: ${check.error}` };
+    }
     const cwd = await this.worktreeCache(p).ensure(sha);
     if (signal.aborted) return { kind: 'cancelled' };
+    scanLog.debug('%s (%s) at %s', scanner, sc.binary, sha);
     const scan = s.signals.startScan({ scanner, format: sc.format, commitSha: sha, targets, jobId: job.id });
     this.send({ type: 'signals-changed', projectId: p.id });
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aiegis-scan-'));
@@ -1861,6 +1892,7 @@ export class Core extends EventEmitter {
       return { kind: 'done' };
     } catch (e) {
       finish('failed', (e as Error).message);
+      scanLog.error('%s failed: %s', scanner, (e as Error).message);
       return { kind: 'failed', error: (e as Error).message };
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
@@ -2436,13 +2468,15 @@ export class Core extends EventEmitter {
     let importHits: string[] | null = null;
     try {
       importHits = (await this.scaPrefilter(projectId, head, [{ moduleId: mod.id, packageKey: pkg.key }])).get(scaPackageEntityId(mod.id, pkg.key)) ?? null;
-    } catch {
+    } catch (e) {
+      log.warn('SCA prefilter: %s', (e as Error).message);
       importHits = null;
     }
     let config: EffectiveConfigView | null = null;
     try {
       config = this.effectiveView(projectId, this.taskRole(projectId, 'sca_reachability'), mod.name);
-    } catch {
+    } catch (e) {
+      log.warn('effective config of an SCA item: %s', (e as Error).message);
       config = null;
     }
     return {
@@ -2772,6 +2806,7 @@ export class Core extends EventEmitter {
       runId,
     );
     s.setJobRun(job.id, runId);
+    agentLog.info('run %s started: job %s, role %s, commit %s', runId, job.id, job.role, sha);
     this.send({ type: 'runs-changed', projectId: p.id });
 
     const terminalId = this.terminals.openStream(p.id, runId, `▶ ${job.title}`);
@@ -2863,7 +2898,7 @@ export class Core extends EventEmitter {
       this.finishRun(p.id, runId, 'failed', zeroUsage(), (e as Error).message);
       throw e;
     } finally {
-      await instance?.stop().catch(() => undefined);
+      await instance?.stop().catch((e: Error) => agentLog.warn('run %s: test instance did not stop: %s', runId, e.message));
       if (check) {
         await check.stop();
         this.pocChecks.delete(p.id);
@@ -2967,6 +3002,8 @@ export class Core extends EventEmitter {
     const s = this.store(projectId);
     s.finishRun(runId, status, usage, error);
     const ok = status === 'succeeded' || status === 'exited';
+    if (status === 'failed') agentLog.error('run %s failed (%d tokens): %s', runId, billableTokens(usage), error);
+    else agentLog.info('run %s finished: %s, %d tokens', runId, status, billableTokens(usage));
     s.finalizeSnapshots(runId, ok);
     s.sca.finalizeInventories(runId, ok);
     const run = s.getRun(runId);
@@ -2999,6 +3036,8 @@ export class Core extends EventEmitter {
     o: { agent: 'claude' | 'pi'; signal: AbortSignal; logPath: string; terminalId: string; maxTokens: number },
   ): Promise<{ status: RunStatus; usage: TokenUsage; error: string | null; rateLimitResetsAt?: number }> {
     return new Promise((resolve) => {
+      // Arguments carry instructions and prompts: never logged.
+      agentLog.debug('%s with %d arguments in %s', cmd.binary, cmd.args.length, cwd);
       const child = spawn(cmd.binary, cmd.args, { cwd, env: { ...(cmd.inherit ? pickEnv(cmd.inherit) : process.env), ...cmd.env }, stdio: ['pipe', 'pipe', 'pipe'] });
       const log = fs.createWriteStream(o.logPath, { flags: 'a' });
       const tracker = o.agent === 'pi' ? new PiStreamTracker() : new StreamTracker();
@@ -3024,9 +3063,11 @@ export class Core extends EventEmitter {
         try {
           ev = JSON.parse(line);
         } catch {
+          agentLog.trace('line that is not JSON');
           this.terminals.append(o.terminalId, line + '\r\n');
           return;
         }
+        agentLog.trace('event %s', ev.type);
         tracker.feed(ev);
         this.terminals.append(o.terminalId, format(ev));
         if (billableTokens(tracker.summary.usage) > o.maxTokens) {
@@ -3105,7 +3146,8 @@ export class Core extends EventEmitter {
     const job = run.jobId ? this.store(projectId).getJob(run.jobId) : undefined;
     try {
       return job ? this.resolveForJob(job) : undefined;
-    } catch {
+    } catch (e) {
+      log.warn('config of run %s: %s', run.id, (e as Error).message);
       return undefined;
     }
   }
@@ -3218,8 +3260,9 @@ export class Core extends EventEmitter {
       const offer = await this.recheckOffer(projectId, before, after, entity?.type === FINDING_ENTITY ? entity.id : null);
       if (offer) this.notice('info', `${text} ${offer.reason}`, projectId, offer);
       else this.notice('info', `${text} No linked matrix cells.`, projectId);
-    } catch {
-      /* repository may be mid-rebase; nothing to report */
+    } catch (e) {
+      // The repository may be mid-rebase: nothing to tell the user.
+      log.warn('recheck offer: %s', (e as Error).message);
     }
   }
 

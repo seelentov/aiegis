@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LANGUAGES } from '../../shared/types';
+import { LANGUAGES, LOG_LEVELS } from '../../shared/types';
 
 /** UI text: one string, or one per UI language (`{ en: ..., ru: ... }`). */
 export const TextSchema = z.union([z.string(), z.record(z.string(), z.string())]);
@@ -87,6 +87,17 @@ export const ConfigFileSchema = z.looseObject({
   ...LevelShape,
   /** Read from the global config only. */
   ui: z.looseObject({ language: z.enum(LANGUAGES).optional() }).optional(),
+  /** Read from the global config only: one process serves all projects. */
+  logging: z
+    .looseObject({
+      level: z.enum(LOG_LEVELS).optional(),
+      categories: z.record(z.string(), z.enum(LOG_LEVELS)).optional(),
+      stderr: z.boolean().optional(),
+      file: z
+        .looseObject({ enabled: z.boolean().optional(), max_size_mb: z.number().positive().optional(), backups: z.number().int().min(0).optional() })
+        .optional(),
+    })
+    .optional(),
   claude: z
     .looseObject({
       binary: z.string().optional(),

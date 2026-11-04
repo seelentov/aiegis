@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { addSecret, removeSecret } from '../log';
 
 export type Access = 'manage' | 'scoped';
 
@@ -53,6 +54,7 @@ export class TokenRegistry {
   issue(g: Omit<Grant, 'token'>): Grant {
     const grant: Grant = { ...g, token: crypto.randomBytes(32).toString('hex') };
     this.grants.set(grant.token, grant);
+    addSecret(grant.token);
     return grant;
   }
 
@@ -62,6 +64,7 @@ export class TokenRegistry {
 
   revoke(token: string): void {
     this.grants.delete(token);
+    removeSecret(token);
   }
 
   /** Returns the grant for an `Authorization: Bearer <token>` header value. */

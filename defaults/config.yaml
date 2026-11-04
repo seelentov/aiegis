@@ -14,6 +14,21 @@
 ui:
   language: en
 
+# App log (global config only): stderr and <data dir>/logs/aiegis.log. Levels: error | warn | info | debug | trace.
+# Tokens, env values, prompts and agent output are never logged; agent output stays in the logs of its run.
+logging:
+  # Level of every category without its own entry below.
+  level: info
+  # Levels of single categories (core, queue, agent, scanners, mcp, git, poc), e.g. `queue: debug`.
+  categories: {}
+  # Write to stderr (journald picks it up under systemd).
+  stderr: true
+  # Log file, rotated by size.
+  file:
+    enabled: true
+    max_size_mb: 10
+    backups: 5
+
 # Coding agent that runs sessions: claude (Claude Code, default) | pi (pi coding agent, see `pi:` below).
 # Model names go to the agent as is: pi resolves `sonnet`/`haiku` by fuzzy match, or use `provider/model`.
 # effort becomes `--effort` (claude) or `--thinking` (pi).

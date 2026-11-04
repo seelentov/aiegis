@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import type { Settings } from './config/loader';
+import { getLogger } from './log';
 
 /** Entity of a PoC tester job and scope of its token (id = finding id). */
 export const POC_ENTITY = 'poc';
@@ -411,8 +412,9 @@ export class PocCheck {
       } catch (e) {
         this.state = 'failed';
         this.error = ctrl.signal.aborted ? 'stopped' : (e as Error).message;
+        getLogger('poc').debug('environment check failed: %s', this.error);
       } finally {
-        await this.instance?.stop().catch(() => undefined);
+        await this.instance?.stop().catch((e: Error) => getLogger('poc').warn('test instance did not stop: %s', e.message));
       }
       if (!ctrl.signal.aborted) this.onDone(this.error, this.output());
     })();

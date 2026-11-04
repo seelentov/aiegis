@@ -33,6 +33,7 @@ import { fileInside, missingInReport, SCA_MODULE_ENTITY, SCA_PACKAGE_ENTITY, sca
 import { hookDecision, POC_ENTITY, POC_ENV_ENTITY, POC_ENV_ID, splitInlinedArg, type PocEnvironment } from '../poc';
 import type { SignalQuery } from '../signals';
 import type { ProjectStore } from '../store';
+import { getLogger } from '../log';
 import { authorize, type Action, type Grant, type TokenRegistry } from './tokens';
 
 export interface McpServices {
@@ -93,10 +94,14 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   const pid = grant.projectId;
   const guard = async (action: Action, fn: () => ToolResult | Promise<ToolResult>): Promise<ToolResult> => {
     const d = authorize(grant, pid, action);
-    if (!d.ok) return fail(`Denied: ${d.reason}`);
+    if (!d.ok) {
+      log.warn('run %s, role %s: denied: %s', grant.runId, grant.role, d.reason);
+      return fail(`Denied: ${d.reason}`);
+    }
     try {
       return await fn();
     } catch (e) {
+      log.warn('run %s, role %s: tool failed: %s', grant.runId, grant.role, (e as Error).message);
       return fail((e as Error).message);
     }
   };
@@ -1124,6 +1129,8 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   return server;
 }
 
+const log = getLogger('mcp');
+
 function readBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -1168,12 +1175,14 @@ export class AiegisMcpServer {
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
       this.handle(req, res).catch((e) => {
+        log.error('request %s failed: %s', req.url, e);
         if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: String(e) }));
       });
     });
     await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve));
     this.port = (this.server.address() as AddressInfo).port;
+    log.info('listening on 127.0.0.1:%d', this.port);
   }
 
   async stop(): Promise<void> {
@@ -1190,6 +1199,7 @@ export class AiegisMcpServer {
     }
     const grant = this.tokens.fromHeader(req.headers.authorization);
     if (!grant) {
+      log.warn('request with an invalid token');
       res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'invalid token' }));
       return;
     }
@@ -1198,6 +1208,8 @@ export class AiegisMcpServer {
       return;
     }
     const body = await readBody(req);
+    const call = body as { method?: string; params?: { name?: string } } | undefined;
+    log.debug('run %s: %s %s', grant.runId, call?.method, call?.params?.name ?? '');
     const server = buildServer(grant, this.svc, this.checks);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
@@ -1216,6 +1228,7 @@ export class AiegisMcpServer {
       return;
     }
     const reason = hookDecision(grant.baseUrl, ((await readBody(req)) ?? {}) as Parameters<typeof hookDecision>[1]);
+    if (reason) log.warn('run %s: the PreToolUse hook denied a tool call', grant.runId);
     const out = reason ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } } : {};
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out));
   }

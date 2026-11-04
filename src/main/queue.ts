@@ -1,5 +1,8 @@
 import { EventEmitter } from 'node:events';
 import type { Job, JobStatus, QueueState } from '../shared/types';
+import { getLogger } from './log';
+
+const log = getLogger('queue');
 
 export type JobOutcome =
   | { kind: 'done' }
@@ -75,6 +78,7 @@ export class JobQueue extends EventEmitter {
   }
 
   resume(): void {
+    log.info('resumed');
     this.pausedUntilMs = null;
     this.cancelTimer?.();
     this.cancelTimer = null;
@@ -96,6 +100,7 @@ export class JobQueue extends EventEmitter {
         this.emit('changed');
       }
       const limit = this.opts.parallelism();
+      log.trace('pump: %d running, limit %d', this.running.size, limit);
       for (const job of this.backend.queued()) {
         if (this.running.size >= limit) break;
         if (this.running.has(job.id)) continue;
@@ -122,6 +127,7 @@ export class JobQueue extends EventEmitter {
   private start(job: Job): void {
     const ctrl = new AbortController();
     this.running.set(job.id, { job, ctrl });
+    log.info('job %s started: project %s, role %s', job.id, job.projectId, job.role);
     this.backend.setStatus(job, 'running');
     this.emit('changed');
     let outcome: Promise<JobOutcome>;
@@ -137,6 +143,9 @@ export class JobQueue extends EventEmitter {
 
   private finish(job: Job, o: JobOutcome): void {
     this.running.delete(job.id);
+    if (o.kind === 'failed') log.error('job %s failed: %s', job.id, o.error);
+    else if (o.kind === 'rate_limited') log.warn('job %s hit the rate limit, the queue pauses until %s', job.id, new Date(o.resetsAt ?? this.now() + this.opts.fallbackPauseMs()).toISOString());
+    else log.info('job %s finished: %s', job.id, o.kind);
     switch (o.kind) {
       case 'done':
         this.backend.setStatus(job, 'done');

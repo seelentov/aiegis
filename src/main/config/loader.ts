@@ -4,6 +4,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { ConfigFileSchema, SETTINGS_KEYS, type ConfigFile, type Level, type Text } from './schema';
 import type { Language } from '../../shared/types';
+import type { LoggingSettings } from '../log';
 import type { PocAccount } from '../poc';
 import { mergeSettings, resolveLevels, type EffectiveLevel, type Layer, type ReadText, type SourceMap } from './cascade';
 
@@ -63,6 +64,16 @@ export function loadConfigFile(file: string): LoadedFile {
 /** UI language from the global config. */
 export function uiLanguage(global: LoadedFile): Language {
   return global.data.ui?.language ?? 'en';
+}
+
+/** Logging settings from the global config. */
+export function loggingSettings(global: LoadedFile): LoggingSettings {
+  const { level, categories, stderr, file } = global.data.logging ?? {};
+  const { enabled, max_size_mb, backups } = file ?? {};
+  if (level === undefined || categories === undefined || stderr === undefined || enabled === undefined || max_size_mb === undefined || backups === undefined) {
+    throw new ConfigError('logging: level, categories, stderr, file.enabled, file.max_size_mb and file.backups must be set');
+  }
+  return { level, categories, stderr, file: { enabled, max_size_mb, backups } };
 }
 
 /** Picks the text for the UI language; falls back to English, then to any variant. */

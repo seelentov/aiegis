@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Module, RawFinding, Severity, Suppression, SuppressionState } from '../shared/types';
 import { SEVERITIES } from '../shared/types';
+import { getLogger } from './log';
 import { matchesGlobs } from './matrix';
 
 /** Job/entity type of a scanner run (id = `<scanner>@<sha>:<targets key>`). */
@@ -94,7 +95,9 @@ export function matchesRequirement(f: Pick<RawFinding, 'kind' | 'cwe' | 'ruleId'
   return (filter.rules ?? []).some((r) => {
     try {
       return new RegExp(r, 'i').test(f.ruleId);
-    } catch {
+    } catch (e) {
+      // Per finding: a bad pattern would flood `warn`.
+      getLogger('scanners').debug('invalid rule pattern %s: %s', r, (e as Error).message);
       return false;
     }
   });
