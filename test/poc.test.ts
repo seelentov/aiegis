@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { accountsText, allowedHost, checkScriptNames, OutputLog, pickEnv, splitInlinedArg, hookDecision, PocInstance, pocEnvironment, resolveSecrets, secretEnvName, testerSettings, piSandboxConfig, withEnvironment } from '../src/main/poc';
+import { accountsText, allowedHost, checkScriptNames, OutputLog, pickEnv, splitInlinedArg, hookDecision, needsBashEnv, PocInstance, pocEnvironment, resolveSecrets, secretEnvName, testerSettings, piSandboxConfig, withEnvironment } from '../src/main/poc';
 import { tmpDir } from './helpers';
 
 const base = { start_timeout_sec: 5, healthcheck_interval_sec: 1, stop_timeout_sec: 5, check_wait_max_sec: 5, env_passthrough: [], claude_settings: {}, pi_sandbox: {} };
@@ -145,5 +145,19 @@ describe('array argument inlined into text', () => {
   it('leaves plain text and broken JSON alone', () => {
     expect(splitInlinedArg('plain summary', 'steps')).toBeNull();
     expect(splitInlinedArg('x</parameter><parameter name="steps">[{"action": ', 'steps')).toBeNull();
+  });
+});
+
+describe('BASH_ENV of tester sessions', () => {
+  it('is needed on Linux for a local instance only', () => {
+    for (const url of ['http://127.0.0.1:8080', 'http://localhost:8080/api', 'http://[::1]:8080']) expect(needsBashEnv(url, 'linux')).toBe(true);
+    expect(needsBashEnv('https://staging.example.com', 'linux')).toBe(false);
+    expect(needsBashEnv('http://127.0.0.1:8080', 'darwin')).toBe(false);
+  });
+
+  it('goes to the settings, next to their own env', () => {
+    const hook = { url: 'http://127.0.0.1:1/h', headerFile: '/h' };
+    expect(testerSettings({ env: { A: '1' } }, 'http://127.0.0.1:8', hook, '/f').env).toEqual({ A: '1', BASH_ENV: '/f' });
+    expect(testerSettings({}, 'http://127.0.0.1:8', hook).env).toBeUndefined();
   });
 });

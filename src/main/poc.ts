@@ -152,8 +152,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typ
  * sandbox network allowlist and a PreToolUse hook that asks the app about every command (SPEC §3). The hook is a
  * `curl` command, not an `http` hook: Claude Code sends http hooks through the sandbox proxy, which refuses the app's port.
  */
-export function testerSettings(base: Record<string, unknown>, baseUrl: string, hook: { url: string; headerFile: string }): Record<string, unknown> {
+export function testerSettings(base: Record<string, unknown>, baseUrl: string, hook: { url: string; headerFile: string }, bashEnvFile?: string): Record<string, unknown> {
   const out = structuredClone(base);
+  if (bashEnvFile) out.env = { ...(isObject(out.env) ? out.env : {}), BASH_ENV: bashEnvFile };
   const sandbox = isObject(out.sandbox) ? out.sandbox : (out.sandbox = {});
   const network = isObject(sandbox.network) ? sandbox.network : (sandbox.network = {});
   const domains = Array.isArray(network.allowedDomains) ? network.allowedDomains : [];
@@ -163,6 +164,19 @@ export function testerSettings(base: Record<string, unknown>, baseUrl: string, h
   const args = ['-sS', '--fail', '--noproxy', '*', '-X', 'POST', '-H', 'content-type: application/json', '-H', `@${hook.headerFile}`, '--data-binary', '@-', hook.url];
   hooks.PreToolUse = [...pre, { matcher: 'Bash|WebFetch', hooks: [{ type: 'command', command: 'curl', args, onFailure: 'block', timeout: 10 }] }];
   return out;
+}
+
+/**
+ * On Linux the sandbox has its own network namespace: a local instance is reachable only through the sandbox proxy,
+ * whose allowlist names the base URL's host:port, but the sandbox's NO_PROXY sends loopback requests past it. Bash runs
+ * this file (`BASH_ENV`) before every command, so children of the command are covered too; prefixing the command is not
+ * an option: Claude Code denies a compound command that expands a variable, and the tester passes secrets that way.
+ * shortcut: covers bash only, a tester session under another SHELL still cannot reach a local instance; set it to bash then.
+ */
+export const BASH_ENV_TEXT = 'unset NO_PROXY no_proxy\n';
+
+export function needsBashEnv(baseUrl: string, platform: string = process.platform): boolean {
+  return platform === 'linux' && ['localhost', '127.0.0.1', '[::1]'].includes(new URL(baseUrl).hostname);
 }
 
 /**

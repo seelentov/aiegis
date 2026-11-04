@@ -138,6 +138,16 @@ TimeoutStopSec=120
 WantedBy=multi-user.target
 ```
 
+PoC-тестировщику на Linux нужна песочница: `socat` и `bubblewrap`, а на Ubuntu 24.04 ещё и профиль AppArmor, иначе `bwrap` падает с `Failed RTM_NEWADDR: Operation not permitted`:
+
+```bash
+sudo apt install bubblewrap socat
+printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n' | sudo tee /etc/apparmor.d/bwrap
+sudo apparmor_parser -r /etc/apparmor.d/bwrap
+```
+
+Секреты тестовых аккаунтов на Linux задаются только через `env` (в unit-файле — `Environment=` или `EnvironmentFile=`): Keychain есть лишь на macOS. Оболочкой пользователя сервиса должен быть bash. Если `claude` не находится, укажите полный путь в `claude.binary`.
+
 Логи: stderr (`journalctl -u aiegis`) и `<каталог данных>/logs/aiegis.log`, настройка — секция `logging` в `~/.aiegis/config.yaml`.
 
 ## Разработка

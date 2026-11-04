@@ -152,6 +152,8 @@ import {
   pocEnvironment,
   resolveSecrets,
   piSandboxConfig,
+  BASH_ENV_TEXT,
+  needsBashEnv,
   testerSettings,
   withEnvironment,
   writeScripts,
@@ -1649,16 +1651,18 @@ export class Core extends EventEmitter {
   }
 
   /** Files of a tester session: `--settings` (sandbox, allowlist, hook) and the hook's auth header with the run token. */
-  private testerFiles(projectId: string, runId: string): { settings: string; header: string } {
+  private testerFiles(projectId: string, runId: string): { settings: string; header: string; bashEnv: string } {
     const dir = path.join(projectDataDir(this.paths, projectId), 'mcp');
-    return { settings: path.join(dir, `${runId}.settings.json`), header: path.join(dir, `${runId}.hook-header`) };
+    return { settings: path.join(dir, `${runId}.settings.json`), header: path.join(dir, `${runId}.hook-header`), bashEnv: path.join(dir, `${runId}.bash-env`) };
   }
 
   private writeTesterSettings(projectId: string, runId: string, cfg: EffectiveConfig, baseUrl: string, token: string): string {
     const f = this.testerFiles(projectId, runId);
     fs.mkdirSync(path.dirname(f.settings), { recursive: true, mode: 0o700 });
     fs.writeFileSync(f.header, `Authorization: Bearer ${token}\n`, { mode: 0o600 });
-    const settings = testerSettings(cfg.settings.poc.claude_settings, baseUrl, { url: this.mcp.hookUrl(), headerFile: f.header });
+    const bashEnv = needsBashEnv(baseUrl) ? f.bashEnv : undefined;
+    if (bashEnv) fs.writeFileSync(bashEnv, BASH_ENV_TEXT, { mode: 0o600 });
+    const settings = testerSettings(cfg.settings.poc.claude_settings, baseUrl, { url: this.mcp.hookUrl(), headerFile: f.header }, bashEnv);
     fs.writeFileSync(f.settings, JSON.stringify(settings), { mode: 0o600 });
     return f.settings;
   }
