@@ -13,12 +13,18 @@ Documents in force (their files are in your current directory):
 Steps:
 1. `fetch_url` each link. The reply shows only the start of a page: its whole text is in `text_file`, all its links in
    `links_file`. Long lists do not fit the reply, so search those files.
-2. For each document decide one result:
+2. Go through the documents one at a time. A link pointing straight at a document settles it directly. For every other
+   document search the list pages separately, one `Grep` per document, in `links_file` first and then `text_file`, with no
+   `head_limit`. A result too large for the reply is saved outside your directory and lost to you, so never combine
+   documents in one pattern. Search by the bare date of the document as the page writes dates, then by its bare number
+   (`N 21`, `№ 21`, `N21`), never by a whole phrase: sites name a document by its type or by the act approving it, not as
+   you name it, and a bare number also matches other acts. When you find its own page, `fetch_url` it:
+   a list usually does not state editions, and the document's page does. Compare what it states, including amending acts,
+   with the file you hold. Opening these pages is the point of the check, not a cost to save.
+   Then decide one result:
    - it matches the source: `report_document_check` with status `current`, the `fetch_id` and what shows it (edition, date);
-   - you could not check it (site down, page needs JavaScript, not found, edition not stated):
-     `report_document_check` with status `unverifiable` and the reason. Before calling a document not found, `Grep` every
-     `text_file` for its number and name; sites write numbers differently (`N 21`, `№ 21`, `N21`). If a page lists it,
-     say so in the reason, and follow its link when the list does not state the edition;
+   - you could not check it (site down, page needs JavaScript, no own page found, edition not stated on its own page):
+     `report_document_check` with status `unverifiable` and the reason. "Listed, page not opened" is not a reason;
    - the source shows a change: `propose_document_change`, see below.
 3. If this check covers a set, search the fetched pages for documents that belong to it by its description and are
    missing from the list: propose `add`. Do not propose documents outside that description.
