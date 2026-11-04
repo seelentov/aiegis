@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import { ConfigFileSchema, SETTINGS_KEYS, type ConfigFile, type Level, type Text } from './schema';
 import type { Language } from '../../shared/types';
 import type { LoggingSettings } from '../log';
+import type { FetchSettings } from '../doc-fetch';
 import type { PocAccount } from '../poc';
 import { mergeSettings, resolveLevels, type EffectiveLevel, type Layer, type ReadText, type SourceMap } from './cascade';
 
@@ -124,6 +125,19 @@ export interface Settings {
     prefilter_max_file_kb: number;
     report_max_mb: number;
   };
+  doc_refresh: FetchSettings & {
+    /** Start of a page's text returned by `fetch_url`; the rest is read from its file. */
+    page_preview_chars: number;
+    max_links: number;
+    /** A page with less text probably needs JavaScript. */
+    js_page_min_chars: number;
+    /** Share of paragraphs of a text rewritten by AI that must be found on the page. */
+    restored_min_coverage: number;
+    /** An update adding no paragraph and removing at most this many lines is no change. */
+    same_text_max_removed_lines: number;
+    estimate_history_runs: number;
+    estimate_tokens: number;
+  };
   poc: {
     start_timeout_sec: number;
     healthcheck_interval_sec: number;
@@ -163,7 +177,7 @@ export function scannerSettings(settings: Settings, name: string): ScannerSettin
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
@@ -221,6 +235,7 @@ const REQUIRED_SETTINGS: string[] = [
   'sca.scanner_hints_limit',
   'sca.prefilter_max_file_kb',
   'sca.report_max_mb',
+  ...['max_bytes', 'timeout_sec', 'max_redirects', 'user_agent', 'allow_private_addresses', 'page_preview_chars', 'max_links', 'js_page_min_chars', 'restored_min_coverage', 'same_text_max_removed_lines', 'estimate_history_runs', 'estimate_tokens'].map((k) => `doc_refresh.${k}`),
   'poc.start_timeout_sec',
   'poc.healthcheck_interval_sec',
   'poc.stop_timeout_sec',

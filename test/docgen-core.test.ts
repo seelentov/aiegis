@@ -56,6 +56,8 @@ describe('AI-written security documents with a fake claude', () => {
     expect(String(plan.payload.prompt)).toContain('focus on tokens');
     expect(String(plan.payload.prompt)).toContain('- svc (module_id');
     expect((await settled(plan.id)).status).toBe('done');
+    const planSet = core.listDocSets(pid).find((s) => s.generated)!;
+    expect(planSet).toMatchObject({ name: 'Demo security', links: [] });
     // The plan with an unknown module was rejected, the second one was accepted.
     expect(fs.readFileSync(core.store(pid).getRun(core.store(pid).getJob(plan.id)!.lastRunId!)!.logPath!, 'utf8')).toContain('unknown modules nope');
 

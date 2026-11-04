@@ -41,6 +41,13 @@ const server = new AiegisMcpServer(tokens, {
   pocCheck: () => {
     throw new Error('not used here');
   },
+  docRefreshFetch: () => Promise.reject(new Error('not used here')),
+  docRefreshReport: () => {
+    throw new Error('not used here');
+  },
+  docRefreshPropose: () => {
+    throw new Error('not used here');
+  },
   saveDocPlan: () => {
     throw new Error('not used here');
   },

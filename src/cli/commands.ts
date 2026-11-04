@@ -1,5 +1,5 @@
 import type { AiegisApi, CoreMethod } from '../shared/api';
-import { FINDING_STATUSES, SCA_STATUSES, SEVERITIES, SUPPRESSION_SCOPES, VERDICT_STATUSES, type Evidence, type FindingInput, type MatrixScope, type MatrixSlice, type MatrixStage, type ReviewState, type SuppressionInput } from '../shared/types';
+import { FINDING_STATUSES, SCA_STATUSES, SEVERITIES, SUPPRESSION_SCOPES, VERDICT_STATUSES, type DocRefreshTarget, type Evidence, type FindingInput, type MatrixScope, type MatrixSlice, type MatrixStage, type ReviewState, type SuppressionInput } from '../shared/types';
 
 /** Parsed command line of one command. */
 export interface Input {
@@ -38,6 +38,13 @@ export interface Command {
 function oneOf<T extends string>(value: string | undefined, allowed: readonly T[], what: string): T {
   if (!allowed.includes(value as T)) throw new Error(`${what} must be one of: ${allowed.join(', ')}`);
   return value as T;
+}
+
+function refreshTarget(a: Input): DocRefreshTarget {
+  const setId = a.one('set');
+  const documentId = a.one('document');
+  if (Boolean(setId) === Boolean(documentId)) throw new Error('pass one of --set and --document');
+  return setId ? { setId } : { documentId: documentId! };
 }
 
 function required(a: Input, flag: string): string {
@@ -147,10 +154,50 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   listDocuments: { name: 'doc list', usage: '', help: 'List documents', columns: ['id', 'title', 'current.status'], run: (_a, c) => c.call('listDocuments', c.pid()) },
   importDocument: {
     name: 'doc import',
-    usage: '<file> [--title <text>] [--document <id>]',
+    usage: '<file> [--title <text>] [--document <id>] [--set <id>] [--source <url>] [--insecure]',
     help: 'Upload a document, or a new version of one; queues requirement extraction',
-    run: (a, c) => c.call('importDocument', c.pid(), c.abs(a.pos[0]), { documentId: a.one('document'), title: a.one('title') }),
+    run: (a, c) => c.call('importDocument', c.pid(), c.abs(a.pos[0]), { documentId: a.one('document'), title: a.one('title'), setId: a.one('set'), source: a.one('source') ? { url: a.one('source')!, insecure: a.has('insecure') } : undefined }),
   },
+  listDocSets: { name: 'doc-set list', usage: '', help: 'List document sets', columns: ['id', 'name', 'links.length'], run: (_a, c) => c.call('listDocSets', c.pid()) },
+  saveDocSet: {
+    name: 'doc-set save',
+    usage: '<name> [--id <set>] [--scope <text>] [--link <url>] [--insecure-link <url>] [--document <id>]',
+    help: 'Create or update a document set; --insecure-link does not verify the certificate of that host; --document lists its whole membership',
+    run: (a, c) =>
+      c.call('saveDocSet', c.pid(), {
+        id: a.one('id'),
+        name: a.pos[0],
+        scope: a.one('scope') ?? '',
+        links: [...a.all('link').map((url) => ({ url, insecure: false })), ...a.all('insecure-link').map((url) => ({ url, insecure: true }))],
+        documentIds: a.has('document') ? a.all('document') : undefined,
+      }),
+  },
+  removeDocSet: { name: 'doc-set remove', usage: '<set>', help: 'Remove a set; its documents stay, outside any set', run: (a, c) => c.call('removeDocSet', c.pid(), a.pos[0]) },
+  setDocumentSet: { name: 'doc-set assign', usage: '<document> [--set <id>]', help: 'Move a document to a set, or out of any set without --set', run: (a, c) => c.call('setDocumentSet', c.pid(), a.pos[0], a.one('set') ?? null) },
+  setDocumentSource: {
+    name: 'doc source',
+    usage: '<document> [url] [--insecure]',
+    help: 'Set the link of a document, or clear it; --insecure does not verify the certificate of its host',
+    run: (a, c) => c.call('setDocumentSource', c.pid(), a.pos[0], a.pos[1] ? { url: a.pos[1], insecure: a.has('insecure') } : null),
+  },
+  retireDocument: { name: 'doc retire', usage: '<document> <reason>', help: 'Take a document out of force: it leaves matrices and checks, history stays', run: (a, c) => c.call('retireDocument', c.pid(), a.pos[0], a.pos[1]) },
+  restoreDocument: { name: 'doc restore', usage: '<document>', help: 'Bring a document back into force', run: (a, c) => c.call('restoreDocument', c.pid(), a.pos[0]) },
+  estimateDocRefresh: { name: 'doc check-estimate', usage: '(--set <id> | --document <id>)', help: 'Estimate a document check; nothing runs', run: (a, c) => c.call('estimateDocRefresh', c.pid(), refreshTarget(a)) },
+  refreshDocuments: {
+    name: 'doc check',
+    usage: '(--set <id> | --document <id>) [--force]',
+    help: 'Check a set or one document against its links; without AI when the sources did not change, unless --force',
+    run: (a, c) => c.call('refreshDocuments', c.pid(), refreshTarget(a), { force: a.has('force') }),
+  },
+  listDocProposals: { name: 'doc-proposal list', usage: '', help: 'List changes proposed by document checks', columns: ['id', 'kind', 'status', 'title', 'edition', 'url'], run: (_a, c) => c.call('listDocProposals', c.pid()) },
+  acceptDocProposal: {
+    name: 'doc-proposal accept',
+    usage: '<proposal> [--matrix <id>]',
+    help: 'Apply a proposal; a new document joins the given matrices, by default those with documents of its set',
+    run: (a, c) => c.call('acceptDocProposal', c.pid(), a.pos[0], { matrixIds: a.has('matrix') ? a.all('matrix') : undefined }),
+  },
+  rejectDocProposal: { name: 'doc-proposal reject', usage: '<proposal> [reason]', help: 'Reject a proposal; it is not proposed again while the source stays the same', run: (a, c) => c.call('rejectDocProposal', c.pid(), a.pos[0], a.pos[1] ?? '') },
+  acceptAllDocAdditions: { name: 'doc-proposal accept-additions', usage: '<set>', help: 'Apply all additions to an empty set', run: (a, c) => c.call('acceptAllDocAdditions', c.pid(), a.pos[0]) },
   enqueueDocPlan: { name: 'doc plan', usage: '[--hint <text>]', help: 'Queue AI-written security documents', run: (a, c) => c.call('enqueueDocPlan', c.pid(), a.one('hint') ?? '') },
   regenerateDocument: { name: 'doc rewrite', usage: '<document> [--hint <text>]', help: 'Queue a rewrite of an AI-written document', run: (a, c) => c.call('regenerateDocument', c.pid(), a.pos[0], a.one('hint') ?? '') },
   docVersion: { name: 'doc show', usage: '<version>', help: 'Show a document version with its items', run: (a, c) => c.call('docVersion', c.pid(), a.pos[0]) },

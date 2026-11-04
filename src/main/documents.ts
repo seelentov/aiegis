@@ -64,6 +64,8 @@ export function sourceFile(dir: string): string | null {
 /** Generated security documents (SPEC §22): a plan job splits the application into documents, one job writes each. */
 export const DOC_PLAN_ENTITY = 'doc_plan';
 export const DOC_GEN_ENTITY = 'doc_gen';
+/** A check of a set (`set:<id>`) or of one document (`doc:<id>`) against its links (SPEC §24). */
+export const DOC_REFRESH_ENTITY = 'doc_refresh';
 
 
 /**

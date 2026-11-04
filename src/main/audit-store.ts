@@ -2,7 +2,13 @@ import crypto from 'node:crypto';
 import type { DB } from './db';
 import type {
   DocFormat,
+  DocCheck,
+  DocLink,
   DocPlanEntry,
+  DocProposal,
+  DocProposalKind,
+  DocProposalStatus,
+  DocSet,
   DocumentSummary,
   DocVersion,
   DocVersionStatus,
@@ -51,6 +57,42 @@ function toVersion(r: Row): DocVersion {
     createdAt: r.created_at as string,
     approvedAt: (r.approved_at as string) ?? null,
     approvedBy: (r.approved_by as string) ?? null,
+  };
+}
+
+function toSet(r: Row): DocSet {
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    scope: r.scope as string,
+    links: JSON.parse(r.links as string) as DocLink[],
+    generated: Boolean(r.generated),
+    createdAt: r.created_at as string,
+  };
+}
+
+function toProposal(r: Row): DocProposal {
+  return {
+    id: r.id as string,
+    target: r.target as string,
+    setId: (r.set_id as string) ?? null,
+    documentId: (r.document_id as string) ?? null,
+    kind: r.kind as DocProposalKind,
+    status: r.status as DocProposalStatus,
+    title: (r.title as string) ?? null,
+    edition: (r.edition as string) ?? null,
+    url: (r.url as string) ?? null,
+    reason: r.reason as string,
+    quote: (r.quote as string) ?? null,
+    quoteUrl: (r.quote_url as string) ?? null,
+    unverifiedChannel: Boolean(r.unverified_channel),
+    restored: Boolean(r.restored),
+    coverage: (r.coverage as number) ?? null,
+    versionId: (r.version_id as string) ?? null,
+    resultDocumentId: (r.result_document_id as string) ?? null,
+    createdAt: r.created_at as string,
+    decidedAt: (r.decided_at as string) ?? null,
+    decisionNote: (r.decision_note as string) ?? null,
   };
 }
 
@@ -193,6 +235,140 @@ export class AuditStore {
     this.db.prepare('UPDATE documents SET generated = ? WHERE id = ?').run(JSON.stringify(entry), id);
   }
 
+  getDocument(id: string): DocumentSummary | undefined {
+    return this.listDocuments().find((d) => d.id === id);
+  }
+
+  setDocumentSet(id: string, setId: string | null): void {
+    this.db.prepare('UPDATE documents SET set_id = ? WHERE id = ?').run(setId, id);
+  }
+
+  setDocumentSource(id: string, source: DocLink | null): void {
+    this.db.prepare('UPDATE documents SET source = ? WHERE id = ?').run(source ? JSON.stringify(source) : null, id);
+  }
+
+  setDocumentEdition(id: string, edition: string): void {
+    this.db.prepare('UPDATE documents SET edition = ? WHERE id = ?').run(edition, id);
+  }
+
+  setDocumentCheck(id: string, check: DocCheck): void {
+    this.db.prepare('UPDATE documents SET last_check = ? WHERE id = ?').run(JSON.stringify(check), id);
+  }
+
+  setDocumentReplaces(id: string, replaces: string): void {
+    this.db.prepare('UPDATE documents SET replaces = ? WHERE id = ?').run(replaces, id);
+  }
+
+  /** Out of force or back: requirements follow through `currentItem` and `currentVersion`. */
+  setDocumentRetired(id: string, reason: string | null): void {
+    this.db.prepare('UPDATE documents SET retired_at = ?, retired_reason = ? WHERE id = ?').run(reason === null ? null : now(), reason, id);
+  }
+
+  // --- document sets and refresher proposals (SPEC §24) ---
+
+  listDocSets(): DocSet[] {
+    return (this.db.prepare('SELECT * FROM doc_sets ORDER BY name').all() as Row[]).map(toSet);
+  }
+
+  getDocSet(id: string): DocSet | undefined {
+    const r = this.db.prepare('SELECT * FROM doc_sets WHERE id = ?').get(id) as Row | undefined;
+    return r && toSet(r);
+  }
+
+  saveDocSet(s: { id?: string; name: string; scope: string; links: DocLink[]; generated?: boolean }): DocSet {
+    const name = s.name.trim();
+    if (!name) throw new Error('empty set name');
+    const clash = this.db.prepare('SELECT id FROM doc_sets WHERE name = ?').get(name) as { id: string } | undefined;
+    if (clash && clash.id !== s.id) throw new Error(`set ${name} already exists`);
+    const id = s.id ?? crypto.randomUUID();
+    if (s.id) {
+      if (!this.db.prepare('UPDATE doc_sets SET name = ?, scope = ?, links = ? WHERE id = ?').run(name, s.scope, JSON.stringify(s.links), id).changes) throw new Error(`set ${s.id} not found`);
+    } else {
+      this.db.prepare('INSERT INTO doc_sets (id, name, scope, links, generated, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, s.scope, JSON.stringify(s.links), s.generated ? 1 : 0, now());
+    }
+    return this.getDocSet(id)!;
+  }
+
+  removeDocSet(id: string): void {
+    this.db.prepare('UPDATE documents SET set_id = NULL WHERE set_id = ?').run(id);
+    this.db.prepare('DELETE FROM doc_sets WHERE id = ?').run(id);
+  }
+
+  listDocProposals(): DocProposal[] {
+    return (this.db.prepare('SELECT * FROM doc_proposals ORDER BY created_at DESC, rowid DESC').all() as Row[]).map(toProposal);
+  }
+
+  getDocProposal(id: string): (DocProposal & { file: string | null; sha256: string | null }) | undefined {
+    const r = this.db.prepare('SELECT * FROM doc_proposals WHERE id = ?').get(id) as Row | undefined;
+    return r && { ...toProposal(r), file: (r.file as string) ?? null, sha256: (r.sha256 as string) ?? null };
+  }
+
+  /** Newest proposal with the same identity: a change is not proposed twice while the source stays the same. */
+  proposalByKey(key: string): DocProposal | undefined {
+    const r = this.db.prepare('SELECT * FROM doc_proposals WHERE dedupe_key = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(key) as Row | undefined;
+    return r && toProposal(r);
+  }
+
+  proposalOfVersion(versionId: string): DocProposal | null {
+    const r = this.db.prepare('SELECT * FROM doc_proposals WHERE version_id = ?').get(versionId) as Row | undefined;
+    return r ? toProposal(r) : null;
+  }
+
+  addDocProposal(p: {
+    id: string;
+    target: string;
+    setId: string | null;
+    documentId: string | null;
+    kind: DocProposalKind;
+    dedupeKey: string;
+    title: string | null;
+    edition: string | null;
+    url: string | null;
+    reason: string;
+    quote: string | null;
+    quoteUrl: string | null;
+    file: string | null;
+    sha256: string | null;
+    unverifiedChannel: boolean;
+    restored: boolean;
+    coverage: number | null;
+    runId: string;
+  }): DocProposal {
+    this.db
+      .prepare(
+        `INSERT INTO doc_proposals (id, target, set_id, document_id, kind, status, dedupe_key, title, edition, url, reason, quote, quote_url, file, sha256, unverified_channel, restored, coverage, run_id, created_at)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(p.id, p.target, p.setId, p.documentId, p.kind, p.dedupeKey, p.title, p.edition, p.url, p.reason, p.quote, p.quoteUrl, p.file, p.sha256, p.unverifiedChannel ? 1 : 0, p.restored ? 1 : 0, p.coverage, p.runId, now());
+    return this.getDocProposal(p.id)!;
+  }
+
+  decideDocProposal(id: string, status: Exclude<DocProposalStatus, 'pending'>, d: { note?: string; versionId?: string | null; resultDocumentId?: string | null } = {}): void {
+    this.db
+      .prepare('UPDATE doc_proposals SET status = ?, decided_at = ?, decision_note = ?, version_id = ?, result_document_id = ? WHERE id = ?')
+      .run(status, now(), d.note ?? null, d.versionId ?? null, d.resultDocumentId ?? null, id);
+  }
+
+  /** Proposals made by a run. */
+  proposalsOfRun(runId: string): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM doc_proposals WHERE run_id = ?').get(runId) as { n: number }).n;
+  }
+
+  refreshBaseline(target: string): { fingerprint: string; sources: { url: string; hash: string | null }[]; results: Record<string, string> } | undefined {
+    const r = this.db.prepare('SELECT * FROM doc_refresh_baselines WHERE target = ?').get(target) as Row | undefined;
+    return r && { fingerprint: r.fingerprint as string, sources: JSON.parse(r.sources as string), results: JSON.parse(r.results as string) };
+  }
+
+  saveRefreshBaseline(target: string, fingerprint: string, sources: { url: string; hash: string | null }[], results: Record<string, string>): void {
+    this.db
+      .prepare('INSERT INTO doc_refresh_baselines (target, fingerprint, sources, results, checked_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(target) DO UPDATE SET fingerprint = excluded.fingerprint, sources = excluded.sources, results = excluded.results, checked_at = excluded.checked_at')
+      .run(target, fingerprint, JSON.stringify(sources), JSON.stringify(results), now());
+  }
+
+  deleteRefreshBaseline(target: string): void {
+    this.db.prepare('DELETE FROM doc_refresh_baselines WHERE target = ?').run(target);
+  }
+
   getDocumentTitle(id: string): string | undefined {
     return (this.db.prepare('SELECT title FROM documents WHERE id = ?').get(id) as { title: string } | undefined)?.title;
   }
@@ -209,6 +385,13 @@ export class AuditStore {
         versions: vs,
         current: vs.find((v) => v.status === 'approved') ?? null,
         generated: d.generated ? (JSON.parse(d.generated as string) as DocPlanEntry) : null,
+        setId: (d.set_id as string) ?? null,
+        source: d.source ? (JSON.parse(d.source as string) as DocLink) : null,
+        edition: (d.edition as string) ?? null,
+        lastCheck: d.last_check ? (JSON.parse(d.last_check as string) as DocCheck) : null,
+        retiredAt: (d.retired_at as string) ?? null,
+        retiredReason: (d.retired_reason as string) ?? null,
+        replaces: (d.replaces as string) ?? null,
       };
     });
   }
@@ -230,9 +413,9 @@ export class AuditStore {
     this.db.prepare('UPDATE doc_versions SET status = ? WHERE id = ?').run(status, id);
   }
 
-  /** Latest approved version of a document. */
+  /** Latest approved version of a document in force. */
   currentVersion(documentId: string): DocVersion | undefined {
-    const r = this.db.prepare(`${VERSION_SELECT} WHERE v.document_id = ? AND v.status = 'approved' ORDER BY v.n DESC LIMIT 1`).get(documentId) as
+    const r = this.db.prepare(`${VERSION_SELECT} WHERE v.document_id = ? AND v.status = 'approved' AND (SELECT retired_at FROM documents WHERE id = v.document_id) IS NULL ORDER BY v.n DESC LIMIT 1`).get(documentId) as
       | Row
       | undefined;
     return r && toVersion(r);
@@ -352,6 +535,7 @@ export class AuditStore {
       .prepare(
         `SELECT i.* FROM req_items i JOIN doc_versions v ON v.id = i.version_id
          WHERE i.requirement_id = ? AND i.review = 'accepted' AND v.status = 'approved'
+           AND (SELECT retired_at FROM documents WHERE id = v.document_id) IS NULL
            AND v.n = (SELECT MAX(n) FROM doc_versions WHERE document_id = v.document_id AND status = 'approved')`,
       )
       .get(requirementId) as Row | undefined;

@@ -5,7 +5,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
+import { coverage, cropText, decodeBody, fetchSource, hostOf, htmlToText, isHtml, isPlainText, sameText, type FetchRules, type Fetched } from './doc-fetch';
 import type {
+  DocCheck,
+  DocLink,
+  DocProposal,
+  DocProposalKind,
+  DocRefreshEstimate,
+  DocRefreshStart,
+  DocRefreshTarget,
+  DocSet,
   AppEvent,
   Cell,
   CellDetails,
@@ -103,6 +112,7 @@ import {
   checkDocPlan,
   detectFormat,
   DOC_GEN_ENTITY,
+  DOC_REFRESH_ENTITY,
   DOC_PLAN_ENTITY,
   documentText,
   parseGeneratedDoc,
@@ -263,6 +273,47 @@ const agentLog = getLogger('agent');
 const scanLog = getLogger('scanners');
 
 /** Everything the app does, independent of Electron (used by the window process and by headless runners). */
+/** One `fetch_url` of a refresher's run (`fetched/index.json` in its directory). */
+interface RefreshFetch {
+  id: number;
+  url: string;
+  finalUrl: string;
+  kind: 'html' | 'text' | 'pdf' | 'docx' | 'error';
+  sha256: string;
+  /** What the next check compares; null: this source could not be fetched. */
+  hash: string | null;
+  file: string;
+  textFile: string | null;
+  unverifiedChannel: boolean;
+  error?: string;
+}
+
+export interface RefreshProposalInput {
+  kind: DocProposalKind;
+  documentId?: string;
+  title?: string;
+  edition?: string;
+  reason: string;
+  quote?: string;
+  quoteFetchId?: number;
+  sourceFetchIds?: number[];
+  startPhrase?: string;
+  endPhrase?: string;
+  restoredText?: string;
+}
+
+const NO_CHECK_RESULT = 'the check finished without a result for this document';
+
+function checkLink(l: DocLink): void {
+  let u: URL;
+  try {
+    u = new URL(l.url);
+  } catch {
+    throw new Error(`invalid link ${l.url}`);
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error(`only http and https links are allowed: ${l.url}`);
+}
+
 export class Core extends EventEmitter {
   readonly registry: ProjectRegistry;
   readonly tokens = new TokenRegistry();
@@ -307,7 +358,10 @@ export class Core extends EventEmitter {
       scaSettings: (pid) => this.projectSettings(pid).sca,
       scaReportFile: (pid, r) => this.scaReportFile(pid, r),
       setPocEnvironment: (pid, e) => this.setPocEnvironment(pid, e),
-      saveDocPlan: (pid, runId, plan) => this.saveDocPlan(pid, runId, plan),
+      saveDocPlan: (pid, runId, plan, setName) => this.saveDocPlan(pid, runId, plan, setName),
+      docRefreshFetch: (pid, runId, url) => this.docRefreshFetch(pid, runId, url),
+      docRefreshReport: (pid, runId, r) => this.docRefreshReport(pid, runId, r),
+      docRefreshPropose: (pid, runId, p) => this.docRefreshPropose(pid, runId, p),
       saveGeneratedDoc: (pid, runId, slug, md) => this.saveGeneratedDoc(pid, runId, slug, md),
       pocCheck: (pid, action, waitSec) => this.pocCheck(pid, action, waitSec),
       onWrite: (pid) => {
@@ -842,7 +896,7 @@ export class Core extends EventEmitter {
   }
 
   /** Imports a file as a new document or a new version of `documentId` and queues requirement extraction. */
-  async importDocument(projectId: string, file: string, o: { documentId?: string; title?: string } = {}): Promise<DocVersionView> {
+  async importDocument(projectId: string, file: string, o: { documentId?: string; title?: string; setId?: string; source?: DocLink } = {}): Promise<DocVersionView> {
     const format = detectFormat(file);
     if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) throw new Error(`file ${file} not found`);
     const a = this.store(projectId).audit;
@@ -857,7 +911,11 @@ export class Core extends EventEmitter {
     this.taskSpec(projectId, 'requirements');
     const versionId = crypto.randomUUID();
     await stageDocument(file, this.docDir(projectId, versionId), format);
+    if (o.setId && !a.getDocSet(o.setId)) throw new Error(`set ${o.setId} not found`);
+    if (o.source) checkLink(o.source);
     const documentId = o.documentId ?? a.createDocument(o.title?.trim() || path.basename(file, path.extname(file)));
+    if (o.setId) a.setDocumentSet(documentId, o.setId);
+    if (o.source) a.setDocumentSource(documentId, o.source);
     const version = a.addVersion(documentId, { filename: path.basename(file), format, sha256: sha }, versionId);
     const text = documentText(this.docDir(projectId, versionId));
     if (text !== null) a.carryOverItems(version, text);
@@ -964,7 +1022,7 @@ export class Core extends EventEmitter {
   }
 
   /** Queues the writing of one planned document; `plan` names the other documents so they do not overlap. */
-  private async enqueueDocWrite(projectId: string, entry: DocPlanEntry, plan: DocPlanEntry[], hint: string): Promise<Job> {
+  private async enqueueDocWrite(projectId: string, entry: DocPlanEntry, plan: DocPlanEntry[], hint: string, setId?: string): Promise<Job> {
     const p = this.project(projectId);
     const entity = { type: DOC_GEN_ENTITY, id: entry.slug };
     this.assertNotQueued(projectId, entity);
@@ -989,7 +1047,7 @@ export class Core extends EventEmitter {
     };
     return this.addAgentJob(
       projectId,
-      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity, payload: { entry, plan, hint } },
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity, payload: { entry, plan, hint, set_id: setId } },
       await headSha(p.root),
     );
   }
@@ -1014,13 +1072,13 @@ export class Core extends EventEmitter {
   }
 
   /** plan_security_documents: validated, kept for the run; the app queues the writers when the run succeeds. */
-  saveDocPlan(projectId: string, runId: string, plan: DocPlanEntry[]): void {
+  saveDocPlan(projectId: string, runId: string, plan: DocPlanEntry[], setName: string): void {
     this.docGenJob(projectId, runId, DOC_PLAN_ENTITY);
     const existing = this.store(projectId).audit.listDocuments().flatMap((d) => (d.generated ? [d.generated] : []));
     checkDocPlan(plan, this.store(projectId).listModules().map((m) => m.name), existing);
     const file = this.docGenFile(projectId, runId, 'plan.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(plan, null, 2));
+    fs.writeFileSync(file, JSON.stringify({ documents: plan, set_name: setName }, null, 2));
   }
 
   /** save_security_document: validated, kept for the run; imported as a new version when the run succeeds. */
@@ -1041,9 +1099,10 @@ export class Core extends EventEmitter {
     if (job.entityType === DOC_PLAN_ENTITY) {
       const file = this.docGenFile(job.projectId, runId, 'plan.json');
       if (!fs.existsSync(file)) return 'the run finished, but no plan was recorded: the agent did not call plan_security_documents';
-      const plan = JSON.parse(fs.readFileSync(file, 'utf8')) as DocPlanEntry[];
+      const { documents: plan, set_name: setName } = JSON.parse(fs.readFileSync(file, 'utf8')) as { documents: DocPlanEntry[]; set_name: string };
+      const setId = this.generatedSet(job.projectId, setName).id;
       const skipped: string[] = [];
-      for (const e of plan) await this.enqueueDocWrite(job.projectId, e, plan, String(job.payload.hint ?? '')).catch((err: Error) => skipped.push(`${e.title}: ${err.message}`));
+      for (const e of plan) await this.enqueueDocWrite(job.projectId, e, plan, String(job.payload.hint ?? ''), setId).catch((err: Error) => skipped.push(`${e.title}: ${err.message}`));
       if (skipped.length) this.notice('warn', `Documents not queued for writing: ${skipped.join('; ')}`, job.projectId);
       return null;
     }
@@ -1051,7 +1110,7 @@ export class Core extends EventEmitter {
     const file = this.docGenFile(job.projectId, runId, 'md');
     if (!fs.existsSync(file)) return 'the run finished, but no document was recorded: the agent did not call save_security_document';
     try {
-      this.importGenerated(job.projectId, job.payload.entry as DocPlanEntry, fs.readFileSync(file, 'utf8'), { author: `ai:${job.role}`, runId });
+      this.importGenerated(job.projectId, job.payload.entry as DocPlanEntry, fs.readFileSync(file, 'utf8'), { author: `ai:${job.role}`, runId }, job.payload.set_id as string | undefined);
       return null;
     } catch (e) {
       return (e as Error).message;
@@ -1062,7 +1121,7 @@ export class Core extends EventEmitter {
    * A written document becomes a new version without an extraction run: its requirement lines are parsed, unchanged
    * ones are carried over from the previous approved version (SPEC §19), the rest wait for review.
    */
-  private importGenerated(projectId: string, entry: DocPlanEntry, md: string, by: Authorship): void {
+  private importGenerated(projectId: string, entry: DocPlanEntry, md: string, by: Authorship, setId?: string): void {
     const a = this.store(projectId).audit;
     const doc = a.listDocuments().find((d) => d.generated?.slug === entry.slug);
     const open = doc?.versions.find((v) => v.status === 'extracting' || v.status === 'review');
@@ -1077,6 +1136,7 @@ export class Core extends EventEmitter {
     fs.writeFileSync(path.join(dir, TEXT_FILE), md);
     const documentId = doc?.id ?? a.createDocument(entry.title);
     a.setGenerated(documentId, entry);
+    if (!doc && setId) a.setDocumentSet(documentId, setId);
     const version = a.addVersion(documentId, { filename: `${entry.slug}.md`, format: 'md', sha256: sha }, versionId);
     const carried = a.carryOverItems(version, md);
     for (const it of items) {
@@ -1101,6 +1161,7 @@ export class Core extends EventEmitter {
       job: job ? { id: job.id, status: job.status, lastRunId: job.lastRunId, error: job.error } : null,
       sourceFile: sourceFile(dir),
       quotesVerified: version.format !== 'pdf',
+      proposal: a.proposalOfVersion(versionId),
     };
   }
 
@@ -1122,8 +1183,545 @@ export class Core extends EventEmitter {
   }
 
   approveVersion(projectId: string, versionId: string): void {
-    this.store(projectId).audit.approveVersion(versionId, 'human');
+    const a = this.store(projectId).audit;
+    a.approveVersion(versionId, 'human');
+    // A replacement takes over once it can: the old document leaves matrices with its first approval (SPEC §24).
+    const doc = a.getDocument(a.getVersion(versionId)!.documentId)!;
+    const old = doc.replaces ? a.getDocument(doc.replaces) : undefined;
+    if (old && !old.retiredAt && doc.versions.filter((v) => v.status === 'approved').length === 1) a.setDocumentRetired(old.id, `replaced by "${doc.title}"`);
     this.auditChanged(projectId);
+  }
+
+  // --- document refresher (SPEC §24) ---
+
+  listDocSets(projectId: string): DocSet[] {
+    return this.store(projectId).audit.listDocSets();
+  }
+
+  saveDocSet(projectId: string, s: { id?: string; name: string; scope: string; links: DocLink[]; documentIds?: string[] }): DocSet {
+    s.links.forEach(checkLink);
+    const a = this.store(projectId).audit;
+    const docs = a.listDocuments();
+    const unknown = s.documentIds?.find((id) => !docs.some((d) => d.id === id));
+    if (unknown) throw new Error(`document ${unknown} not found`);
+    const set = a.saveDocSet(s);
+    if (s.documentIds) {
+      for (const d of docs) {
+        if (s.documentIds.includes(d.id)) a.setDocumentSet(d.id, set.id);
+        else if (d.setId === set.id) a.setDocumentSet(d.id, null);
+      }
+    }
+    this.auditChanged(projectId);
+    return set;
+  }
+
+  /** The documents stay, outside any set. */
+  removeDocSet(projectId: string, setId: string): void {
+    const a = this.store(projectId).audit;
+    for (const p of a.listDocProposals()) if (p.setId === setId && p.status === 'pending') this.closeProposal(projectId, p.id, 'outdated', 'the set was removed');
+    a.removeDocSet(setId);
+    a.deleteRefreshBaseline(`set:${setId}`);
+    this.auditChanged(projectId);
+  }
+
+  setDocumentSet(projectId: string, documentId: string, setId: string | null): void {
+    const a = this.store(projectId).audit;
+    if (!a.getDocument(documentId)) throw new Error(`document ${documentId} not found`);
+    if (setId && !a.getDocSet(setId)) throw new Error(`set ${setId} not found`);
+    a.setDocumentSet(documentId, setId);
+    this.auditChanged(projectId);
+  }
+
+  setDocumentSource(projectId: string, documentId: string, source: DocLink | null): void {
+    if (source) checkLink(source);
+    const a = this.store(projectId).audit;
+    if (!a.getDocument(documentId)) throw new Error(`document ${documentId} not found`);
+    a.setDocumentSource(documentId, source);
+    this.auditChanged(projectId);
+  }
+
+  retireDocument(projectId: string, documentId: string, reason: string): void {
+    const a = this.store(projectId).audit;
+    if (!a.getDocument(documentId)) throw new Error(`document ${documentId} not found`);
+    if (!reason.trim()) throw new Error('state why the document is out of force');
+    a.setDocumentRetired(documentId, reason.trim());
+    for (const p of a.listDocProposals()) if (p.documentId === documentId && p.status === 'pending') this.closeProposal(projectId, p.id, 'outdated', 'the document is out of force');
+    this.auditChanged(projectId);
+  }
+
+  restoreDocument(projectId: string, documentId: string): void {
+    const a = this.store(projectId).audit;
+    if (!a.getDocument(documentId)) throw new Error(`document ${documentId} not found`);
+    a.setDocumentRetired(documentId, null);
+    this.auditChanged(projectId);
+  }
+
+  listDocProposals(projectId: string): DocProposal[] {
+    return this.store(projectId).audit.listDocProposals();
+  }
+
+  private proposalDir(projectId: string, id: string): string {
+    return path.join(projectDataDir(this.paths, projectId), 'doc-proposals', id);
+  }
+
+  private closeProposal(projectId: string, id: string, status: 'rejected' | 'outdated', note: string): void {
+    this.store(projectId).audit.decideDocProposal(id, status, { note });
+    fs.rmSync(this.proposalDir(projectId, id), { recursive: true, force: true });
+  }
+
+  rejectDocProposal(projectId: string, id: string, reason: string): void {
+    const p = this.store(projectId).audit.getDocProposal(id);
+    if (!p || p.status !== 'pending') throw new Error('only a pending proposal can be rejected');
+    this.closeProposal(projectId, id, 'rejected', reason.trim());
+    this.auditChanged(projectId);
+  }
+
+  /** Applies a proposal: documents go through the usual extraction and review; nothing reaches matrices before approval. */
+  async acceptDocProposal(projectId: string, id: string, o: { matrixIds?: string[] } = {}): Promise<DocProposal> {
+    const a = this.store(projectId).audit;
+    const p = a.getDocProposal(id);
+    if (!p || p.status !== 'pending') throw new Error('only a pending proposal can be applied');
+    const dir = this.proposalDir(projectId, id);
+    const file = p.file ? path.join(dir, p.file) : '';
+    const doc = p.documentId ? a.getDocument(p.documentId) : undefined;
+    if (p.documentId && !doc) throw new Error(`document ${p.documentId} not found`);
+    const stored: DocLink | undefined = p.url ? { url: p.url, insecure: Boolean(doc?.source?.insecure && hostOf(doc.source.url) === hostOf(p.url)) } : undefined;
+    const pages = () => (p.file ? fs.readdirSync(dir).filter((f) => f !== p.file) : []);
+    const keepPages = (versionId: string) => pages().forEach((f) => fs.copyFileSync(path.join(dir, f), path.join(this.docDir(projectId, versionId), f)));
+    let versionId: string | null = null;
+    let resultDocumentId: string | null = p.documentId;
+    switch (p.kind) {
+      case 'update': {
+        const view = await this.importDocument(projectId, file, { documentId: p.documentId! });
+        versionId = view.version.id;
+        keepPages(versionId);
+        break;
+      }
+      case 'add':
+      case 'replace': {
+        const same = a.listDocuments().find((d) => d.current?.sha256 === p.sha256);
+        if (same && p.kind === 'add') {
+          if (same.setId && same.setId !== p.setId) throw new Error(`this file is the document "${same.title}" of another set: move it first`);
+          if (same.setId === p.setId) throw new Error(`this file is already the document "${same.title}" of this set`);
+          a.setDocumentSet(same.id, p.setId);
+          resultDocumentId = same.id;
+        } else {
+          const view = await this.importDocument(projectId, file, { title: p.title!, setId: (p.kind === 'replace' ? doc!.setId : p.setId) ?? undefined, source: stored });
+          versionId = view.version.id;
+          resultDocumentId = view.document.id;
+          keepPages(versionId);
+          if (p.kind === 'replace') a.setDocumentReplaces(resultDocumentId, p.documentId!);
+        }
+        const matrices = a.listMatrices();
+        const setDocs = a.listDocuments().filter((d) => d.setId === p.setId && d.id !== resultDocumentId).map((d) => d.id);
+        const chosen = p.kind === 'replace'
+          ? matrices.filter((m) => m.documentIds.includes(p.documentId!)).map((m) => m.id)
+          : (o.matrixIds ?? matrices.filter((m) => m.documentIds.some((x) => setDocs.includes(x))).map((m) => m.id));
+        for (const mid of chosen) {
+          const m = a.getMatrix(mid);
+          if (!m) throw new Error(`matrix ${mid} not found`);
+          if (!m.documentIds.includes(resultDocumentId!)) a.saveMatrix({ ...m, documentIds: [...m.documentIds, resultDocumentId!] });
+        }
+        break;
+      }
+      case 'retire':
+        this.retireDocument(projectId, p.documentId!, p.reason);
+        break;
+      case 'link':
+        a.setDocumentSource(p.documentId!, stored!);
+        break;
+    }
+    if (p.edition && resultDocumentId) a.setDocumentEdition(resultDocumentId, p.edition);
+    a.decideDocProposal(id, 'applied', { versionId, resultDocumentId });
+    fs.rmSync(dir, { recursive: true, force: true });
+    this.auditChanged(projectId);
+    return a.getDocProposal(id)!;
+  }
+
+  /** First filling of an empty set: every "add" at once. Changes to documents in force are looked at one by one. */
+  async acceptAllDocAdditions(projectId: string, setId: string): Promise<DocProposal[]> {
+    const a = this.store(projectId).audit;
+    if (a.listDocuments().some((d) => d.setId === setId)) throw new Error('only additions to an empty set can be accepted at once');
+    const out: DocProposal[] = [];
+    for (const p of a.listDocProposals().filter((x) => x.setId === setId && x.kind === 'add' && x.status === 'pending').reverse()) out.push(await this.acceptDocProposal(projectId, p.id));
+    return out;
+  }
+
+  private refreshScope(projectId: string, target: DocRefreshTarget) {
+    const a = this.store(projectId).audit;
+    let set: DocSet | undefined;
+    let docs: DocumentSummary[];
+    let links: DocLink[];
+    let all: DocLink[];
+    let entityId: string;
+    let title: string;
+    if ('setId' in target) {
+      set = a.getDocSet(target.setId);
+      if (!set) throw new Error(`set ${target.setId} not found`);
+      if (!set.links.length) throw new Error(`the set "${set.name}" has no links to check`);
+      docs = a.listDocuments().filter((d) => d.setId === set!.id && !d.retiredAt);
+      links = all = set.links;
+      entityId = `set:${set.id}`;
+      title = set.name;
+    } else {
+      const doc = a.getDocument(target.documentId);
+      if (!doc) throw new Error(`document ${target.documentId} not found`);
+      if (doc.retiredAt) throw new Error(`the document "${doc.title}" is out of force`);
+      if (!doc.source) throw new Error(`the document "${doc.title}" has no link to check`);
+      set = doc.setId ? a.getDocSet(doc.setId) : undefined;
+      docs = [doc];
+      links = [doc.source];
+      all = [doc.source, ...(set?.links ?? [])];
+      entityId = `doc:${doc.id}`;
+      title = doc.title;
+    }
+    const rules: FetchRules = {
+      allowedHosts: [...new Set(all.map((l) => hostOf(l.url)))],
+      insecureHosts: [...new Set(all.filter((l) => l.insecure).map((l) => hostOf(l.url)))],
+    };
+    const fingerprint = crypto
+      .createHash('sha256')
+      .update(JSON.stringify([links, rules, set?.scope, docs.map((d) => [d.id, d.current?.sha256 ?? d.versions[0]?.sha256])]))
+      .digest('hex');
+    return { entityId, title, set, docs, links, rules, fingerprint };
+  }
+
+  estimateDocRefresh(projectId: string, target: DocRefreshTarget): DocRefreshEstimate {
+    const scope = this.refreshScope(projectId, target);
+    const settings = this.projectSettings(projectId);
+    const role = this.taskRole(projectId, 'doc_refresh');
+    const runs = this.store(projectId).recentRuns(role, settings.doc_refresh.estimate_history_runs).map((r) => billableTokens(r.usage));
+    return {
+      role,
+      documents: scope.docs.length,
+      links: scope.links.map((l) => l.url),
+      tokens: runs.length ? Math.round(runs.reduce((x, y) => x + y, 0) / runs.length) : settings.doc_refresh.estimate_tokens,
+      tokensSource: runs.length ? 'history' : 'config',
+      maxTokensPerRun: settings.limits.max_tokens_per_run,
+    };
+  }
+
+  /** Hash that ignores what changes on every view: for a page, its text without the site's furniture. */
+  private sourceHash(f: Fetched): string {
+    const data = isHtml(f) ? htmlToText(decodeBody(f.body, f.contentType), f.finalUrl).text : f.body;
+    return crypto.createHash('sha256').update(data).digest('hex');
+  }
+
+  private setCheck(projectId: string, doc: DocumentSummary, c: Omit<DocCheck, 'at' | 'lastCurrentAt'>): void {
+    const at = new Date().toISOString();
+    this.store(projectId).audit.setDocumentCheck(doc.id, { ...c, at, lastCurrentAt: c.status === 'current' ? at : (doc.lastCheck?.lastCurrentAt ?? null) });
+  }
+
+  /**
+   * Most checks find nothing, so the sources of the last check are compared first, without AI. Null: an agent is needed.
+   * A check whose sources did not change keeps its results; an unreachable site never extends "current".
+   */
+  private async compareWithBaseline(projectId: string, scope: ReturnType<Core['refreshScope']>): Promise<DocRefreshStart | null> {
+    const a = this.store(projectId).audit;
+    const base = a.refreshBaseline(scope.entityId);
+    if (!base || base.fingerprint !== scope.fingerprint) return null;
+    const failed: { url: string; error: string }[] = [];
+    for (const src of base.sources) {
+      try {
+        const f = await fetchSource(src.url, scope.rules, this.projectSettings(projectId).doc_refresh);
+        if (this.sourceHash(f) !== src.hash) return null;
+      } catch (e) {
+        // Failed last time too: nothing new to look at, and no agent can fetch it either.
+        if (src.hash !== null) failed.push({ url: src.url, error: (e as Error).message });
+      }
+    }
+    for (const d of scope.docs) {
+      const url = base.results[d.id];
+      const bad = failed.find((x) => x.url === url);
+      const c = d.lastCheck;
+      // Only a confirmation is lost to an outage (an unverifiable result without a run) and comes back with the site.
+      const wasCurrent = c?.status === 'current' || (c?.status === 'unverifiable' && c.runId === null);
+      if (!c || !wasCurrent) continue;
+      if (bad) this.setCheck(projectId, d, { ...c, status: 'unverifiable', note: bad.error, runId: null });
+      else this.setCheck(projectId, d, { ...c, status: 'current', note: c.status === 'current' ? c.note : 'the source did not change', runId: null });
+    }
+    this.auditChanged(projectId);
+    return { job: null, compared: base.sources.length, unchanged: !failed.length, failed };
+  }
+
+  /** Starts a check. A repeated call returns the active job; `force` runs the agent even if the sources look unchanged. */
+  async refreshDocuments(projectId: string, target: DocRefreshTarget, o: { force?: boolean } = {}): Promise<DocRefreshStart> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const scope = this.refreshScope(projectId, target);
+    const active = s.activeJobFor(DOC_REFRESH_ENTITY, scope.entityId);
+    if (active) return { job: active, compared: 0, unchanged: false, failed: [] };
+    const spec = this.taskSpec(projectId, 'doc_refresh');
+    if (!o.force) {
+      const same = await this.compareWithBaseline(projectId, scope);
+      if (same) return same;
+    }
+    const cwd = this.refreshDir(projectId, scope.entityId);
+    fs.rmSync(cwd, { recursive: true, force: true });
+    fs.mkdirSync(path.join(cwd, 'fetched'), { recursive: true });
+    const lines = scope.docs.map((d) => {
+      const v = d.current ?? d.versions.find((x) => x.status !== 'discarded');
+      const files: string[] = [];
+      if (v) {
+        const from = this.docDir(projectId, v.id);
+        const to = path.join(cwd, 'current', d.id);
+        fs.mkdirSync(to, { recursive: true });
+        for (const f of [sourceFile(from), documentText(from) === null ? null : path.join(from, TEXT_FILE)]) {
+          if (!f || !fs.existsSync(f)) continue;
+          fs.copyFileSync(f, path.join(to, path.basename(f)));
+          files.push(`current/${d.id}/${path.basename(f)}`);
+        }
+      }
+      return `- document_id \`${d.id}\`: "${d.title}"; file name: ${v?.filename ?? '(none)'}; known edition: ${d.edition ?? '(not recorded)'}; own link: ${d.source?.url ?? '(none)'}; files: ${files.join(', ') || '(none)'}`;
+    });
+    const vars = {
+      project: p.name,
+      target: scope.title,
+      set_name: scope.set?.name ?? '(this document is not in a set)',
+      scope: scope.set?.scope || '(not described)',
+      links: scope.links.map((l) => `- ${l.url}`).join('\n'),
+      documents: lines.join('\n') || '(none)',
+    };
+    const job = this.addAgentJob(
+      projectId,
+      {
+        role: spec.role,
+        title: renderTemplate(spec.title, vars),
+        prompt: renderTemplate(spec.template, vars, spec.file),
+        entity: { type: DOC_REFRESH_ENTITY, id: scope.entityId },
+        payload: { target, fingerprint: scope.fingerprint, documents: scope.docs.map((d) => d.id), links: scope.links.map((l) => l.url), allowed_hosts: scope.rules.allowedHosts },
+      },
+      await headSha(p.root),
+    );
+    this.auditChanged(projectId);
+    return { job, compared: 0, unchanged: false, failed: [] };
+  }
+
+  private refreshDir(projectId: string, entityId: string): string {
+    return path.join(projectDataDir(this.paths, projectId), 'doc-refresh', entityId.replace(':', '-'));
+  }
+
+  private fetchIndex(dir: string): RefreshFetch[] {
+    const file = path.join(dir, 'fetched', 'index.json');
+    return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as RefreshFetch[]) : [];
+  }
+
+  /** The job of a refresher's run with the rules of its target. */
+  private refreshContext(projectId: string, runId: string) {
+    const job = this.docGenJob(projectId, runId, DOC_REFRESH_ENTITY);
+    const scope = this.refreshScope(projectId, job.payload.target as DocRefreshTarget);
+    const dir = this.refreshDir(projectId, scope.entityId);
+    return { job, scope, dir, index: this.fetchIndex(dir), settings: this.projectSettings(projectId).doc_refresh };
+  }
+
+  /** fetch_url: downloads one source under the rules of the check; the text and files stay in the run's directory. */
+  async docRefreshFetch(projectId: string, runId: string, url: string): Promise<Record<string, unknown>> {
+    const { scope, dir, index, settings } = this.refreshContext(projectId, runId);
+    const id = index.length + 1;
+    const save = (e: RefreshFetch) => fs.writeFileSync(path.join(dir, 'fetched', 'index.json'), JSON.stringify([...index, e], null, 1));
+    const failed = (error: string): never => {
+      save({ id, url, finalUrl: url, kind: 'error', sha256: '', hash: null, file: '', textFile: null, unverifiedChannel: false, error });
+      throw new Error(error);
+    };
+    let f: Fetched;
+    try {
+      f = await fetchSource(url, scope.rules, settings);
+    } catch (e) {
+      agentLog.info('run %s: fetch_url %s failed: %s', runId, url, (e as Error).message);
+      return failed((e as Error).message);
+    }
+    agentLog.info('run %s: fetch_url %s -> %s, %d bytes%s', runId, url, f.finalUrl, f.body.length, f.unverifiedChannel ? ', unverified channel' : '');
+    const sub = path.join('fetched', String(id));
+    fs.mkdirSync(path.join(dir, sub), { recursive: true });
+    const sha256 = crypto.createHash('sha256').update(f.body).digest('hex');
+    const base = { id, url, finalUrl: f.finalUrl, sha256, hash: this.sourceHash(f), unverifiedChannel: f.unverifiedChannel };
+    const write = (name: string, data: Buffer | string) => {
+      fs.writeFileSync(path.join(dir, sub, name), data);
+      return path.join(sub, name);
+    };
+    const sameAs = this.store(projectId).audit.listDocuments().filter((d) => scope.docs.some((x) => x.id === d.id) && d.current?.sha256 === sha256).map((d) => d.title);
+    const common = { fetch_id: id, final_url: f.finalUrl, sha256, unverified_channel: f.unverifiedChannel };
+    if (isHtml(f) || isPlainText(f.contentType)) {
+      const decoded = decodeBody(f.body, f.contentType);
+      const html = isHtml(f);
+      const page = html ? htmlToText(decoded, f.finalUrl) : { title: '', text: decoded, links: [] };
+      const file = write(html ? 'source.html' : 'source.txt', f.body);
+      const textFile = write('text.txt', page.text);
+      save({ ...base, kind: html ? 'html' : 'text', file, textFile });
+      return {
+        ...common,
+        kind: html ? 'html' : 'text',
+        title: page.title,
+        text_file: textFile,
+        text_chars: page.text.length,
+        text_start: page.text.slice(0, settings.page_preview_chars),
+        links: page.links.slice(0, settings.max_links),
+        links_total: page.links.length,
+        ...(page.text.length < settings.js_page_min_chars ? { warning: 'almost no text: the page probably needs JavaScript or a login; report what depends on it as unverifiable' } : {}),
+      };
+    }
+    const format = /pdf/i.test(f.contentType) || f.body.subarray(0, 5).toString('latin1') === '%PDF-' ? 'pdf' : /wordprocessingml/i.test(f.contentType) || /\.docx($|\?)/i.test(f.finalUrl) ? 'docx' : null;
+    if (!format) return failed(`unsupported content type "${f.contentType}" at ${f.finalUrl}: HTML, text, PDF or DOCX is required`);
+    const file = write(`source.${format}`, f.body);
+    save({ ...base, kind: format, file, textFile: null });
+    return { ...common, kind: format, file, size: f.body.length, same_as_current_document: sameAs };
+  }
+
+  /** report_document_check: the result of a document without a change. */
+  docRefreshReport(projectId: string, runId: string, r: { documentId: string; status: 'current' | 'unverifiable'; note: string; fetchId?: number; edition?: string }): void {
+    const { scope, index } = this.refreshContext(projectId, runId);
+    const doc = scope.docs.find((d) => d.id === r.documentId);
+    if (!doc) throw new Error(`document ${r.documentId} is not part of this check`);
+    const f = index.find((x) => x.id === r.fetchId && x.kind !== 'error');
+    if (r.status === 'current' && !f) throw new Error('"current" needs the fetch_id of the source that shows it; otherwise the status is "unverifiable"');
+    if (r.status === 'current' && r.edition) this.store(projectId).audit.setDocumentEdition(doc.id, r.edition);
+    this.setCheck(projectId, doc, { status: r.status, note: r.note, url: f?.url ?? null, unverifiedChannel: f?.unverifiedChannel ?? false, runId });
+    this.auditChanged(projectId);
+  }
+
+  /** propose_document_change: everything the app can verify is verified here; a human decides on what passes. */
+  docRefreshPropose(projectId: string, runId: string, input: RefreshProposalInput): { id: string; duplicate: boolean } {
+    const { scope, index, dir, settings } = this.refreshContext(projectId, runId);
+    const a = this.store(projectId).audit;
+    const fetched = (id: number) => {
+      const f = index.find((x) => x.id === id && x.kind !== 'error');
+      if (!f) throw new Error(`fetch_id ${id} is not a successful fetch of this run`);
+      return f;
+    };
+    const textOf = (f: RefreshFetch) => fs.readFileSync(path.join(dir, f.textFile!), 'utf8');
+    const { kind } = input;
+    if (kind === 'add' && !('setId' in (this.docGenJob(projectId, runId, DOC_REFRESH_ENTITY).payload.target as DocRefreshTarget))) throw new Error('a check of one document cannot add documents');
+    const doc = input.documentId ? scope.docs.find((d) => d.id === input.documentId) : undefined;
+    if (kind !== 'add' && !doc) throw new Error(`document ${input.documentId ?? '(none)'} is not part of this check`);
+    if (!input.reason.trim()) throw new Error('state the reason');
+    if ((kind === 'add' || kind === 'replace') && !input.title?.trim()) throw new Error('state the title of the new document');
+    if (kind === 'link' && doc!.source) throw new Error('the document already has a link');
+
+    const sources = (input.sourceFetchIds ?? []).map(fetched);
+    const needsContent = kind === 'update' || kind === 'add' || kind === 'replace';
+    if ((needsContent || kind === 'link') && !sources.length) throw new Error('pass source_fetch_ids');
+    const binary = sources.find((f) => f.kind === 'pdf' || f.kind === 'docx');
+    if (binary && sources.length > 1) throw new Error('a file is one source: several sources are for a document split into pages');
+
+    if (kind === 'update' && !input.edition?.trim()) throw new Error('state the edition of the new document: what on the source shows it is new');
+    // The quote proves the claim; only a new edition as a file proves itself by its other sha256.
+    let quoteUrl: string | null = null;
+    if (input.quote?.trim()) {
+      const q = input.quoteFetchId === undefined ? undefined : fetched(input.quoteFetchId);
+      if (!q) throw new Error('pass quote_fetch_id: the page the quote is from');
+      if (!q.textFile) throw new Error(`the quote must come from a page: fetch ${q.id} is a ${q.kind} file the app cannot read`);
+      if (!quoteFound(textOf(q), input.quote)) throw new Error(`the quote is not on the page of fetch ${q.id}: copy it word for word from ${q.textFile}`);
+      quoteUrl = q.finalUrl;
+    } else if (!(kind === 'update' && binary)) {
+      throw new Error(`a proposal of kind ${kind} needs a quote from a fetched page`);
+    }
+
+    let text: string | null = null;
+    let restored = false;
+    let cover: number | null = null;
+    if (needsContent && !binary) {
+      const whole = sources.map(textOf).join('\n');
+      if (input.restoredText?.trim()) {
+        cover = coverage(input.restoredText, whole);
+        if (cover < settings.restored_min_coverage) throw new Error(`only ${Math.round(cover * 100)}% of the paragraphs of restored_text are on the page; ${Math.round(settings.restored_min_coverage * 100)}% is required`);
+        text = input.restoredText;
+        restored = true;
+      } else if (input.startPhrase && input.endPhrase) {
+        text = cropText(whole, input.startPhrase, input.endPhrase);
+      } else if (sources.every((f) => f.kind === 'text')) {
+        text = whole;
+      } else {
+        throw new Error('pass start_phrase and end_phrase: the first and last words of the document on the page');
+      }
+    }
+    const sha = binary ? binary.sha256 : text === null ? null : crypto.createHash('sha256').update(text).digest('hex');
+    if (kind === 'update') {
+      if (binary && doc!.current?.sha256 === binary.sha256) throw new Error('this file is the current version: report the document as current');
+      const current = doc!.current ? documentText(this.docDir(projectId, doc!.current.id)) : null;
+      if (text !== null && current !== null && sameText(text, current, settings.same_text_max_removed_lines)) throw new Error('the text brings nothing new compared to the current version: report the document as current');
+    }
+
+    const subject = kind === 'add' ? (input.title ?? '').trim().toLowerCase() : doc!.id;
+    const content = binary ? sha : input.edition?.trim().toLowerCase() || sources[0]?.finalUrl || '';
+    const key = `${kind}:${subject}:${content}`;
+    const prev = a.proposalByKey(key);
+    if (prev?.status === 'pending') return { id: prev.id, duplicate: true };
+    if (prev?.status === 'rejected') throw new Error(`a human rejected this proposal${prev.decisionNote ? ` ("${prev.decisionNote}")` : ''} and the source did not change: report the document instead`);
+    if (prev?.status === 'applied') throw new Error('this change was already applied');
+
+    const id = crypto.randomUUID();
+    let file: string | null = null;
+    if (needsContent) {
+      const to = this.proposalDir(projectId, id);
+      fs.mkdirSync(to, { recursive: true });
+      const name = (input.title?.trim() || doc!.title).replace(/[^\p{L}\p{N}._ -]+/gu, '_').slice(0, 80);
+      if (binary) {
+        file = `${name}.${binary.kind}`;
+        fs.copyFileSync(path.join(dir, binary.file), path.join(to, file));
+      } else {
+        file = `${name}.md`;
+        fs.writeFileSync(path.join(to, file), text!);
+        sources.forEach((f, i) => fs.copyFileSync(path.join(dir, f.file), path.join(to, `page-${i + 1}${path.extname(f.file)}`)));
+      }
+    }
+    for (const p of a.listDocProposals()) {
+      if (p.status === 'pending' && p.kind === kind && kind !== 'add' && p.documentId === doc?.id) this.closeProposal(projectId, p.id, 'outdated', 'a newer change was found on the source');
+    }
+    a.addDocProposal({
+      id,
+      target: scope.entityId,
+      setId: scope.set?.id ?? null,
+      documentId: doc?.id ?? null,
+      kind,
+      dedupeKey: key,
+      title: input.title?.trim() || null,
+      edition: input.edition?.trim() || null,
+      url: sources[0]?.finalUrl ?? quoteUrl,
+      reason: input.reason.trim(),
+      quote: input.quote?.trim() || null,
+      quoteUrl,
+      file,
+      sha256: sha,
+      unverifiedChannel: [...sources, ...(input.quoteFetchId === undefined ? [] : [fetched(input.quoteFetchId)])].some((f) => f.unverifiedChannel),
+      restored,
+      coverage: cover,
+      runId,
+    });
+    if (doc && kind !== 'link') this.setCheck(projectId, doc, { status: 'changed', note: input.reason.trim(), url: sources[0]?.finalUrl ?? quoteUrl, unverifiedChannel: false, runId });
+    this.auditChanged(projectId);
+    return { id, duplicate: false };
+  }
+
+  /** The end of a check: what stayed unreported is unverifiable; a successful run becomes the baseline of the next one. */
+  private finishDocRefresh(projectId: string, runId: string, status: RunStatus, error: string | null): void {
+    const s = this.store(projectId);
+    const run = s.getRun(runId);
+    const job = run?.jobId ? s.getJob(run.jobId) : undefined;
+    if (!job || status === 'cancelled' || status === 'taken_over' || status === 'rate_limited' || status === 'exited') return;
+    const docs = (job.payload.documents as string[]).flatMap((id) => s.audit.getDocument(id) ?? []);
+    for (const d of docs) {
+      if (d.lastCheck?.runId !== runId) this.setCheck(projectId, d, { status: 'unverifiable', note: error ?? (status === 'token_limit' ? 'the token limit of the run was reached' : NO_CHECK_RESULT), url: null, unverifiedChannel: false, runId });
+    }
+    if (status !== 'succeeded') return;
+    const sources = new Map<string, string | null>((job.payload.links as string[]).map((u) => [u, null]));
+    const allowed = job.payload.allowed_hosts as string[];
+    for (const f of this.fetchIndex(this.refreshDir(projectId, job.entityId))) if (allowed.includes(hostOf(f.url))) sources.set(f.url, f.hash);
+    s.audit.saveRefreshBaseline(
+      job.entityId,
+      String(job.payload.fingerprint),
+      [...sources].map(([url, hash]) => ({ url, hash })),
+      Object.fromEntries(docs.flatMap((d) => (s.audit.getDocument(d.id)?.lastCheck?.url ? [[d.id, s.audit.getDocument(d.id)!.lastCheck!.url!]] : []))),
+    );
+  }
+
+  /** The set of AI-written documents: one per project; a repeated plan keeps it, whatever name the agent gives now. */
+  private generatedSet(projectId: string, name: string): DocSet {
+    const a = this.store(projectId).audit;
+    const existing = a.listDocSets();
+    const own = existing.find((s) => s.generated);
+    if (own) return own;
+    const free = existing.some((s) => s.name === name.trim()) ? `${name.trim()} (AI)` : name;
+    return a.saveDocSet({ name: free, scope: '', links: [], generated: true });
   }
 
   // --- matrices (SPEC §4, Q8/Q9) ---
@@ -2766,7 +3364,9 @@ export class Core extends EventEmitter {
     const cwd =
       job.entityType === DOC_VERSION_ENTITY
         ? this.docDir(p.id, job.entityId)
-        : job.entityType === SCA_MODULE_ENTITY
+        : job.entityType === DOC_REFRESH_ENTITY
+          ? this.refreshDir(p.id, job.entityId)
+          : job.entityType === SCA_MODULE_ENTITY
           ? await this.scaWorktreeCache(p).ensure(sha)
           : job.entityType === POC_ENTITY || job.entityType === POC_ENV_ENTITY
             ? await this.pocWorktreeCache(p).ensure(sha)
@@ -3006,6 +3606,13 @@ export class Core extends EventEmitter {
   /** A successful matrix run that left cells without a result fails, so "retry" re-runs only those cells. */
   private missingOutputs(job: Job, runId: string): string | null {
     const s0 = this.store(job.projectId);
+    if (job.entityType === DOC_REFRESH_ENTITY && (job.payload.documents as string[]).length) {
+      const reported = (job.payload.documents as string[]).some((id) => {
+        const c = s0.audit.getDocument(id)?.lastCheck;
+        return c?.runId === runId && c.note !== NO_CHECK_RESULT;
+      });
+      if (!reported && !s0.audit.proposalsOfRun(runId)) return 'the run finished, but no result was recorded: the agent did not report any document';
+    }
     if (job.entityType === SCA_MODULE_ENTITY && s0.sca.inventoryOf(runId, job.entityId)?.status !== 'complete')
       return 'the run finished, but no inventory was recorded: the agent did not call set_inventory_summary';
     if (job.entityType === POC_ENTITY && !s0.audit.pocResults({ runIds: [runId] }).length)
@@ -3037,6 +3644,7 @@ export class Core extends EventEmitter {
       const v = s.audit.getVersion(run.entityId);
       if (v && (v.status === 'extracting' || v.status === 'failed')) s.audit.setVersionStatus(v.id, ok ? 'review' : 'failed');
     }
+    if (run?.entityType === DOC_REFRESH_ENTITY) this.finishDocRefresh(projectId, runId, status, error);
     this.send({ type: 'modules-changed', projectId });
     this.send({ type: 'audit-changed', projectId });
     this.scaChanged(projectId);

@@ -2,6 +2,12 @@ import type {
   AppEvent,
   CellDetails,
   ConfigFileInfo,
+  DocLink,
+  DocProposal,
+  DocRefreshEstimate,
+  DocRefreshStart,
+  DocRefreshTarget,
+  DocSet,
   DocumentSummary,
   DocVersionView,
   EffectiveConfigView,
@@ -84,7 +90,24 @@ export interface AiegisApi {
   /** File dialog for MD/PDF/DOCX; null if cancelled. */
   pickDocumentFile(): string | null;
   /** New document (title) or new version of `documentId`; queues requirement extraction. */
-  importDocument(projectId: string, file: string, o: { documentId?: string; title?: string }): DocVersionView;
+  importDocument(projectId: string, file: string, o: { documentId?: string; title?: string; setId?: string; source?: DocLink }): DocVersionView;
+  listDocSets(projectId: string): DocSet[];
+  /** `documentIds`: the whole membership of the set, when given. */
+  saveDocSet(projectId: string, s: { id?: string; name: string; scope: string; links: DocLink[]; documentIds?: string[] }): DocSet;
+  removeDocSet(projectId: string, setId: string): void;
+  setDocumentSet(projectId: string, documentId: string, setId: string | null): void;
+  setDocumentSource(projectId: string, documentId: string, source: DocLink | null): void;
+  /** Out of force: requirements leave matrices, the refresher skips it, history stays. */
+  retireDocument(projectId: string, documentId: string, reason: string): void;
+  restoreDocument(projectId: string, documentId: string): void;
+  estimateDocRefresh(projectId: string, target: DocRefreshTarget): DocRefreshEstimate;
+  /** Checks a set or one document against its links; without AI when the sources did not change. */
+  refreshDocuments(projectId: string, target: DocRefreshTarget, o: { force?: boolean }): DocRefreshStart;
+  listDocProposals(projectId: string): DocProposal[];
+  acceptDocProposal(projectId: string, id: string, o: { matrixIds?: string[] }): DocProposal;
+  rejectDocProposal(projectId: string, id: string, reason: string): void;
+  /** First filling of an empty set: all its "add" proposals. */
+  acceptAllDocAdditions(projectId: string, setId: string): DocProposal[];
   /** Queues the plan of AI-written security documents covering the application; writers follow the plan. */
   enqueueDocPlan(projectId: string, hint: string): Job;
   /** Queues a rewrite of one AI-written document from its plan entry. */

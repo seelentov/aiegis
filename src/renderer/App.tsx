@@ -41,6 +41,7 @@ const SELECTION_KIND: Record<Selection['kind'], string> = {
   signal: tr('signal'),
   suppression: tr('suppression'),
   sca: tr('vulnerability'),
+  'doc-proposal': tr('proposal'),
 };
 
 const MAC = navigator.platform.startsWith('Mac');
@@ -282,7 +283,7 @@ export function App() {
                   onTerminal={showTerminal}
                 />
               ) : tab === 'documents' ? (
-                <DocumentsTab project={project} revision={revision} run={run} onTerminal={showTerminal} />
+                <DocumentsTab project={project} revision={revision} run={run} onTerminal={showTerminal} selection={selection} onSelect={setSelection} notify={notify} />
               ) : tab === 'matrix' ? (
                 <MatrixTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
               ) : tab === 'findings' ? (

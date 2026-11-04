@@ -25,7 +25,8 @@ import {
   type ScaReport,
 } from '../../shared/types';
 import type { Settings } from '../config/loader';
-import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, sha256File } from '../documents';
+import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, DOC_REFRESH_ENTITY, sha256File } from '../documents';
+import type { RefreshProposalInput } from '../core';
 import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { CARRIED_AUTHOR } from '../audit-store';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
@@ -64,7 +65,10 @@ export interface McpServices {
   /** env-setup's own start of the environment: start it in the background, poll it, or stop it. */
   pocCheck(projectId: string, action: 'start' | 'status' | 'stop', waitSec?: number): Promise<{ state: string; error: string | null; output: string }>;
   /** Generated documents (SPEC §22): kept for the run, applied by the app when it succeeds. */
-  saveDocPlan(projectId: string, runId: string, plan: DocPlanEntry[]): void;
+  saveDocPlan(projectId: string, runId: string, plan: DocPlanEntry[], setName: string): void;
+  docRefreshFetch(projectId: string, runId: string, url: string): Promise<Record<string, unknown>>;
+  docRefreshReport(projectId: string, runId: string, r: { documentId: string; status: 'current' | 'unverifiable'; note: string; fetchId?: number; edition?: string }): void;
+  docRefreshPropose(projectId: string, runId: string, p: RefreshProposalInput): { id: string; duplicate: boolean };
   saveGeneratedDoc(projectId: string, runId: string, slug: string, md: string): { title: string; sections: Record<string, number> };
   /** Called after an agent wrote something, so the UI can refresh. */
   onWrite(projectId: string): void;
@@ -126,6 +130,78 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         writable_entities: grant.scope,
       }),
   );
+
+  // The refresher reads untrusted pages: its token reaches nothing but its own tools (SPEC §24).
+  const refresh = grant.scope.find((e) => e.type === DOC_REFRESH_ENTITY);
+  if (refresh) {
+    server.registerTool(
+      'fetch_url',
+      {
+        description: 'Download a page or file for this check. Only hosts of the check\'s links are allowed. Returns fetch_id, kind (html, text, pdf, docx), the start of the text and the links of a page; the whole text is in text_file, a file in file (both relative to your directory).',
+        inputSchema: { url: z.string().min(1) },
+      },
+      async ({ url }) => guard({ kind: 'write', entity: refresh }, async () => { liveRun(); return ok(await svc.docRefreshFetch(pid, grant.runId, url)); }),
+    );
+    server.registerTool(
+      'report_document_check',
+      {
+        description: 'Record that a document matches its source (status current, needs fetch_id and what shows it) or could not be checked (status unverifiable, with the reason).',
+        inputSchema: {
+          document_id: z.string(),
+          status: z.enum(['current', 'unverifiable']),
+          note: z.string().min(1).describe('What shows it, or why it could not be checked'),
+          fetch_id: z.number().int().optional(),
+          edition: z.string().optional().describe('Edition or date the source states'),
+        },
+      },
+      async ({ document_id, status, note, fetch_id, edition }) =>
+        guard({ kind: 'write', entity: refresh }, () => {
+          liveRun();
+          svc.docRefreshReport(pid, grant.runId, { documentId: document_id, status, note, fetchId: fetch_id, edition });
+          svc.onWrite(pid);
+          return ok({ saved: true });
+        }),
+    );
+    server.registerTool(
+      'propose_document_change',
+      {
+        description: 'Propose a change for a human to decide on. The app verifies it: the quote must be word for word on a page fetched in this run, an update must really differ from the current version. See your task for the kinds.',
+        inputSchema: {
+          kind: z.enum(['update', 'add', 'replace', 'retire', 'link']),
+          document_id: z.string().optional().describe('The document concerned; not for add'),
+          title: z.string().optional().describe('Title of the new document (add, replace)'),
+          edition: z.string().optional().describe('Edition or date the source states; required for update'),
+          reason: z.string().min(1),
+          quote: z.string().optional().describe('Word for word from a fetched page; proves the claim'),
+          quote_fetch_id: z.number().int().optional(),
+          source_fetch_ids: z.array(z.number().int()).optional().describe('The new document: one file, or its pages in reading order'),
+          start_phrase: z.string().optional().describe('First words of the document on the page'),
+          end_phrase: z.string().optional().describe('Last words of the document on the page'),
+          restored_text: z.string().optional().describe('Whole text, only when the conversion of the page is really broken'),
+        },
+      },
+      async (p) =>
+        guard({ kind: 'write', entity: refresh }, () => {
+          liveRun();
+          const r = svc.docRefreshPropose(pid, grant.runId, {
+            kind: p.kind,
+            documentId: p.document_id,
+            title: p.title,
+            edition: p.edition,
+            reason: p.reason,
+            quote: p.quote,
+            quoteFetchId: p.quote_fetch_id,
+            sourceFetchIds: p.source_fetch_ids,
+            startPhrase: p.start_phrase,
+            endPhrase: p.end_phrase,
+            restoredText: p.restored_text,
+          });
+          svc.onWrite(pid);
+          return ok(r);
+        }),
+    );
+    return server;
+  }
 
   server.registerTool(
     'list_jobs',
@@ -395,12 +471,13 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
             }),
           )
           .min(1),
+        set_name: z.string().min(1).describe('Name of the document set these documents form, e.g. "<project> security (AI)"; an existing AI set keeps its name'),
       },
     },
-    async ({ documents }) =>
+    async ({ documents, set_name }) =>
       guard({ kind: 'write', entity: { type: DOC_PLAN_ENTITY, id: pid } }, () => {
         liveRun();
-        svc.saveDocPlan(pid, grant.runId, documents);
+        svc.saveDocPlan(pid, grant.runId, documents, set_name);
         return ok({ saved: documents.map((d) => `${d.slug} (${d.key_prefix}): ${d.sections.length} sections`) });
       }),
   );

@@ -194,6 +194,97 @@ export interface DocumentSummary {
   current: DocVersion | null;
   /** Plan entry of a document written by AI (SPEC §22); null for uploaded documents. */
   generated: DocPlanEntry | null;
+  /** Set it belongs to (SPEC §24). */
+  setId: string | null;
+  /** Where its edition is checked. */
+  source: DocLink | null;
+  edition: string | null;
+  lastCheck: DocCheck | null;
+  /** Out of force: its requirements leave matrices and the refresher skips it; history stays. */
+  retiredAt: string | null;
+  retiredReason: string | null;
+  /** Document this one replaces once approved. */
+  replaces: string | null;
+}
+
+/** A source link; `insecure` skips certificate verification for its host and is set only by a human. */
+export interface DocLink {
+  url: string;
+  insecure: boolean;
+}
+
+export interface DocSet {
+  id: string;
+  name: string;
+  /** What belongs to the set: the refresher judges new documents by it. */
+  scope: string;
+  links: DocLink[];
+  /** Created by the plan of AI-written documents. */
+  generated: boolean;
+  createdAt: string;
+}
+
+export type DocCheckStatus = 'current' | 'changed' | 'unverifiable';
+
+export interface DocCheck {
+  status: DocCheckStatus;
+  at: string;
+  /** Last time it was confirmed current; an unreachable site does not extend it. */
+  lastCurrentAt: string | null;
+  note: string;
+  url: string | null;
+  unverifiedChannel: boolean;
+  runId: string | null;
+}
+
+export type DocRefreshTarget = { setId: string } | { documentId: string };
+
+export type DocProposalKind = 'update' | 'add' | 'replace' | 'retire' | 'link';
+export type DocProposalStatus = 'pending' | 'applied' | 'rejected' | 'outdated';
+
+export interface DocProposal {
+  id: string;
+  /** Entity id of the check that made it. */
+  target: string;
+  setId: string | null;
+  documentId: string | null;
+  kind: DocProposalKind;
+  status: DocProposalStatus;
+  title: string | null;
+  edition: string | null;
+  url: string | null;
+  reason: string;
+  quote: string | null;
+  quoteUrl: string | null;
+  /** Plain HTTP or an unverified certificate. */
+  unverifiedChannel: boolean;
+  /** The text was rewritten by AI instead of converted by the app. */
+  restored: boolean;
+  /** Share of the restored text's paragraphs found on the page. */
+  coverage: number | null;
+  versionId: string | null;
+  resultDocumentId: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  decisionNote: string | null;
+}
+
+/** Result of asking for a check: a job, or an answer without AI when the sources did not change. */
+export interface DocRefreshStart {
+  job: Job | null;
+  /** Sources compared without AI; `job` is null when nothing changed. */
+  compared: number;
+  unchanged: boolean;
+  failed: { url: string; error: string }[];
+}
+
+export interface DocRefreshEstimate {
+  role: string;
+  documents: number;
+  links: string[];
+  tokens: number;
+  tokensSource: 'history' | 'config';
+  maxTokensPerRun: number;
 }
 
 /** One planned document; kept on the document so regeneration keeps its slug and key prefix. */
@@ -241,6 +332,8 @@ export interface DocVersionView {
   sourceFile: string | null;
   /** Quotes are checked against the extracted text (MD, DOCX); PDF is read by claude directly. */
   quotesVerified: boolean;
+  /** The refresher proposal this version came from (SPEC §24). */
+  proposal: DocProposal | null;
 }
 
 export interface Matrix {

@@ -59,13 +59,68 @@ if (!args.includes('-p')) {
     // Matrix prompts list cells as "- requirement_id `<id>` — <key> (<section>): <text>".
     const reqLines = [...prompt.matchAll(/^- requirement_id `([^`]+)` — [^:]+: (.*)$/gm)].map((m) => ({ id: m[1], text: m[2] }));
     const moduleOf = () => /module_id `([^`]+)`/.exec(prompt)[1];
+    if (prompt.includes('Check documents of project')) {
+      const out = [];
+      const call = async (n, a) => {
+        const r = await mcp(n, a);
+        const text = r?.content?.[0]?.text ?? 'no such tool';
+        out.push(`${n}: ${text.slice(0, 200)}`);
+        return { error: Boolean(r?.isError) || !r, text };
+      };
+      const json = (r) => JSON.parse(r.text);
+      await call('list_documents', {});
+      await call('fetch_url', { url: 'https://not-allowed.example/x' });
+      const links = [...prompt.matchAll(/^- (https?:\S+)$/gm)].map((m) => m[1]);
+      const docs = [...prompt.matchAll(/^- document_id `([^`]+)`/gm)].map((m) => m[1]);
+      let changed = false;
+      let last = null;
+      for (const url of links) {
+        const f = await call('fetch_url', { url });
+        if (f.error) continue;
+        last = json(f);
+        const text = last.text_file ? fs.readFileSync(last.text_file, 'utf8') : '';
+        const quote_fetch_id = last.fetch_id;
+        const first = docs[0];
+        if (text.includes('NEW EDITION')) {
+          changed = true;
+          await call('propose_document_change', { kind: 'update', document_id: first, reason: 'no edition', source_fetch_ids: [last.fetch_id], start_phrase: 'NEW EDITION', end_phrase: 'END' });
+          await call('propose_document_change', { kind: 'update', document_id: first, reason: 'made up', edition: 'made up', quote: 'not on the page at all', quote_fetch_id, source_fetch_ids: [last.fetch_id], start_phrase: 'NEW EDITION', end_phrase: 'END' });
+          const edition = /NEW EDITION (\S+)/.exec(text)[1];
+          const r = await call('propose_document_change', { kind: 'update', document_id: first, reason: 'the page states a new edition', edition, quote: `NEW EDITION ${edition}`, quote_fetch_id, source_fetch_ids: [last.fetch_id], start_phrase: 'NEW EDITION', end_phrase: 'END' });
+          if (r.error) await call('report_document_check', { document_id: first, status: 'unverifiable', note: r.text });
+        }
+        if (text.includes('CANCELLED')) {
+          changed = true;
+          await call('propose_document_change', { kind: 'retire', document_id: first, reason: 'no quote' });
+          await call('propose_document_change', { kind: 'retire', document_id: first, reason: 'the page cancels it', quote: 'CANCELLED', quote_fetch_id });
+        }
+        if (text.includes('REPLACED BY')) {
+          changed = true;
+          await call('propose_document_change', { kind: 'replace', document_id: first, title: 'Successor', reason: 'the page says so', quote: 'REPLACED BY', quote_fetch_id, source_fetch_ids: [last.fetch_id], start_phrase: 'REPLACED BY', end_phrase: 'END' });
+        }
+        if (text.includes('RESTORED')) {
+          changed = true;
+          await call('propose_document_change', { kind: 'update', document_id: first, edition: 'r1', reason: 'bad', quote: 'RESTORED', quote_fetch_id, source_fetch_ids: [last.fetch_id], restored_text: 'Invented paragraph.\nAnother invented one.' });
+          await call('propose_document_change', { kind: 'update', document_id: first, edition: 'r1', reason: 'broken conversion', quote: 'RESTORED', quote_fetch_id, source_fetch_ids: [last.fetch_id], restored_text: text });
+        }
+        const add = last.links?.find((l) => l.text.startsWith('ADD'));
+        if (add) {
+          changed = true;
+          const g = json(await call('fetch_url', { url: add.url }));
+          await call('propose_document_change', { kind: 'add', title: add.text.slice(4), reason: 'belongs to the set', quote: add.text, quote_fetch_id, source_fetch_ids: [g.fetch_id] });
+        }
+      }
+      if (!changed) for (const document_id of docs) await call('report_document_check', last ? { document_id, status: 'current', note: 'edition unchanged', fetch_id: last.fetch_id, edition: 'first' } : { document_id, status: 'unverifiable', note: 'site down' });
+      return done(out.join('\n'));
+    }
     if (prompt.includes('Plan the security requirement documents')) {
-      const bad = await mcp('plan_security_documents', { documents: [{ slug: 'x', title: 'X', key_prefix: 'XX', scope: 's', modules: ['nope'], sections: ['A'] }] });
+      const bad = await mcp('plan_security_documents', { documents: [{ slug: 'x', title: 'X', key_prefix: 'XX', scope: 's', modules: ['nope'], sections: ['A'] }], set_name: 'Demo security' });
       const r = await mcp('plan_security_documents', {
         documents: [
           { slug: 'authn', title: 'Authentication', key_prefix: 'AUTHN', scope: 'login of svc', modules: ['svc'], sections: ['Login', 'Sessions'] },
           { slug: 'data', title: 'Data protection', key_prefix: 'DATA', scope: 'stored data', modules: [], sections: ['Storage'] },
         ],
+        set_name: 'Demo security',
       });
       return done(`${bad.content[0].text} ${r.content[0].text}`);
     }

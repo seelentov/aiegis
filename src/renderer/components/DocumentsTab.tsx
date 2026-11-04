@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import type { DocumentSummary, DocVersionView, ItemChange, ProjectInfo, RequirementItem } from '../../shared/types';
+import { Fragment, useEffect, useState } from 'react';
+import type { DocCheckStatus, DocLink, DocProposal, DocProposalKind, DocRefreshEstimate, DocRefreshTarget, DocSet, DocumentSummary, DocVersionView, ItemChange, Matrix, ProjectInfo, RequirementItem } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
-import { JOB_STATUS, REVIEW, time, VERSION_STATUS } from '../format';
+import { JOB_STATUS, kTokens, REVIEW, time, VERSION_STATUS } from '../format';
+import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
 import { IconButton } from './Icon';
 import { tr } from '../i18n';
@@ -12,6 +13,9 @@ interface Props {
   revision: number;
   run: RunFn;
   onTerminal: (id: string | undefined) => void;
+  selection: Selection | null;
+  onSelect: (s: Selection) => void;
+  notify: (level: 'info' | 'warn' | 'error', text: string) => void;
 }
 
 const CHANGE: Record<ItemChange, string> = { added: tr('new|item'), changed: tr('changed|item'), same: '' };
@@ -96,6 +100,8 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
           {view.job.error && <span className="error-text"> — {view.job.error}</span>}
         </div>
       )}
+      {view.proposal?.restored && <div className="warn">{RESTORED(view.proposal)}</div>}
+      {view.proposal?.unverifiedChannel && <div className="warn">{UNVERIFIED()}</div>}
       {!view.quotesVerified && <div className="warn">{tr('Claude reads the PDF directly: the app does not match quotes against the text, check them during review.')}</div>}
       <div className="toolbar">
         {editable && (
@@ -205,15 +211,193 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
   );
 }
 
-export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
+const CHECK: Record<DocCheckStatus, { label: string; cls: string }> = {
+  current: { label: tr('current|document'), cls: 'cs-pass' },
+  changed: { label: tr('change found'), cls: 'cs-needs_human' },
+  unverifiable: { label: tr('could not check'), cls: 'cs-not_checked' },
+};
+const KIND: Record<DocProposalKind, string> = { update: tr('New edition'), add: tr('Add document'), replace: tr('Replaced by another'), retire: tr('Out of force'), link: tr('Link found') };
+const UNVERIFIED = () => tr('Received over an unverified channel: plain HTTP or no certificate check. Anyone on the path could have changed it.');
+const RESTORED = (p: DocProposal) => tr('The text was rewritten by AI because the page converted badly; {n}% of its paragraphs were found on the page. Compare it with the source.', { n: Math.round((p.coverage ?? 0) * 100) });
+
+function LinkFields({ link, onChange, onRemove }: { link: DocLink; onChange: (l: DocLink) => void; onRemove?: () => void }) {
+  return (
+    <div className="wide row">
+      <input className="grow" value={link.url} placeholder="https://" onChange={(e) => onChange({ ...link, url: e.target.value })} />
+      <label className="check" title={tr('For a site whose certificate cannot be verified. Anyone on the path could change what is downloaded; results get a warning.')}>
+        <input type="checkbox" checked={link.insecure} onChange={(e) => onChange({ ...link, insecure: e.target.checked })} />
+        {tr('Do not verify the certificate')}
+      </label>
+      {onRemove && <IconButton icon="trash" title={tr('Remove the link')} onClick={onRemove} />}
+    </div>
+  );
+}
+
+function DocSetForm({ project, run, set, docs, onDone }: { project: ProjectInfo; run: RunFn; set?: DocSet; docs: DocumentSummary[]; onDone: () => void }) {
+  const [name, setName] = useState(set?.name ?? '');
+  const [scope, setScope] = useState(set?.scope ?? '');
+  const [links, setLinks] = useState<DocLink[]>(set?.links ?? []);
+  const [ids, setIds] = useState(docs.filter((d) => set && d.setId === set.id).map((d) => d.id));
+  const save = async () => {
+    const r = await run(api.saveDocSet(project.id, { id: set?.id, name, scope, links: links.filter((l) => l.url.trim()), documentIds: ids }));
+    if (r) onDone();
+  };
+  return (
+    <div className="form">
+      <label>
+        {tr('Title')}
+        <input value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <div />
+      <label className="wide">
+        {tr('What belongs to this set: AI judges new documents by it')}
+        <textarea rows={2} value={scope} onChange={(e) => setScope(e.target.value)} />
+      </label>
+      <fieldset className="wide">
+        <legend>{tr('Links to check. Links of individual documents are not used when the whole set is checked.')}</legend>
+        {links.map((l, i) => (
+          <LinkFields key={i} link={l} onChange={(x) => setLinks(links.map((o, n) => (n === i ? x : o)))} onRemove={() => setLinks(links.filter((_, n) => n !== i))} />
+        ))}
+        <IconButton icon="plus" title={tr('Add a link')} label={tr('Add a link')} onClick={() => setLinks([...links, { url: '', insecure: false }])} />
+      </fieldset>
+      <fieldset className="wide">
+        <legend>{tr('Documents of the set')}</legend>
+        {docs.map((d) => (
+          <label key={d.id} className="check">
+            <input type="checkbox" checked={ids.includes(d.id)} onChange={(e) => setIds(e.target.checked ? [...ids, d.id] : ids.filter((x) => x !== d.id))} />
+            {d.title}
+          </label>
+        ))}
+      </fieldset>
+      <div className="wide row">
+        <button className="primary" disabled={!name.trim()} onClick={() => void save()}>
+          {tr('Save')}
+        </button>
+        <button onClick={onDone}>{tr('Cancel')}</button>
+        {set && (
+          <button onClick={() => confirm(tr('Remove the set? Its documents stay, outside any set.')) && void run(api.removeDocSet(project.id, set.id)).then(onDone)}>
+            {tr('Remove the set')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Details of a refresher proposal in the right panel: the evidence and the decision. */
+export function DocProposalDetailsView({ project, id, revision, run, onSelect }: { project: ProjectInfo; id: string; revision: number; run: RunFn; onSelect: (s: Selection | null) => void }) {
+  const [p, setP] = useState<DocProposal | null>(null);
   const [docs, setDocs] = useState<DocumentSummary[]>([]);
+  const [matrices, setMatrices] = useState<Matrix[]>([]);
+  const [chosen, setChosen] = useState<string[] | null>(null);
+  useEffect(() => {
+    void run(Promise.all([api.listDocProposals(project.id), api.listDocuments(project.id), api.listMatrices(project.id)])).then((r) => {
+      if (!r) return;
+      setP(r[0].find((x) => x.id === id) ?? null);
+      setDocs(r[1]);
+      setMatrices(r[2]);
+    });
+  }, [project.id, id, revision, run]);
+  if (!p) return null;
+  const doc = docs.find((d) => d.id === p.documentId);
+  const setDocIds = docs.filter((d) => d.setId === p.setId).map((d) => d.id);
+  const picked = chosen ?? matrices.filter((m) => m.documentIds.some((d) => setDocIds.includes(d))).map((m) => m.id);
+  const open = doc?.versions.find((v) => v.status === 'extracting' || v.status === 'review');
+  const blocked = p.kind === 'update' && open ? tr('The document has an unapproved version v{n}: approve or discard it first', { n: open.n }) : null;
+  const decided = p.status !== 'pending';
+  return (
+    <section>
+      <h3>{KIND[p.kind]}</h3>
+      <dl>
+        <dt>{tr('Document')}</dt>
+        <dd>{p.title ?? doc?.title ?? '—'}</dd>
+        {p.edition && (
+          <>
+            <dt>{tr('Edition')}</dt>
+            <dd>{p.edition}</dd>
+          </>
+        )}
+        <dt>{tr('Reason')}</dt>
+        <dd>{p.reason}</dd>
+        {p.quote && (
+          <>
+            <dt>{tr('Source quote')}</dt>
+            <dd>{p.quote}</dd>
+          </>
+        )}
+        {p.url && (
+          <>
+            <dt>{tr('Source')}</dt>
+            <dd className="mono small">{p.url}</dd>
+          </>
+        )}
+        {p.quoteUrl && p.quoteUrl !== p.url && (
+          <>
+            <dt>{tr('Quote from')}</dt>
+            <dd className="mono small">{p.quoteUrl}</dd>
+          </>
+        )}
+        {decided && p.decisionNote && (
+          <>
+            <dt>{tr('Decision')}</dt>
+            <dd>{p.decisionNote}</dd>
+          </>
+        )}
+      </dl>
+      {p.unverifiedChannel && <div className="warn">{UNVERIFIED()}</div>}
+      {p.restored && <div className="warn">{RESTORED(p)}</div>}
+      {blocked && <div className="warn">{blocked}</div>}
+      {!decided && (
+        <div className="form">
+          {p.kind === 'add' && matrices.length > 0 && (
+            <fieldset className="wide">
+              <legend>{tr('Add to matrices (cells appear once it is approved)')}</legend>
+              {matrices.map((m) => (
+                <label key={m.id} className="check">
+                  <input type="checkbox" checked={picked.includes(m.id)} onChange={(e) => setChosen(e.target.checked ? [...picked, m.id] : picked.filter((x) => x !== m.id))} />
+                  {m.name}
+                </label>
+              ))}
+            </fieldset>
+          )}
+          <div className="wide row">
+            <IconButton
+              icon="approve"
+              className="primary"
+              disabled={Boolean(blocked)}
+              title={tr('Apply: a new document or version goes to extraction and review')}
+              label={tr('Apply')}
+              onClick={() => void run(api.acceptDocProposal(project.id, p.id, { matrixIds: p.kind === 'add' ? picked : undefined })).then((r) => r && onSelect(null))}
+            />
+            <IconButton icon="reject" title={tr('Reject: it is not proposed again while the source stays the same')} label={tr('Reject')} onClick={() => void run(api.rejectDocProposal(project.id, p.id, '')).then(() => onSelect(null))} />
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function DocumentsTab({ project, revision, run, onTerminal, selection, onSelect, notify }: Props) {
+  const [docs, setDocs] = useState<DocumentSummary[]>([]);
+  const [sets, setSets] = useState<DocSet[]>([]);
+  const [proposals, setProposals] = useState<DocProposal[]>([]);
   const [versionId, setVersionId] = useState<string | null>(null);
   const [view, setView] = useState<DocVersionView | null>(null);
   const [title, setTitle] = useState('');
+  const [uploadSet, setUploadSet] = useState('');
   const [hint, setHint] = useState('');
+  const [setForm, setSetForm] = useState<DocSet | 'new' | null>(null);
+  const [sourceOf, setSourceOf] = useState<{ doc: DocumentSummary; link: DocLink } | null>(null);
+  const [retiring, setRetiring] = useState<{ doc: DocumentSummary; reason: string } | null>(null);
+  const [pendingCheck, setPendingCheck] = useState<{ target: DocRefreshTarget; name: string; estimate: DocRefreshEstimate } | null>(null);
 
   useEffect(() => {
-    void run(api.listDocuments(project.id)).then((d) => d && setDocs(d));
+    void run(Promise.all([api.listDocuments(project.id), api.listDocSets(project.id), api.listDocProposals(project.id)])).then((r) => {
+      if (!r) return;
+      setDocs(r[0]);
+      setSets(r[1]);
+      setProposals(r[2]);
+    });
   }, [project.id, revision, run]);
 
   useEffect(() => {
@@ -225,13 +409,14 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
     { key: 'title', title: tr('Document'), text: (d) => d.title },
     { key: 'current', title: tr('Current version'), text: (d) => (d.current ? `v${d.current.n}` : tr('not approved')), filter: 'enum' },
     { key: 'versions', title: tr('Versions') },
+    { key: 'check', title: tr('Last check'), text: (d) => (d.retiredAt ? tr('out of force') : d.lastCheck ? CHECK[d.lastCheck.status].label : tr('not checked')), filter: 'enum' },
     { key: 'actions', title: '', className: 'actions' },
   ]);
 
   const importFile = async (documentId?: string) => {
     const file = await run(api.pickDocumentFile());
     if (!file) return;
-    const v = await run(api.importDocument(project.id, file, { documentId, title: documentId ? undefined : title }));
+    const v = await run(api.importDocument(project.id, file, documentId ? { documentId } : { title, setId: uploadSet || undefined }));
     if (v) {
       setTitle('');
       setVersionId(v.version.id);
@@ -242,13 +427,101 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
     if (await run(api.enqueueDocPlan(project.id, hint))) setHint('');
   };
 
+  const askCheck = async (target: DocRefreshTarget, name: string) => {
+    const estimate = await run(api.estimateDocRefresh(project.id, target));
+    if (estimate) setPendingCheck({ target, name, estimate });
+  };
+
+  const startCheck = async (force: boolean) => {
+    if (!pendingCheck) return;
+    const { target, name } = pendingCheck;
+    setPendingCheck(null);
+    const r = await run(api.refreshDocuments(project.id, target, { force }));
+    if (!r) return;
+    if (r.failed.length) notify('warn', tr('“{name}”: could not reach {urls}', { name, urls: r.failed.map((f) => `${f.url} (${f.error})`).join('; ') }));
+    else if (!r.job) notify('info', tr('“{name}”: the sources did not change, no AI was used', { name }));
+    else notify('info', tr('“{name}”: the check is queued', { name }));
+  };
+
+  const pending = proposals.filter((p) => p.status === 'pending');
+  const groups: { set: DocSet | null; rows: DocumentSummary[] }[] = [
+    ...sets.map((set) => ({ set, rows: g.rows.filter((d) => d.setId === set.id) })),
+    { set: null, rows: g.rows.filter((d) => !d.setId) },
+  ];
+
   return (
     <div className="documents-tab">
       <div className="toolbar">
         <input placeholder={tr('document title (file name by default)')} value={title} onChange={(e) => setTitle(e.target.value)} size={40} />
+        <select value={uploadSet} title={tr('Set of the uploaded document')} onChange={(e) => setUploadSet(e.target.value)}>
+          <option value="">{tr('Without a set')}</option>
+          {sets.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.name}
+            </option>
+          ))}
+        </select>
         <IconButton icon="upload" className="primary" title={tr('Upload a document: MD, PDF or DOCX')} label={tr('Upload document')} onClick={() => void importFile()} />
+        <IconButton icon="folderPlus" title={tr('Create a document set to check against its links')} label={tr('New set')} onClick={() => setSetForm('new')} />
         {g.count}
       </div>
+      {setForm && (
+        <div className="card">
+          <strong>{setForm === 'new' ? tr('New set') : setForm.name}</strong>
+          <DocSetForm key={setForm === 'new' ? 'new' : setForm.id} project={project} run={run} set={setForm === 'new' ? undefined : setForm} docs={docs} onDone={() => setSetForm(null)} />
+        </div>
+      )}
+      {sourceOf && (
+        <div className="card">
+          <strong>{tr('Link of “{title}”', { title: sourceOf.doc.title })}</strong>
+          <div className="form">
+            <LinkFields link={sourceOf.link} onChange={(link) => setSourceOf({ ...sourceOf, link })} />
+            <div className="wide row">
+              <button className="primary" onClick={() => void run(api.setDocumentSource(project.id, sourceOf.doc.id, sourceOf.link.url.trim() ? sourceOf.link : null)).then(() => setSourceOf(null))}>
+                {tr('Save')}
+              </button>
+              <button onClick={() => setSourceOf(null)}>{tr('Cancel')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {retiring && (
+        <div className="card">
+          <strong>{tr('Take “{title}” out of force', { title: retiring.doc.title })}</strong>
+          <div className="form">
+            <label className="wide">
+              {tr('Reason')}
+              <input value={retiring.reason} onChange={(e) => setRetiring({ ...retiring, reason: e.target.value })} />
+            </label>
+            <div className="wide row">
+              <button className="primary" disabled={!retiring.reason.trim()} onClick={() => void run(api.retireDocument(project.id, retiring.doc.id, retiring.reason)).then(() => setRetiring(null))}>
+                {tr('Save')}
+              </button>
+              <button onClick={() => setRetiring(null)}>{tr('Cancel')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {pendingCheck && (
+        <div className="card estimate">
+          <strong>{tr('Estimate: {title} (role {role})', { title: pendingCheck.name, role: pendingCheck.estimate.role })}</strong>
+          <div>
+            {tr('Documents: {docs} · links: {links} · ≈{tokens} tokens ({source}) · limit per run {max}', {
+              docs: pendingCheck.estimate.documents,
+              links: pendingCheck.estimate.links.length,
+              tokens: kTokens(pendingCheck.estimate.tokens),
+              source: pendingCheck.estimate.tokensSource === 'history' ? tr('from run history') : tr('from config'),
+              max: kTokens(pendingCheck.estimate.maxTokensPerRun),
+            })}
+          </div>
+          <div className="muted">{tr('If the sources did not change since the last check, no AI is used and no tokens are spent.')}</div>
+          <div className="row">
+            <IconButton icon="play" className="primary" title={tr('Compare the sources first; the agent runs only if they changed')} label={tr('Run')} onClick={() => void startCheck(false)} />
+            <IconButton icon="wand" title={tr('Run the agent even if the sources look unchanged')} label={tr('Run with AI anyway')} onClick={() => void startCheck(true)} />
+            <button onClick={() => setPendingCheck(null)}>{tr('Cancel')}</button>
+          </div>
+        </div>
+      )}
       <details className="card" open={docs.length === 0}>
         <summary>{tr('Write security documents with AI')}</summary>
         <div className="form">
@@ -268,33 +541,91 @@ export function DocumentsTab({ project, revision, run, onTerminal }: Props) {
       <table className="grid compact">
         {g.head}
         <tbody>
-          {g.rows.length === 0 && (
+          {g.rows.length === 0 && !sets.length && (
             <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
               {tr('No documents: upload a standard or an internal guideline')}
             </EmptyRow>
           )}
-          {g.rows.map((d) => (
-            <tr key={d.id}>
-              <td title={d.generated?.scope}>
-                <strong>{d.title}</strong>
-                {d.generated && <span className="muted small"> · {tr('AI · {prefix}', { prefix: d.generated.key_prefix })}</span>}
-              </td>
-              <td>{d.current ? `v${d.current.n} · ${tr('items {n}', { n: d.current.itemCount })}` : <span className="muted">{tr('not approved')}</span>}</td>
-              <td>
-                {d.versions.map((v) => (
-                  <a key={v.id} className={v.id === versionId ? 'version active' : 'version'} onClick={() => setVersionId(v.id)}>
-                    v{v.n} <span className="muted small">{VERSION_STATUS[v.status]}</span>
-                  </a>
+          {groups.map(({ set, rows }) => {
+            const own = pending.filter((p) => (set ? p.setId === set.id : !p.setId));
+            if (!set && !rows.length && !own.length) return null;
+            const members = docs.filter((d) => (set ? d.setId === set.id : !d.setId));
+            return (
+              <Fragment key={set?.id ?? 'none'}>
+                <tr className="section-row">
+                  <td colSpan={g.colSpan}>
+                    <span>{set ? set.name : tr('Without a set')}</span>
+                    <span> · {tr('documents {n}', { n: members.length })}</span>
+                    {own.length > 0 && <span> · {tr('proposals {n}', { n: own.length })}</span>}
+                    {set && (
+                      <>
+                        <IconButton icon="recheck" className="ghost row-run" disabled={!set.links.length} title={set.links.length ? tr('Check the set against its links') : tr('The set has no links')} onClick={() => void askCheck({ setId: set.id }, set.name)} />
+                        {!members.length && own.some((p) => p.kind === 'add') && <IconButton icon="checkAll" className="ghost row-run" title={tr('First filling of an empty set: apply all additions')} onClick={() => void run(api.acceptAllDocAdditions(project.id, set.id))} />}
+                        <IconButton icon="sliders" className="ghost row-run" title={tr('Set: name, links, documents')} onClick={() => setSetForm(set)} />
+                      </>
+                    )}
+                  </td>
+                </tr>
+                {own.map((p) => (
+                  <tr key={p.id} className={selection?.kind === 'doc-proposal' && selection.id === p.id ? 'selected' : ''} onClick={() => onSelect({ kind: 'doc-proposal', id: p.id })}>
+                    <td colSpan={g.colSpan}>
+                      <span className="status cs-needs_human">{KIND[p.kind]}</span> <strong>{p.title ?? docs.find((d) => d.id === p.documentId)?.title}</strong>
+                      {p.edition && <span className="muted"> · {p.edition}</span>}
+                      {p.unverifiedChannel && <span className="warn small"> · {tr('unverified channel')}</span>}
+                      {p.url && <div className="mono small muted">{p.url}</div>}
+                    </td>
+                  </tr>
                 ))}
-              </td>
-              <td className="actions">
-                {d.generated && (
-                  <IconButton icon="wand" title={tr('Rewrite with AI: a new version for review')} onClick={() => void run(api.regenerateDocument(project.id, d.id, hint))} />
-                )}
-                <IconButton icon="filePlus" title={tr('Upload a new version')} onClick={() => void importFile(d.id)} />
-              </td>
-            </tr>
-          ))}
+                {rows.map((d) => (
+                  <tr key={d.id} className={d.retiredAt ? 'removed' : ''}>
+                    <td title={d.generated?.scope}>
+                      <strong>{d.title}</strong>
+                      {d.generated && <span className="muted small"> · {tr('AI · {prefix}', { prefix: d.generated.key_prefix })}</span>}
+                      {d.edition && <div className="muted small">{d.edition}</div>}
+                      {d.source && <div className="mono small muted">{d.source.url}</div>}
+                    </td>
+                    <td>{d.current ? `v${d.current.n} · ${tr('items {n}', { n: d.current.itemCount })}` : <span className="muted">{tr('not approved')}</span>}</td>
+                    <td>
+                      {d.versions.map((v) => (
+                        <a key={v.id} className={v.id === versionId ? 'version active' : 'version'} onClick={() => setVersionId(v.id)}>
+                          v{v.n} <span className="muted small">{VERSION_STATUS[v.status]}</span>
+                        </a>
+                      ))}
+                    </td>
+                    <td title={d.retiredAt ? (d.retiredReason ?? undefined) : d.lastCheck?.note}>
+                      {d.retiredAt ? (
+                        <>
+                          <span className="status cs-na">{tr('out of force')}</span>
+                          {d.retiredReason && <div className="muted small">{d.retiredReason}</div>}
+                        </>
+                      ) : d.lastCheck ? (
+                        <>
+                          <span className={`status ${CHECK[d.lastCheck.status].cls}`}>{CHECK[d.lastCheck.status].label}</span> <span className="muted small">{time(d.lastCheck.at)}</span>
+                          {d.lastCheck.status !== 'current' && <div className="muted small">{d.lastCheck.note}</div>}
+                          {d.lastCheck.unverifiedChannel && <div className="warn small">{tr('unverified channel')}</div>}
+                        </>
+                      ) : (
+                        <span className="status cs-not_checked">{tr('not checked')}</span>
+                      )}
+                    </td>
+                    <td className="actions">
+                      {!d.retiredAt && <IconButton icon="recheck" disabled={!d.source} title={d.source ? tr('Check this document against its link') : tr('The document has no link')} onClick={() => void askCheck({ documentId: d.id }, d.title)} />}
+                      <IconButton icon="link" title={tr('Link of the document')} onClick={() => setSourceOf({ doc: d, link: d.source ?? { url: '', insecure: false } })} />
+                      {d.retiredAt ? (
+                        <IconButton icon="undo" title={tr('Back into force: requirements return to matrices')} onClick={() => void run(api.restoreDocument(project.id, d.id))} />
+                      ) : (
+                        <IconButton icon="close" title={tr('Out of force: leaves matrices and checks, history stays')} onClick={() => setRetiring({ doc: d, reason: '' })} />
+                      )}
+                      {d.generated && (
+                        <IconButton icon="wand" title={tr('Rewrite with AI: a new version for review')} onClick={() => void run(api.regenerateDocument(project.id, d.id, hint))} />
+                      )}
+                      <IconButton icon="filePlus" title={tr('Upload a new version')} onClick={() => void importFile(d.id)} />
+                    </td>
+                  </tr>
+                ))}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
       {view && <VersionReview project={project} view={view} run={run} onTerminal={onTerminal} />}

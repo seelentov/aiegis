@@ -547,6 +547,58 @@ const MIGRATIONS: string[] = [
   -- Plan entry (JSON) of a document written by AI; null for uploaded documents.
   ALTER TABLE documents ADD COLUMN generated TEXT;
   `,
+  `
+  -- Document refresher (SPEC §24).
+  CREATE TABLE doc_sets (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    scope TEXT NOT NULL DEFAULT '',
+    links TEXT NOT NULL DEFAULT '[]',
+    generated INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+  ALTER TABLE documents ADD COLUMN set_id TEXT REFERENCES doc_sets(id);
+  ALTER TABLE documents ADD COLUMN source TEXT;
+  ALTER TABLE documents ADD COLUMN edition TEXT;
+  ALTER TABLE documents ADD COLUMN last_check TEXT;
+  ALTER TABLE documents ADD COLUMN retired_at TEXT;
+  ALTER TABLE documents ADD COLUMN retired_reason TEXT;
+  ALTER TABLE documents ADD COLUMN replaces TEXT REFERENCES documents(id);
+  CREATE TABLE doc_proposals (
+    id TEXT PRIMARY KEY,
+    target TEXT NOT NULL,
+    set_id TEXT,
+    document_id TEXT,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    title TEXT,
+    edition TEXT,
+    url TEXT,
+    reason TEXT NOT NULL,
+    quote TEXT,
+    quote_url TEXT,
+    file TEXT,
+    sha256 TEXT,
+    unverified_channel INTEGER NOT NULL DEFAULT 0,
+    restored INTEGER NOT NULL DEFAULT 0,
+    coverage REAL,
+    version_id TEXT,
+    result_document_id TEXT,
+    run_id TEXT,
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    decision_note TEXT
+  );
+  CREATE INDEX doc_proposals_key ON doc_proposals(dedupe_key);
+  CREATE TABLE doc_refresh_baselines (
+    target TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    sources TEXT NOT NULL,
+    results TEXT NOT NULL,
+    checked_at TEXT NOT NULL
+  );
+  `,
 ];
 
 export function migrate(db: DB): void {

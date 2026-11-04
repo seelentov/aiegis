@@ -155,6 +155,22 @@ export const ConfigFileSchema = z.looseObject({
       report_max_mb: z.number().int().min(1).optional(),
     })
     .optional(),
+  doc_refresh: z
+    .looseObject({
+      max_bytes: z.number().int().min(1).optional(),
+      timeout_sec: z.number().int().min(1).optional(),
+      max_redirects: z.number().int().min(0).optional(),
+      user_agent: z.string().optional(),
+      allow_private_addresses: z.boolean().optional(),
+      page_preview_chars: z.number().int().min(0).optional(),
+      max_links: z.number().int().min(0).optional(),
+      js_page_min_chars: z.number().int().min(0).optional(),
+      restored_min_coverage: z.number().min(0).max(1).optional(),
+      same_text_max_removed_lines: z.number().int().min(0).optional(),
+      estimate_history_runs: z.number().int().min(1).optional(),
+      estimate_tokens: z.number().int().min(1).optional(),
+    })
+    .optional(),
   poc: z
     .looseObject({
       start_timeout_sec: z.number().int().min(1).optional(),
@@ -205,5 +221,6 @@ export const SETTINGS_KEYS = [
   'signals',
   'suppressions',
   'sca',
+  'doc_refresh',
   'poc',
 ] as const;

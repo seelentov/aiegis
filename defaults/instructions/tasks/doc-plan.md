@@ -31,5 +31,6 @@ Steps:
 1. `whoami`, `list_modules`, and `get_entry_points` for the modules that have maps.
 2. Survey the repository: build files, README/docs, security configuration (auth, CORS, TLS), data stores, outbound
    integrations, deployment files. Note which security domains apply and where.
-3. Call `plan_security_documents` once with all documents (fix and repeat if it reports an error).
+3. Call `plan_security_documents` once with all documents and `set_name`, the name of the document set they form (fix
+   and repeat if it reports an error).
 4. Reply with the planned documents: title, modules, sections.
