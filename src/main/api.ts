@@ -80,6 +80,17 @@ export function coreApi(core: Core): CoreApi {
     linkScaFinding: (pid, fid, id) => core.linkScaFinding(pid, fid, id),
     scaReportPath: (pid, id) => core.scaReportPath(pid, id),
 
+    listSchedules: (pid) => core.listSchedules(pid),
+    scheduleDetails: (pid, id) => core.scheduleDetails(pid, id),
+    scheduleHistory: (pid, id, limit) => core.scheduleHistory(pid, id, limit),
+    createSchedule: (pid, input) => core.createSchedule(pid, input),
+    updateSchedule: (pid, id, patch) => core.updateSchedule(pid, id, patch),
+    enableSchedule: (pid, id) => core.enableSchedule(pid, id),
+    disableSchedule: (pid, id) => core.disableSchedule(pid, id),
+    removeSchedule: (pid, id) => core.removeSchedule(pid, id),
+    runSchedule: (pid, id) => core.runSchedule(pid, id),
+    cronPreview: (pid, cron) => core.cronPreview(pid, cron),
+
     listTerminals: () => core.terminals.list(),
     terminalSnapshot: (id) => core.terminals.snapshot(id),
     terminalClose: (id) => core.terminals.close(id),

@@ -18,7 +18,7 @@ import { Core } from '../src/main/core';
 import { acquireLock } from '../src/main/lock';
 import { socketPath } from '../src/main/paths';
 import { Terminals } from '../src/main/terminals';
-import type { Job } from '../src/shared/types';
+import type { CronPreview, Job, Schedule, ScheduleFiring } from '../src/shared/types';
 import { DEFAULTS_DIR, tmpDir, write } from './helpers';
 
 const FAKE = path.resolve(__dirname, 'fixtures', 'fake-claude.mjs');
@@ -94,6 +94,23 @@ describe('service and CLI over the socket', () => {
   afterAll(async () => {
     server.close();
     await core.shutdown();
+  });
+
+  it('manages a schedule by name', async () => {
+    await expect(cli(['schedule', 'add', '--name', 'often', '--cron', '* * * * *', '--action', 'task', '--prompt', 'x'])).rejects.toThrow(/more often/);
+    await expect(cli(['schedule', 'add', '--name', 'bad', '--cron', '0 3 * * *', '--action', 'nope'])).rejects.toThrow(/--action must be one of/);
+    await expect(cli(['schedule', 'add', '--name', 'bad', '--cron', '0 3 * * *', '--action', 'sca', '--max-tokens', 'x'])).rejects.toThrow(/--max-tokens/);
+    const s = await json<Schedule>('schedule', 'add', '--name', 'nightly', '--cron', '0 3 * * *', '--action', 'sca', '--scope', 'stale', '--max-tokens', '5000');
+    expect(s).toMatchObject({ name: 'nightly', enabled: true, maxTokens: 5000, action: { kind: 'sca', scope: 'stale' } });
+    expect(await cli(['schedule', 'list'])).toContain('nightly');
+    expect(await json<Schedule>('schedule', 'edit', 'nightly', '--max-tokens', 'default')).toMatchObject({ maxTokens: null, action: { kind: 'sca', scope: 'stale' } });
+    expect(await json<Schedule>('schedule', 'disable', 'nightly')).toMatchObject({ enabled: false, nextAt: null });
+    expect((await json<Schedule>('schedule', 'enable', 'nightly')).nextAt).toBeTruthy();
+    expect(await json<ScheduleFiring>('schedule', 'run', 'nightly')).toMatchObject({ trigger: 'manual', outcome: 'nothing_to_do' });
+    expect((await json<ScheduleFiring[]>('schedule', 'history', 'nightly')).map((f) => f.outcome)).toEqual(['nothing_to_do']);
+    expect((await json<CronPreview>('schedule', 'preview', '0 3 * * *')).next).toHaveLength(5);
+    await cli(['schedule', 'remove', 'nightly']);
+    await expect(cli(['schedule', 'show', 'nightly'])).rejects.toThrow(/not found/);
   });
 
   it('every API method has a command or is listed as UI-only, and names resolve', () => {

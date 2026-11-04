@@ -1,5 +1,5 @@
 import type { AiegisApi, CoreMethod } from '../shared/api';
-import { FINDING_STATUSES, SCA_STATUSES, SEVERITIES, SUPPRESSION_SCOPES, VERDICT_STATUSES, type Evidence, type FindingInput, type MatrixScope, type MatrixSlice, type MatrixStage, type ReviewState, type SuppressionInput } from '../shared/types';
+import { FINDING_STATUSES, SCA_STATUSES, SCHEDULE_ACTIONS, SEVERITIES, SUPPRESSION_SCOPES, VERDICT_STATUSES, type Evidence, type FindingInput, type MatrixScope, type MatrixSlice, type MatrixStage, type ReviewState, type ScheduleAction, type ScheduleInput, type SuppressionInput } from '../shared/types';
 
 /** Parsed command line of one command. */
 export interface Input {
@@ -108,6 +108,57 @@ const scaOptions = async (a: Input, c: Ctx) => ({
   moduleIds: a.has('module') ? await moduleIds(c, a.all('module')) : undefined,
   items: a.has('item') ? a.all('item') : undefined,
 });
+
+async function scheduleId(c: Ctx, ref: string): Promise<string> {
+  const s = (await c.call('listSchedules', c.pid())).find((x) => x.id === ref || x.name === ref);
+  if (!s) throw new Error(`schedule ${ref} not found`);
+  return s.id;
+}
+
+const SCHEDULE_FLAGS =
+  '[--max-tokens <n|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository]';
+
+/** Action of `--action` and its flags; the core validates the result. */
+async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
+  const kind = oneOf(a.one('action'), SCHEDULE_ACTIONS, '--action');
+  const mods = a.has('module') ? await moduleIds(c, a.all('module')) : undefined;
+  switch (kind) {
+    case 'task':
+      return { kind, prompt: required(a, 'prompt'), role: a.one('role') ?? (await c.call('defaultTaskRole', c.pid())), title: a.one('title') };
+    case 'matrix': {
+      const slice = {
+        modules: mods,
+        requirements: a.has('requirement') ? a.all('requirement') : undefined,
+        section: a.one('section'),
+        cells: a.has('cell') ? a.all('cell') : undefined,
+      };
+      return {
+        kind,
+        matrixId: await matrixId(c, required(a, 'matrix')),
+        stage: oneOf<MatrixStage>(a.one('stage') ?? 'verdicts', ['triage', 'verdicts'], '--stage'),
+        scope: oneOf<MatrixScope>(a.one('scope') ?? 'pending', ['pending', 'stale'], '--scope'),
+        slice: Object.values(slice).some((v) => v !== undefined) ? slice : undefined,
+      };
+    }
+    case 'scanners':
+      return { kind, moduleIds: a.has('repository') ? null : (mods ?? []) };
+    case 'sca_inventory':
+      return { kind, moduleIds: mods };
+    case 'sca':
+      return { kind, scope: a.has('scope') ? oneOf<'pending' | 'stale'>(a.one('scope'), ['pending', 'stale'], '--scope') : undefined, moduleIds: mods };
+    case 'entry_points':
+      if ((mods?.length ?? 0) > 1) throw new Error('entry_points takes one --module, or none for all modules');
+      return { kind, moduleId: mods?.[0] };
+  }
+}
+
+function maxTokens(a: Input): number | null {
+  const v = a.one('max-tokens');
+  if (v === undefined || v === 'default') return null;
+  // NaN would reach the core as null, the default limit.
+  if (!/^[1-9]\d*$/.test(v)) throw new Error('--max-tokens must be a positive integer or "default"');
+  return Number(v);
+}
 
 /** Every method of the core API has a command: a new one does not compile until it is added here or to UI_METHODS. */
 export const COMMANDS: Record<CoreMethod, Command> = {
@@ -292,6 +343,40 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   createScaFinding: { name: 'sca finding', usage: `<item> ${FINDING_FLAGS}`, help: 'Create a finding on an SCA item', run: (a, c) => c.call('createScaFinding', c.pid(), a.pos[0], findingInput(a)) },
   linkScaFinding: { name: 'sca link', usage: '<finding> <item>', help: 'Link a finding to an SCA item', run: (a, c) => c.call('linkScaFinding', c.pid(), a.pos[0], a.pos[1]) },
   scaReportPath: { name: 'sca report', usage: '<report>', help: 'Print the path of a stored report', run: (a, c) => c.call('scaReportPath', c.pid(), a.pos[0]) },
+
+  listSchedules: { name: 'schedule list', usage: '', help: 'List schedules', columns: ['id', 'name', 'cron', 'action.kind', 'enabled', 'nextAt', 'lastFiring.outcome'], run: (_a, c) => c.call('listSchedules', c.pid()) },
+  scheduleDetails: { name: 'schedule show', usage: '<schedule>', help: 'Show a schedule', run: async (a, c) => c.call('scheduleDetails', c.pid(), await scheduleId(c, a.pos[0])) },
+  scheduleHistory: {
+    name: 'schedule history',
+    usage: '<schedule> [--limit <n>]',
+    help: 'List firings of a schedule, newest first',
+    columns: ['firedAt', 'trigger', 'outcome', 'reason', 'scheduledAt'],
+    run: async (a, c) => c.call('scheduleHistory', c.pid(), await scheduleId(c, a.pos[0]), a.has('limit') ? Number(a.one('limit')) : undefined),
+  },
+  createSchedule: {
+    name: 'schedule add',
+    usage: `--name <text> --cron <expr> --action <${SCHEDULE_ACTIONS.join('|')}> ${SCHEDULE_FLAGS}`,
+    help: 'Create a schedule; it runs while the app or the service is running, in the time zone of the OS',
+    run: async (a, c) => c.call('createSchedule', c.pid(), { name: required(a, 'name'), cron: required(a, 'cron'), action: await scheduleAction(a, c), maxTokens: maxTokens(a) }),
+  },
+  updateSchedule: {
+    name: 'schedule edit',
+    usage: `<schedule> [--name <text>] [--cron <expr>] [--action <${SCHEDULE_ACTIONS.join('|')}>] ${SCHEDULE_FLAGS}`,
+    help: 'Change a schedule; --action replaces the whole action',
+    run: async (a, c) => {
+      const patch: Partial<ScheduleInput> = {};
+      if (a.has('name')) patch.name = a.one('name');
+      if (a.has('cron')) patch.cron = a.one('cron');
+      if (a.has('action')) patch.action = await scheduleAction(a, c);
+      if (a.has('max-tokens')) patch.maxTokens = maxTokens(a);
+      return c.call('updateSchedule', c.pid(), await scheduleId(c, a.pos[0]), patch);
+    },
+  },
+  enableSchedule: { name: 'schedule enable', usage: '<schedule>', help: 'Enable a schedule', run: async (a, c) => c.call('enableSchedule', c.pid(), await scheduleId(c, a.pos[0])) },
+  disableSchedule: { name: 'schedule disable', usage: '<schedule>', help: 'Disable a schedule', run: async (a, c) => c.call('disableSchedule', c.pid(), await scheduleId(c, a.pos[0])) },
+  removeSchedule: { name: 'schedule remove', usage: '<schedule>', help: 'Remove a schedule; its firings stay in the history', run: async (a, c) => c.call('removeSchedule', c.pid(), await scheduleId(c, a.pos[0])) },
+  runSchedule: { name: 'schedule run', usage: '<schedule>', help: 'Fire a schedule now, with the same checks as a planned firing', run: async (a, c) => c.call('runSchedule', c.pid(), await scheduleId(c, a.pos[0])) },
+  cronPreview: { name: 'schedule preview', usage: '<cron>', help: 'Show the next times of a cron expression', run: (a, c) => c.call('cronPreview', c.pid(), a.pos[0]) },
 
   listTerminals: { name: 'terminal list', usage: '', help: 'List output streams', columns: ['id', 'alive', 'runId', 'title'], run: (_a, c) => c.call('listTerminals') },
   terminalSnapshot: { name: 'terminal show', usage: '<terminal>', help: 'Print the scrollback of a stream', run: (a, c) => c.call('terminalSnapshot', a.pos[0]) },

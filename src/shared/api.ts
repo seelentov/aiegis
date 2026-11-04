@@ -2,6 +2,7 @@ import type {
   AppEvent,
   CellDetails,
   ConfigFileInfo,
+  CronPreview,
   DocumentSummary,
   DocVersionView,
   EffectiveConfigView,
@@ -29,6 +30,9 @@ import type {
   ReviewState,
   Run,
   Scan,
+  Schedule,
+  ScheduleFiring,
+  ScheduleInput,
   ScaEstimate,
   ScaInput,
   ScaItemDetails,
@@ -150,6 +154,21 @@ export interface AiegisApi {
   linkScaFinding(projectId: string, findingId: string, itemId: string): Finding;
   /** Absolute path of a stored inventory report. */
   scaReportPath(projectId: string, reportId: string): string;
+
+  listSchedules(projectId: string): Schedule[];
+  scheduleDetails(projectId: string, id: string): Schedule;
+  /** Newest firings first. */
+  scheduleHistory(projectId: string, id: string, limit?: number): ScheduleFiring[];
+  createSchedule(projectId: string, input: ScheduleInput): Schedule;
+  updateSchedule(projectId: string, id: string, patch: Partial<ScheduleInput>): Schedule;
+  enableSchedule(projectId: string, id: string): Schedule;
+  disableSchedule(projectId: string, id: string): Schedule;
+  /** The firings stay in the history. */
+  removeSchedule(projectId: string, id: string): void;
+  /** Fires now with the checks of a planned firing; the planned time stays. */
+  runSchedule(projectId: string, id: string): ScheduleFiring;
+  /** Next times of an expression; throws when it is invalid or fires too often. */
+  cronPreview(projectId: string, cron: string): CronPreview;
 
   listTerminals(): TerminalInfo[];
   terminalSnapshot(terminalId: string): string;
