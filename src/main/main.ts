@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import * as pty from 'node-pty';
 import { EVENT_CHANNEL, invokeChannel, type ApiImpl, type ApiMethod } from '../shared/api';
 import type { AppEvent } from '../shared/types';
+import { coreApi } from './api';
 import { Core } from './core';
 import { getLogger, shutdownLogging } from './log';
 import { resolveAppPaths } from './paths';
@@ -15,45 +17,12 @@ let win: BrowserWindow | null = null;
 
 function api(): ApiImpl {
   return {
-    listProjects: () => core.listProjects(),
+    ...coreApi(core),
     pickAndAddProject: async () => {
       const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Choose a git repository' });
       if (r.canceled || !r.filePaths[0]) return null;
       return core.addProject(r.filePaths[0]);
     },
-    removeProject: (id) => core.removeProject(id),
-
-    listJobs: (pid) => core.listJobs(pid),
-    listRuns: (pid) => core.listRuns(pid),
-    runDetails: (pid, runId) => core.runDetails(pid, runId),
-    enqueueTask: (pid, t) => core.enqueueTask(pid, t),
-    cancelJob: (pid, jobId) => core.cancelJob(pid, jobId),
-    retryJob: (pid, jobId) => core.retryJob(pid, jobId),
-    takeOver: (pid, jobId) => core.takeOver(pid, jobId),
-    queueState: () => core.queue.state(),
-    resumeQueue: () => core.queue.resume(),
-
-    newSession: (pid) => core.newSession(pid),
-    openRun: (pid, runId) => core.openRun(pid, runId),
-    openExternal: (pid, runId) => core.openExternal(pid, runId),
-    openInEditor: (file, line, pid) => {
-      const abs = pid ? path.resolve(core.listProjects().find((p) => p.id === pid)?.root ?? '', file) : file;
-      execFile('code', line ? ['-g', `${abs}:${line}`] : [abs], (err) => {
-        if (err) execFile('open', ['-a', 'Visual Studio Code', abs], () => undefined);
-      });
-    },
-
-    listModules: (pid) => core.listModules(pid),
-    moduleHistory: (pid, id) => core.moduleHistory(pid, id),
-    previewGlobs: (pid, globs) => core.previewGlobs(pid, globs),
-    saveModule: (pid, m) => core.saveModule(pid, m),
-    removeModule: (pid, id, reason) => core.removeModule(pid, id, reason),
-    enqueueModuleMarkup: (pid, hint) => core.enqueueModuleMarkup(pid, hint),
-    enqueueEntryPoints: (pid, id) => core.enqueueEntryPoints(pid, id),
-    enqueueAllEntryPoints: (pid) => core.enqueueAllEntryPoints(pid),
-    entryPointMap: (pid, id, snap) => core.entryPointMap(pid, id, snap),
-
-    listDocuments: (pid) => core.listDocuments(pid),
     pickDocumentFile: async () => {
       const r = await dialog.showOpenDialog(win!, {
         properties: ['openFile'],
@@ -62,76 +31,23 @@ function api(): ApiImpl {
       });
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
     },
-    importDocument: (pid, file, o) => core.importDocument(pid, file, o),
-    enqueueDocPlan: (pid, hint) => core.enqueueDocPlan(pid, hint),
-    regenerateDocument: (pid, id, hint) => core.regenerateDocument(pid, id, hint),
-    docVersion: (pid, id) => core.docVersion(pid, id),
-    retryExtraction: (pid, id) => core.retryExtraction(pid, id),
-    setVersionState: (pid, id, st) => core.setVersionState(pid, id, st),
-    reviewItems: (pid, id, items, review) => core.reviewItems(pid, id, items, review),
-    saveItem: (pid, id, item) => core.saveItem(pid, id, item),
-    approveVersion: (pid, id) => core.approveVersion(pid, id),
-
-    listMatrices: (pid) => core.listMatrices(pid),
-    saveMatrix: (pid, m) => core.saveMatrix(pid, m),
-    matrixView: (pid, id) => core.matrixView(pid, id),
-    cellDetails: (pid, cell, matrix) => core.cellDetails(pid, cell, matrix),
-    estimateMatrix: (pid, id, stage, scope) => core.estimateMatrix(pid, id, stage, scope),
-    runMatrix: (pid, id, stage, scope) => core.runMatrix(pid, id, stage, scope),
-    estimateRecheck: (pid, cells, matrix) => core.estimateRecheck(pid, cells, matrix),
-    recheckCells: (pid, cells, matrix) => core.recheckCells(pid, cells, matrix),
-    setVerdict: (pid, cell, v) => core.setVerdict(pid, cell, v),
-
-    listFindings: (pid) => core.listFindings(pid),
-    findingDetails: (pid, id) => core.findingDetails(pid, id),
-    setFindingStatus: (pid, id, st, reason) => core.setFindingStatus(pid, id, st, reason),
-    mergeFinding: (pid, src, dst) => core.mergeFinding(pid, src, dst),
-    createFinding: (pid, cell, input) => core.createFinding(pid, cell, input),
-    linkFinding: (pid, id, cell) => core.linkFinding(pid, id, cell),
-    openFixSession: (pid, id) => core.openFixSession(pid, id),
-    enqueuePoc: (pid, id) => core.enqueuePoc(pid, id),
-    enqueuePocSetup: (pid) => core.enqueuePocSetup(pid),
-
-    scannerStatus: (pid, refresh) => core.scannerStatus(pid, refresh),
-    runScanners: (pid, o) => core.runScanners(pid, o),
-    listScans: (pid) => core.listScans(pid),
-    signalsView: (pid, commit) => core.signalsView(pid, commit),
-    signalDetails: (pid, id) => core.signalDetails(pid, id),
-    listSuppressions: (pid) => core.listSuppressions(pid),
-    createSuppression: (pid, input) => core.createSuppression(pid, input),
-    revokeSuppression: (pid, id, reason) => core.revokeSuppression(pid, id, reason),
-    renewSuppression: (pid, id, exp) => core.renewSuppression(pid, id, exp),
-    currentRequirements: (pid) => core.currentRequirements(pid),
-
-    scaView: (pid) => core.scaView(pid),
-    scaItemDetails: (pid, id) => core.scaItemDetails(pid, id),
     pickScaInputFile: async () => {
       const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], title: 'Dependency file (lock file, SBOM, scanner report)' });
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
     },
-    addScaInput: (pid, file, o) => core.addScaInput(pid, file, o),
-    removeScaInput: (pid, id) => core.removeScaInput(pid, id),
-    enqueueScaInventories: (pid, ids) => core.enqueueScaInventories(pid, ids),
-    estimateSca: (pid, o) => core.estimateSca(pid, o),
-    runSca: (pid, o) => core.runSca(pid, o),
-    setScaVerdict: (pid, id, v) => core.setScaVerdict(pid, id, v),
-    createScaFinding: (pid, id, input) => core.createScaFinding(pid, id, input),
-    linkScaFinding: (pid, fid, id) => core.linkScaFinding(pid, fid, id),
-    scaReportPath: (pid, id) => core.scaReportPath(pid, id),
-
-    listTerminals: () => core.terminals.list(),
-    terminalSnapshot: (id) => core.terminals.snapshot(id),
+    newSession: (pid) => core.newSession(pid),
+    openRun: (pid, runId) => core.openRun(pid, runId),
+    openExternal: (pid, runId) => core.openExternal(pid, runId),
+    takeOver: (pid, jobId) => core.takeOver(pid, jobId),
+    openFixSession: (pid, id) => core.openFixSession(pid, id),
+    openInEditor: (file, line, pid) => {
+      const abs = pid ? path.resolve(core.listProjects().find((p) => p.id === pid)?.root ?? '', file) : file;
+      execFile('code', line ? ['-g', `${abs}:${line}`] : [abs], (err) => {
+        if (err) execFile('open', ['-a', 'Visual Studio Code', abs], () => undefined);
+      });
+    },
     terminalWrite: (id, data) => core.terminals.write(id, data),
     terminalResize: (id, cols, rows) => core.terminals.resize(id, cols, rows),
-    terminalClose: (id) => core.terminals.close(id),
-
-    listRoles: (pid) => core.roles(pid),
-    defaultTaskRole: (pid) => core.sessionsSettings(pid).default_task_role,
-    effectiveConfig: (pid, role, module, extra) => core.effectiveView(pid, role, module, extra),
-    taskRole: (pid, kind) => core.taskRole(pid, kind),
-    listConfigFiles: (pid) => core.listConfigFiles(pid),
-    readConfigFile: (pid, file) => core.readConfigFile(pid, file),
-    writeConfigFile: (pid, file, text) => core.writeConfigFile(pid, file, text),
     uiLanguage: () => core.uiLanguage(),
   };
 }
@@ -179,7 +95,7 @@ if (process.platform === 'win32') app.setAppUserModelId('io.github.seelentov.aie
 app.whenReady().then(async () => {
   // Before anything spawns `claude` or scanners: Finder/Dock launches lack the user's shell PATH.
   await adoptLoginShellPath();
-  core = new Core(resolveAppPaths(path.join(__dirname, '..', 'defaults')), { logging: true });
+  core = new Core(resolveAppPaths(path.join(__dirname, '..', 'defaults')), { logging: true, pty: pty.spawn });
   core.on('event', (ev: AppEvent) => win?.webContents.send(EVENT_CHANNEL, ev));
   await core.start();
   registerIpc();

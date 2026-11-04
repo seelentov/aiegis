@@ -318,6 +318,12 @@ export interface MatrixView {
 }
 
 export type MatrixStage = 'triage' | 'verdicts';
+/** Part of a matrix; unset fields do not narrow it. Modules go by id or name, requirements by id or key. */
+export interface MatrixSlice {
+  modules?: string[];
+  requirements?: string[];
+  section?: string;
+}
 /** Which cells a run covers: never checked (not_checked) or stale ones. */
 export type MatrixScope = 'pending' | 'stale';
 

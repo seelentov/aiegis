@@ -1,3 +1,4 @@
+import * as pty from 'node-pty';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,7 +56,7 @@ beforeAll(async () => {
   doc.setIn(['signals', 'auto_scan'], false);
   fs.writeFileSync(cfgFile, doc.toString());
 
-  core = new Core({ globalDir: home, dataDir: data, defaultsDir: DEFAULTS_DIR });
+  core = new Core({ globalDir: home, dataDir: data, defaultsDir: DEFAULTS_DIR }, { pty: pty.spawn });
   core.on('event', (e: AppEvent) => events.push(e));
   await core.start();
   pid = (await core.addProject(repo)).id;
@@ -107,6 +108,11 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
   it('matrix: dry-run estimate, n/a triage, verdict batches by group with findings', async () => {
     write(path.join(repo, '.aiegis', 'config.yaml'), 'matrices: { mini: { effort: matrix-effort } }\nrequirements: { SEC-1: { model: item-model } }\n');
     matrixId = core.saveMatrix(pid, { name: 'mini', documentIds: [docId], moduleIds: [moduleId] }).id;
+    expect(await core.matrixSlice(pid, matrixId, {})).toHaveLength(5);
+    expect(await core.matrixSlice(pid, matrixId, { modules: ['svc'] })).toHaveLength(5);
+    expect(await core.matrixSlice(pid, matrixId, { modules: ['nope'] })).toEqual([]);
+    expect(await core.matrixSlice(pid, matrixId, { section: 'Output' })).toHaveLength(2);
+    expect((await core.matrixSlice(pid, matrixId, { requirements: ['SEC-1'] }))[0]).toMatch(new RegExp(`^${moduleId}/`));
     const view = await core.matrixView(pid, matrixId);
     expect(view.cells).toHaveLength(5);
     expect(view.cells.every((c) => c.status === 'not_checked' && !c.stale)).toBe(true);

@@ -26,6 +26,7 @@ import type {
   Matrix,
   MatrixEstimate,
   MatrixScope,
+  MatrixSlice,
   MatrixStage,
   MatrixView,
   Module,
@@ -190,7 +191,7 @@ import {
   type SignalQuery,
 } from './signals';
 import { ProjectStore, type Authorship } from './store';
-import { Terminals } from './terminals';
+import { Terminals, type PtySpawn } from './terminals';
 import { WorktreeCache } from './worktrees';
 
 /** Job type for a background claude run. */
@@ -263,7 +264,7 @@ const scanLog = getLogger('scanners');
 export class Core extends EventEmitter {
   readonly registry: ProjectRegistry;
   readonly tokens = new TokenRegistry();
-  readonly terminals = new Terminals();
+  readonly terminals: Terminals;
   readonly mcp: AiegisMcpServer;
   readonly queue: JobQueue;
   private readonly stores = new Map<string, ProjectStore>();
@@ -281,12 +282,13 @@ export class Core extends EventEmitter {
   private readonly authors = new Map<string, string>();
   private lastSettings: Settings | null = null;
 
-  /** `logging`: entry points turn it on; tests stay silent. */
+  /** `logging`: entry points turn it on, tests stay silent. `pty`: interactive sessions, the desktop app only. */
   constructor(
     readonly paths: AppPaths,
-    private readonly opts: { logging?: boolean } = {},
+    private readonly opts: { logging?: boolean; pty?: PtySpawn } = {},
   ) {
     super();
+    this.terminals = new Terminals(opts.pty);
     this.registry = new ProjectRegistry(paths.dataDir);
     this.mcp = new AiegisMcpServer(this.tokens, {
       store: (pid) => this.store(pid),
@@ -1200,6 +1202,21 @@ export class Core extends EventEmitter {
       },
       changed,
     };
+  }
+
+  async matrixSlice(projectId: string, matrixId: string, slice: MatrixSlice): Promise<string[]> {
+    const view = await this.matrixView(projectId, matrixId);
+    const modules = view.modules.filter((m) => !slice.modules || slice.modules.includes(m.id) || slice.modules.includes(m.name));
+    const requirements = view.requirements.filter(
+      (r) =>
+        (!slice.requirements || slice.requirements.includes(r.requirementId) || (r.key !== null && slice.requirements.includes(r.key))) &&
+        (slice.section === undefined || slice.section === (r.section || '—')),
+    );
+    const moduleIds = new Set(modules.map((m) => m.id));
+    const requirementIds = new Set(requirements.map((r) => r.requirementId));
+    const cells = view.cells.filter((c) => moduleIds.has(c.moduleId) && requirementIds.has(c.requirementId) && !c.activeJob);
+    const todo = cells.filter((c) => c.status === 'not_checked' || c.stale);
+    return (todo.length ? todo : cells).map((c) => cellId(c));
   }
 
   async matrixView(projectId: string, matrixId: string): Promise<MatrixView> {

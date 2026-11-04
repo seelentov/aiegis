@@ -1,3 +1,4 @@
+import * as pty from 'node-pty';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -46,7 +47,7 @@ beforeAll(async () => {
   doc.setIn(['queue', 'parallelism'], 1);
   fs.writeFileSync(cfgFile, doc.toString());
 
-  core = new Core({ globalDir: home, dataDir: data, defaultsDir: DEFAULTS_DIR });
+  core = new Core({ globalDir: home, dataDir: data, defaultsDir: DEFAULTS_DIR }, { pty: pty.spawn });
   await core.start();
   pid = (await core.addProject(repo)).id;
 });

@@ -16,6 +16,7 @@ import type {
   Matrix,
   MatrixEstimate,
   MatrixScope,
+  MatrixSlice,
   MatrixStage,
   MatrixView,
   Module,
@@ -49,6 +50,7 @@ import type {
 /** Methods the renderer can call in the main process (one IPC channel per method). */
 export interface AiegisApi {
   listProjects(): ProjectInfo[];
+  addProject(dir: string): ProjectInfo;
   pickAndAddProject(): ProjectInfo | null;
   removeProject(projectId: string): void;
 
@@ -100,6 +102,8 @@ export interface AiegisApi {
   cellDetails(projectId: string, cellId: string, matrixId?: string): CellDetails;
   estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): MatrixEstimate;
   runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Job[];
+  /** Cells a verdict run of a slice covers: its unchecked and stale ones, or all of them when none is left. */
+  matrixSlice(projectId: string, matrixId: string, slice: MatrixSlice): string[];
   estimateRecheck(projectId: string, cells: string[], matrixId?: string): MatrixEstimate;
   recheckCells(projectId: string, cells: string[], matrixId?: string): Job[];
   setVerdict(projectId: string, cellId: string, v: { status: VerdictStatus; reason: string; evidence: Evidence[] }): Verdict;
@@ -166,10 +170,31 @@ export interface AiegisApi {
 
 export type ApiMethod = keyof AiegisApi;
 
+/** Methods of the desktop app only: they need a screen or a PTY (SPEC §23). */
+export const UI_METHODS = [
+  'pickAndAddProject',
+  'pickDocumentFile',
+  'pickScaInputFile',
+  'newSession',
+  'openRun',
+  'openExternal',
+  'takeOver',
+  'openFixSession',
+  'openInEditor',
+  'terminalWrite',
+  'terminalResize',
+  'uiLanguage',
+] as const satisfies readonly ApiMethod[];
+export type UiMethod = (typeof UI_METHODS)[number];
+export type CoreMethod = Exclude<ApiMethod, UiMethod>;
+
 /** Implementation in the main process: any method may be async. */
 export type ApiImpl = {
   [K in ApiMethod]: (...args: Parameters<AiegisApi[K]>) => ReturnType<AiegisApi[K]> | Promise<ReturnType<AiegisApi[K]>>;
 };
+
+/** What the desktop app and the service share. */
+export type CoreApi = Pick<ApiImpl, CoreMethod>;
 
 /** Async view of the API as seen from the renderer. */
 export type AsyncApi = {

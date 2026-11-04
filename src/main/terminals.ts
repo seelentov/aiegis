@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import * as pty from 'node-pty';
+import type * as pty from 'node-pty';
 import type { TerminalInfo } from '../shared/types';
 import { pickEnv } from './poc';
 
@@ -11,6 +11,8 @@ interface Entry {
   buffer: string;
   proc?: pty.IPty;
 }
+
+export type PtySpawn = typeof pty.spawn;
 
 export interface PtySpec {
   projectId: string;
@@ -31,6 +33,11 @@ export interface PtySpec {
  */
 export class Terminals extends EventEmitter {
   private readonly entries = new Map<string, Entry>();
+
+  /** `spawnPty` comes from the desktop app: the service has no interactive sessions. */
+  constructor(private readonly spawnPty?: PtySpawn) {
+    super();
+  }
 
   list(): TerminalInfo[] {
     return [...this.entries.values()].map((e) => e.info);
@@ -68,7 +75,8 @@ export class Terminals extends EventEmitter {
 
   openPty(spec: PtySpec): string {
     const id = crypto.randomUUID();
-    const proc = pty.spawn(spec.binary, spec.args, {
+    if (!this.spawnPty) throw new Error('interactive sessions need the desktop app');
+    const proc = this.spawnPty(spec.binary, spec.args, {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,

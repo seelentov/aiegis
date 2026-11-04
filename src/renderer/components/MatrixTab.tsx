@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import type { Cell, DocumentSummary, Matrix, MatrixEstimate, MatrixScope, MatrixStage, MatrixView, ModuleSummary, ProjectInfo } from '../../shared/types';
+import type { Cell, DocumentSummary, Matrix, MatrixEstimate, MatrixScope, MatrixSlice, MatrixStage, MatrixView, ModuleSummary, ProjectInfo } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { CELL_STATUS, JOB_STATUS, kTokens, STALE_REASON } from '../format';
@@ -182,13 +182,11 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
   const cellMap = new Map((view?.cells ?? []).map((c) => [`${c.moduleId}/${c.requirementId}`, c]));
   const cellOf = (moduleId: string, requirementId: string) => cellMap.get(`${moduleId}/${requirementId}`);
 
-  /** Verdicts for a slice of the matrix: its unchecked and stale cells, or all of them when none is left. */
-  const runSlice = async (title: string, pairs: [string, string][]) => {
+  /** Verdicts for a slice of the matrix. */
+  const runSlice = async (title: string, slice: MatrixSlice) => {
     if (!matrixId) return;
-    const cells = pairs.map(([m, r]) => cellOf(m, r)).filter((c): c is Cell => Boolean(c && !c.activeJob));
-    const todo = cells.filter((c) => c.status === 'not_checked' || c.stale);
-    const ids = (todo.length ? todo : cells).map((c) => `${c.moduleId}/${c.requirementId}`);
-    if (!ids.length) return;
+    const ids = await run(api.matrixSlice(project.id, matrixId, slice));
+    if (!ids?.length) return;
     const e = await run(api.estimateRecheck(project.id, ids, matrixId));
     if (e) setPending({ kind: 'cells', cells: ids, title: tr('verdicts, {scope}', { scope: title }), estimate: e });
   };
@@ -220,7 +218,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
             icon="play"
             className="ghost col-run"
             title={tr('Verdicts for module {name}: unchecked and stale cells', { name: m.name })}
-            onClick={() => void runSlice(tr('module {name}', { name: m.name }), (view?.requirements ?? []).map((r) => [m.id, r.requirementId]))}
+            onClick={() => void runSlice(tr('module {name}', { name: m.name }), { modules: [m.id] })}
           />
         ),
       }),
@@ -242,7 +240,6 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
     stale: view.cells.filter((c) => c.stale).length,
     byStatus: (Object.keys(CELL_STATUS) as Cell['status'][]).map((k) => [k, view.cells.filter((c) => c.status === k).length] as const),
   };
-  const rowPairs = (r: Req) => modules.map((m): [string, string] => [m.id, r.requirementId]);
 
   return (
     <div className="matrix-tab">
@@ -342,7 +339,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
                           icon="play"
                           className="ghost row-run"
                           title={tr('Verdicts for the section: {n} requirements', { n: sec.items.length })}
-                          onClick={() => void runSlice(tr('section {key}', { key: sec.key }), sec.items.flatMap(rowPairs))}
+                          onClick={() => void runSlice(tr('section {key}', { key: sec.key }), { requirements: sec.items.map((r) => r.requirementId) })}
                         />
                       </td>
                     </tr>
@@ -353,7 +350,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
                             <span>
                               <span className="mono">{r.key}</span> {r.text}
                             </span>
-                            <IconButton icon="play" className="ghost row-run" title={tr('Verdicts for requirement {key}', { key: r.key })} onClick={() => void runSlice(tr('requirement {key}', { key: r.key }), rowPairs(r))} />
+                            <IconButton icon="play" className="ghost row-run" title={tr('Verdicts for requirement {key}', { key: r.key })} onClick={() => void runSlice(tr('requirement {key}', { key: r.key }), { requirements: [r.requirementId] })} />
                           </div>
                         </td>
                         {modules.map((m) => {
