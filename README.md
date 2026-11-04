@@ -104,6 +104,42 @@ npm install        # пересобирает node-pty под Electron
 npm start
 ```
 
+## Сервис без UI
+
+Бинарник `aiegis` под Linux (x64, arm64) работает без окна и управляется им же. `claude` (или `pi`) и сканеры ставятся на сервер отдельно.
+
+```bash
+aiegis                                # сервис: работает, пока не остановят (SIGTERM, Ctrl+C)
+aiegis project add /srv/repos/shop    # остальные команды обращаются к запущенному сервису
+aiegis doc import ./guide.md          # в папке проекта; иначе --project <имя или id>
+aiegis matrix run main --module auth  # покажет оценку токенов и спросит подтверждение; --yes пропускает его
+aiegis job list
+aiegis watch <job>                    # вывод задачи; Ctrl+C только отключает просмотр
+aiegis log-level queue debug          # до перезапуска сервиса
+aiegis help                           # все команды
+```
+
+Команда `--json` печатает ответ как есть. Коды выхода: `0` успех, `1` ошибка, `2` сервис не запущен. Управлять сервисом может только его пользователь ОС: сокет доступен лишь ему, с другой машины — через `ssh`. Сервис и окно приложения не работают одновременно на одном каталоге данных. Интерактивных сессий в сервисе нет. При остановке задачи возвращаются в очередь и продолжаются после запуска.
+
+Пример unit-файла systemd (`User` — пользователь, у которого залогинен `claude`):
+
+```ini
+[Unit]
+Description=aiegis
+After=network.target
+
+[Service]
+User=appsec
+ExecStart=/usr/local/bin/aiegis
+Restart=on-failure
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Логи: stderr (`journalctl -u aiegis`) и `<каталог данных>/logs/aiegis.log`, настройка — секция `logging` в `~/.aiegis/config.yaml`.
+
 ## Разработка
 
 ```bash

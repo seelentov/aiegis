@@ -121,7 +121,7 @@ export const ConfigFileSchema = z.looseObject({
     })
     .optional(),
   limits: z.looseObject({ max_tokens_per_run: z.number().int().min(1).optional() }).optional(),
-  terminal: z.looseObject({ external_app: z.string().optional() }).optional(),
+  terminal: z.looseObject({ external_app: z.string().optional(), keep_ended_streams: z.number().int().min(0).optional() }).optional(),
   sessions: z.looseObject({ free_role: z.string().optional(), default_task_role: z.string().optional() }).optional(),
   matrix: z
     .looseObject({

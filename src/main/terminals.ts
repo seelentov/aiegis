@@ -34,8 +34,14 @@ export interface PtySpec {
 export class Terminals extends EventEmitter {
   private readonly entries = new Map<string, Entry>();
 
-  /** `spawnPty` comes from the desktop app: the service has no interactive sessions. */
-  constructor(private readonly spawnPty?: PtySpawn) {
+  /**
+   * `spawnPty` comes from the desktop app: the service has no interactive sessions.
+   * `keepEnded`: ended streams kept for viewing; a long-lived process would otherwise hold them all in memory.
+   */
+  constructor(
+    private readonly spawnPty?: PtySpawn,
+    private readonly keepEnded: () => number = () => Infinity,
+  ) {
     super();
   }
 
@@ -70,6 +76,7 @@ export class Terminals extends EventEmitter {
     const e = this.entries.get(id);
     if (!e || !e.info.alive) return;
     e.info.alive = false;
+    this.pruneEnded();
     this.emit('changed');
   }
 
@@ -107,6 +114,11 @@ export class Terminals extends EventEmitter {
   resize(id: string, cols: number, rows: number): void {
     const p = this.entries.get(id)?.proc;
     if (p && cols > 0 && rows > 0) p.resize(cols, rows);
+  }
+
+  private pruneEnded(): void {
+    const ended = this.list().filter((t) => t.mode === 'stream' && !t.alive);
+    for (const t of ended.slice(0, Math.max(0, ended.length - this.keepEnded()))) this.entries.delete(t.id);
   }
 
   /** Removes the tab; kills the PTY if it is still running. */

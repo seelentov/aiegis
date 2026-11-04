@@ -1,6 +1,9 @@
 import os from 'node:os';
 import path from 'node:path';
 
+/** Smallest limit of unix socket paths among the supported systems, without the terminating zero. */
+const MAX_SOCKET_PATH = 103;
+
 export interface AppPaths {
   /** Global defaults (~/.aiegis). */
   globalDir: string;
@@ -24,6 +27,14 @@ export function resolveAppPaths(defaultsDir: string): AppPaths {
     dataDir: process.env.AIEGIS_DATA ?? platformDataDir(),
     defaultsDir,
   };
+}
+
+/** Control socket of the service. */
+export function socketPath(paths: Pick<AppPaths, 'dataDir'>): string {
+  const file = path.join(paths.dataDir, 'aiegis.sock');
+  // A longer path is silently cut by the OS: the service would listen where no client looks.
+  if (Buffer.byteLength(file) > MAX_SOCKET_PATH) throw new Error(`the path of the control socket is too long, move the data directory (AIEGIS_DATA): ${file}`);
+  return file;
 }
 
 export function projectDataDir(paths: AppPaths, projectId: string): string {

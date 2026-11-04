@@ -40,6 +40,7 @@ export class JobQueue extends EventEmitter {
   private readonly now: () => number;
   private readonly setTimer: (fn: () => void, ms: number) => () => void;
   private pumping = false;
+  private closed = false;
 
   constructor(
     private readonly backend: QueueBackend,
@@ -86,9 +87,23 @@ export class JobQueue extends EventEmitter {
     this.pump();
   }
 
+  /** No job starts any more; resolves when the running ones have finished. */
+  close(): Promise<void> {
+    this.closed = true;
+    return new Promise((resolve) => {
+      const check = () => {
+        if (this.running.size) return;
+        this.off('changed', check);
+        resolve();
+      };
+      this.on('changed', check);
+      check();
+    });
+  }
+
   /** Starts as many queued jobs as parallelism allows. */
   pump(): void {
-    if (this.pumping) return;
+    if (this.pumping || this.closed) return;
     this.pumping = true;
     try {
       if (this.pausedUntilMs !== null) {

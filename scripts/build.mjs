@@ -9,6 +9,8 @@ mkdirSync('dist/renderer', { recursive: true });
 await Promise.all([
   build({ ...common, entryPoints: ['src/main/main.ts'], outfile: 'dist/main.js', platform: 'node', format: 'cjs', external }),
   build({ ...common, entryPoints: ['src/preload/preload.ts'], outfile: 'dist/preload.js', platform: 'node', format: 'cjs', external }),
+  // The service and its CLI: no Electron, no UI packages.
+  build({ ...common, entryPoints: ['src/cli/main.ts'], outfile: 'dist/cli.js', platform: 'node', format: 'cjs' }),
   // Loaded by the pi agent (`pi --extension`), not by Electron.
   build({ ...common, entryPoints: ['src/main/pi/extension.ts'], outfile: 'dist/pi-extension.mjs', platform: 'node', format: 'esm', external: ['@anthropic-ai/sandbox-runtime'] }),
   // Optional local runner, not part of the repository.

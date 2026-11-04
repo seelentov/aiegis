@@ -94,7 +94,11 @@ export interface Settings {
   pi: { binary: string; background_args: string[]; interactive_args: string[]; tools: Record<string, string[]> };
   queue: { parallelism: number; rate_limit_fallback_pause_sec: number };
   limits: { max_tokens_per_run: number };
-  terminal: { external_app: string };
+  terminal: {
+    external_app: string;
+    /** Ended output streams kept in memory. */
+    keep_ended_streams: number;
+  };
   sessions: { free_role: string; default_task_role: string };
   matrix: {
     batch_size: number;
@@ -324,7 +328,7 @@ export function agentOf(cfg: EffectiveConfig): 'claude' | 'pi' {
 }
 
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing

@@ -6,6 +6,7 @@ import { EVENT_CHANNEL, invokeChannel, type ApiImpl, type ApiMethod } from '../s
 import type { AppEvent } from '../shared/types';
 import { coreApi } from './api';
 import { Core } from './core';
+import { acquireLock } from './lock';
 import { getLogger, shutdownLogging } from './log';
 import { resolveAppPaths } from './paths';
 import { adoptLoginShellPath } from './shell-env';
@@ -14,6 +15,7 @@ const log = getLogger('core');
 
 let core: Core;
 let win: BrowserWindow | null = null;
+let releaseLock = (): void => undefined;
 
 function api(): ApiImpl {
   return {
@@ -95,7 +97,15 @@ if (process.platform === 'win32') app.setAppUserModelId('io.github.seelentov.aie
 app.whenReady().then(async () => {
   // Before anything spawns `claude` or scanners: Finder/Dock launches lack the user's shell PATH.
   await adoptLoginShellPath();
-  core = new Core(resolveAppPaths(path.join(__dirname, '..', 'defaults')), { logging: true, pty: pty.spawn });
+  const paths = resolveAppPaths(path.join(__dirname, '..', 'defaults'));
+  try {
+    releaseLock = acquireLock(paths.dataDir);
+  } catch (e) {
+    dialog.showErrorBox('aiegis', (e as Error).message);
+    app.exit(1);
+    return;
+  }
+  core = new Core(paths, { logging: true, pty: pty.spawn });
   core.on('event', (ev: AppEvent) => win?.webContents.send(EVENT_CHANNEL, ev));
   await core.start();
   registerIpc();
@@ -109,7 +119,10 @@ app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
   quitting = true;
-  core.shutdown().finally(() => shutdownLogging().finally(() => app.quit()));
+  core.shutdown().finally(() => {
+    releaseLock();
+    void shutdownLogging().finally(() => app.quit());
+  });
 });
 
 app.on('window-all-closed', () => app.quit());

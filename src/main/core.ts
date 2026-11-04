@@ -288,7 +288,7 @@ export class Core extends EventEmitter {
     private readonly opts: { logging?: boolean; pty?: PtySpawn } = {},
   ) {
     super();
-    this.terminals = new Terminals(opts.pty);
+    this.terminals = new Terminals(opts.pty, () => this.globalSettings().terminal.keep_ended_streams);
     this.registry = new ProjectRegistry(paths.dataDir);
     this.mcp = new AiegisMcpServer(this.tokens, {
       store: (pid) => this.store(pid),
@@ -360,9 +360,14 @@ export class Core extends EventEmitter {
     void this.reportScanners();
   }
 
-  async shutdown(): Promise<void> {
+  /** `requeue`: the running jobs go back to the queue and continue after the next start (the service). */
+  async shutdown(o: { requeue?: boolean } = {}): Promise<void> {
     log.info('shutting down');
-    for (const job of this.allRunningJobs()) this.queue.stop(job, 'cancelled');
+    const running = this.allRunningJobs();
+    const idle = this.queue.close();
+    for (const job of running) this.queue.stop(job, 'cancelled');
+    await idle;
+    if (o.requeue) for (const job of running) this.store(job.projectId).setJobStatus(job.id, 'queued', null);
     await Promise.all([...this.activeRuns.values()].map((r) => r.done));
     await Promise.all(this.activeScans.values());
     this.terminals.killAll();

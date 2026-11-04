@@ -78,6 +78,8 @@ limits:
 terminal:
   # macOS application used by "open in external terminal".
   external_app: Terminal
+  # Ended output streams of background runs kept in memory for viewing; the oldest go first (their logs stay on disk).
+  keep_ended_streams: 50
 
 sessions:
   # Role of "New session" / "Open fix session".
