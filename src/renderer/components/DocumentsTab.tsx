@@ -254,11 +254,14 @@ function DocSetForm({ project, run, set, docs, onDone }: { project: ProjectInfo;
         <textarea rows={2} value={scope} onChange={(e) => setScope(e.target.value)} />
       </label>
       <fieldset className="wide">
-        <legend>{tr('Links to check. Links of individual documents are not used when the whole set is checked.')}</legend>
+        <legend>{tr('Links to check')}</legend>
+        <span className="muted small">{tr('Links of individual documents are not used when the whole set is checked.')}</span>
         {links.map((l, i) => (
           <LinkFields key={i} link={l} onChange={(x) => setLinks(links.map((o, n) => (n === i ? x : o)))} onRemove={() => setLinks(links.filter((_, n) => n !== i))} />
         ))}
-        <IconButton icon="plus" title={tr('Add a link')} label={tr('Add a link')} onClick={() => setLinks([...links, { url: '', insecure: false }])} />
+        <div className="row">
+          <IconButton icon="plus" title={tr('Add a link')} label={tr('Add a link')} onClick={() => setLinks([...links, { url: '', insecure: false }])} />
+        </div>
       </fieldset>
       <fieldset className="wide">
         <legend>{tr('Documents of the set')}</legend>
