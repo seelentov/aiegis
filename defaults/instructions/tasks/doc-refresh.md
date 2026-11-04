@@ -11,14 +11,17 @@ Documents in force (their files are in your current directory):
 {{documents}}
 
 Steps:
-1. `fetch_url` each link. Read the reply; the whole text of a page is in its `text_file`.
+1. `fetch_url` each link. The reply shows only the start of a page: its whole text is in `text_file`, all its links in
+   `links_file`. Long lists do not fit the reply, so search those files.
 2. For each document decide one result:
    - it matches the source: `report_document_check` with status `current`, the `fetch_id` and what shows it (edition, date);
    - you could not check it (site down, page needs JavaScript, not found, edition not stated):
-     `report_document_check` with status `unverifiable` and the reason;
+     `report_document_check` with status `unverifiable` and the reason. Before calling a document not found, `Grep` every
+     `text_file` for its number and name; sites write numbers differently (`N 21`, `№ 21`, `N21`). If a page lists it,
+     say so in the reason, and follow its link when the list does not state the edition;
    - the source shows a change: `propose_document_change`, see below.
-3. If this check covers a set, look for documents that belong to it by its description and are missing from the list:
-   propose `add`. Do not propose documents outside that description.
+3. If this check covers a set, search the fetched pages for documents that belong to it by its description and are
+   missing from the list: propose `add`. Do not propose documents outside that description.
 4. Reply with a short summary of the results.
 
 `propose_document_change` kinds:

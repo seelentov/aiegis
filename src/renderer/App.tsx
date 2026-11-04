@@ -81,6 +81,7 @@ export function App() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [revision, setRevision] = useState(0);
   const [mapModule, setMapModule] = useState<string | null>(null);
+  const [matrixDraft, setMatrixDraft] = useState<string | null>(null);
 
   const notify = useCallback((level: Notice['level'], text: string, recheck?: Notice['recheck']) => {
     const id = ++noticeSeq;
@@ -167,6 +168,11 @@ export function App() {
   const openMap = useCallback((moduleId: string) => {
     setMapModule(moduleId);
     setTab('entry-points');
+  }, []);
+
+  const createMatrix = useCallback((documentId: string) => {
+    setMatrixDraft(documentId);
+    setTab('matrix');
   }, []);
 
   const project = projects.find((p) => p.id === projectId) ?? null;
@@ -283,9 +289,9 @@ export function App() {
                   onTerminal={showTerminal}
                 />
               ) : tab === 'documents' ? (
-                <DocumentsTab project={project} revision={revision} run={run} onTerminal={showTerminal} selection={selection} onSelect={setSelection} notify={notify} />
+                <DocumentsTab project={project} revision={revision} run={run} onTerminal={showTerminal} selection={selection} onSelect={setSelection} notify={notify} onCreateMatrix={createMatrix} />
               ) : tab === 'matrix' ? (
-                <MatrixTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
+                <MatrixTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} draftDocument={matrixDraft} onDraftTaken={() => setMatrixDraft(null)} />
               ) : tab === 'findings' ? (
                 <FindingsTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
               ) : tab === 'sca' ? (

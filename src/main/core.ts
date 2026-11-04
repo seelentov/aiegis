@@ -1547,6 +1547,7 @@ export class Core extends EventEmitter {
       const page = html ? htmlToText(decoded, f.finalUrl) : { title: '', text: decoded, links: [] };
       const file = write(html ? 'source.html' : 'source.txt', f.body);
       const textFile = write('text.txt', page.text);
+      const linksFile = write('links.txt', page.links.map((l) => `${l.url}\t${l.text}`).join('\n'));
       save({ ...base, kind: html ? 'html' : 'text', file, textFile });
       return {
         ...common,
@@ -1557,6 +1558,7 @@ export class Core extends EventEmitter {
         text_start: page.text.slice(0, settings.page_preview_chars),
         links: page.links.slice(0, settings.max_links),
         links_total: page.links.length,
+        links_file: linksFile,
         ...(page.text.length < settings.js_page_min_chars ? { warning: 'almost no text: the page probably needs JavaScript or a login; report what depends on it as unverifiable' } : {}),
       };
     }
@@ -1645,7 +1647,10 @@ export class Core extends EventEmitter {
     const content = binary ? sha : input.edition?.trim().toLowerCase() || sources[0]?.finalUrl || '';
     const key = `${kind}:${subject}:${content}`;
     const prev = a.proposalByKey(key);
-    if (prev?.status === 'pending') return { id: prev.id, duplicate: true };
+    if (prev?.status === 'pending') {
+      if (doc && kind !== 'link') this.setCheck(projectId, doc, { status: 'changed', note: prev.reason, url: prev.url, unverifiedChannel: false, runId });
+      return { id: prev.id, duplicate: true };
+    }
     if (prev?.status === 'rejected') throw new Error(`a human rejected this proposal${prev.decisionNote ? ` ("${prev.decisionNote}")` : ''} and the source did not change: report the document instead`);
     if (prev?.status === 'applied') throw new Error('this change was already applied');
 

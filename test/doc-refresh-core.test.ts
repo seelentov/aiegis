@@ -163,6 +163,7 @@ describe('document refresher', () => {
     // Without a human decision the same change stays one proposal.
     await check({ setId: set.id }, { force: true });
     expect(pending()).toHaveLength(1);
+    expect(docOf(docA).lastCheck!.status).toBe('changed');
     const id = pending()[0].id;
     core.rejectDocProposal(pid, id, 'not relevant');
     const again = await check({ setId: set.id }, { force: true });

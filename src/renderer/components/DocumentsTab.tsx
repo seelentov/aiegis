@@ -16,6 +16,7 @@ interface Props {
   selection: Selection | null;
   onSelect: (s: Selection) => void;
   notify: (level: 'info' | 'warn' | 'error', text: string) => void;
+  onCreateMatrix: (documentId: string) => void;
 }
 
 const CHANGE: Record<ItemChange, string> = { added: tr('new|item'), changed: tr('changed|item'), same: '' };
@@ -54,7 +55,7 @@ function ItemForm({ item, onSave, onCancel }: { item?: RequirementItem; onSave: 
 }
 
 /** Review of one document version: mandatory before its requirements reach matrices (SPEC §4, Q17). */
-function VersionReview({ project, view, run, onTerminal }: { project: ProjectInfo; view: DocVersionView; run: RunFn; onTerminal: Props['onTerminal'] }) {
+function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { project: ProjectInfo; view: DocVersionView; run: RunFn; onTerminal: Props['onTerminal']; onCreateMatrix: Props['onCreateMatrix'] }) {
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'changed'>('all');
   const v = view.version;
@@ -140,6 +141,7 @@ function VersionReview({ project, view, run, onTerminal }: { project: ProjectInf
             onClick={() => confirm(tr('Discard the version? Its items will not go to matrices.')) && void run(api.setVersionState(project.id, v.id, 'discarded'))}
           />
         )}
+        {v.status === 'approved' && <IconButton icon="plus" title={tr('Create a matrix with this document')} label={tr('New matrix')} onClick={() => onCreateMatrix(v.documentId)} />}
         <select aria-label={tr('Items')} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
           <option value="all">{tr('all items')}</option>
           <option value="pending">{tr('pending items')}</option>
@@ -380,7 +382,7 @@ export function DocProposalDetailsView({ project, id, revision, run, onSelect }:
   );
 }
 
-export function DocumentsTab({ project, revision, run, onTerminal, selection, onSelect, notify }: Props) {
+export function DocumentsTab({ project, revision, run, onTerminal, selection, onSelect, notify, onCreateMatrix }: Props) {
   const [docs, setDocs] = useState<DocumentSummary[]>([]);
   const [sets, setSets] = useState<DocSet[]>([]);
   const [proposals, setProposals] = useState<DocProposal[]>([]);
@@ -631,7 +633,7 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
           })}
         </tbody>
       </table>
-      {view && <VersionReview project={project} view={view} run={run} onTerminal={onTerminal} />}
+      {view && <VersionReview project={project} view={view} run={run} onTerminal={onTerminal} onCreateMatrix={onCreateMatrix} />}
     </div>
   );
 }

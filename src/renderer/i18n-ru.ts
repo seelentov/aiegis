@@ -323,6 +323,7 @@ export const RU: Record<string, string> = {
   'module {name}': 'модуль {name}',
   'no matrices': 'нет матриц',
   'New matrix': 'Новая матрица',
+  'Create a matrix with this document': 'Создать матрицу с этим документом',
   'Edit the matrix': 'Изменить состав матрицы',
   'Stage 1: filter out inapplicable cells (cheap model)': 'Этап 1: отсеять неприменимые ячейки (дешёвая модель)',
   'Stage 2: verdicts for all unchecked cells of the matrix': 'Этап 2: вердикты для всех непроверенных ячеек матрицы',

@@ -14,11 +14,13 @@ interface Props {
   run: RunFn;
   selection: Selection | null;
   onSelect: (s: Selection) => void;
+  draftDocument: string | null;
+  onDraftTaken: () => void;
 }
 
-function MatrixForm({ project, run, matrix, onDone }: { project: ProjectInfo; run: RunFn; matrix?: Matrix; onDone: (m?: Matrix) => void }) {
+function MatrixForm({ project, run, matrix, documentId, onDone }: { project: ProjectInfo; run: RunFn; matrix?: Matrix; documentId?: string; onDone: (m?: Matrix) => void }) {
   const [name, setName] = useState(matrix?.name ?? '');
-  const [docs, setDocs] = useState<string[]>(matrix?.documentIds ?? []);
+  const [docs, setDocs] = useState<string[]>(matrix?.documentIds ?? (documentId ? [documentId] : []));
   const [mods, setMods] = useState<string[]>(matrix?.moduleIds ?? []);
   const [allDocs, setAllDocs] = useState<DocumentSummary[]>([]);
   const [allMods, setAllMods] = useState<ModuleSummary[]>([]);
@@ -144,11 +146,15 @@ const cellLabel = (c: Cell) => (c.status === 'not_checked' && c.triaged ? tr('ap
 // Sorting a module column puts work first: unchecked, then findings, then the rest.
 const CELL_RANK: Record<string, number> = { not_checked: 0, needs_human: 1, finding: 2, pass: 3, 'n/a': 4 };
 
-export function MatrixTab({ project, revision, run, selection, onSelect }: Props) {
+export function MatrixTab({ project, revision, run, selection, onSelect, draftDocument, onDraftTaken }: Props) {
   const [matrices, setMatrices] = useState<Matrix[]>([]);
   const [matrixId, setMatrixId] = useState<string | null>(null);
   const [view, setView] = useState<MatrixView | null>(null);
-  const [form, setForm] = useState<'new' | 'edit' | null>(null);
+  const [form, setForm] = useState<'new' | 'edit' | null>(draftDocument ? 'new' : null);
+  const [draft, setDraft] = useState(draftDocument ?? undefined);
+  useEffect(() => {
+    if (draftDocument) onDraftTaken();
+  }, [draftDocument, onDraftTaken]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [filter, setFilter] = useState<RowFilter>('all');
 
@@ -252,7 +258,15 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
             </option>
           ))}
         </select>
-        <IconButton icon="plus" title={tr('New matrix')} aria-pressed={form === 'new'} onClick={() => setForm(form === 'new' ? null : 'new')} />
+        <IconButton
+          icon="plus"
+          title={tr('New matrix')}
+          aria-pressed={form === 'new'}
+          onClick={() => {
+            setDraft(undefined);
+            setForm(form === 'new' ? null : 'new');
+          }}
+        />
         {matrix && <IconButton icon="edit" title={tr('Edit the matrix')} aria-pressed={form === 'edit'} onClick={() => setForm(form === 'edit' ? null : 'edit')} />}
         {matrix && (
           <span className="toolbar-group">
@@ -281,8 +295,10 @@ export function MatrixTab({ project, revision, run, selection, onSelect }: Props
             project={project}
             run={run}
             matrix={form === 'edit' ? matrix : undefined}
+            documentId={form === 'new' ? draft : undefined}
             onDone={(m) => {
               setForm(null);
+              setDraft(undefined);
               if (m) setMatrixId(m.id);
             }}
           />
