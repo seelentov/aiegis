@@ -326,7 +326,7 @@ export class AuditStore {
 
   reviewItems(versionId: string, itemIds: string[], review: ReviewState): number {
     const stmt = this.db.prepare('UPDATE req_items SET review = ?, updated_at = ? WHERE version_id = ? AND id = ?');
-    return this.db.transaction(() => itemIds.reduce((n, id) => n + stmt.run(review, now(), versionId, id).changes, 0))();
+    return this.db.transaction(() => itemIds.reduce((n, id) => n + Number(stmt.run(review, now(), versionId, id).changes), 0))();
   }
 
   /** Items of `version` with changes against the previous approved version (matched by key). */

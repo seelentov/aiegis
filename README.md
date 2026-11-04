@@ -100,7 +100,7 @@ aiegis превращает аудит безопасности репозито
 ```bash
 git clone https://github.com/seelentov/aiegis.git
 cd aiegis
-npm install        # пересобирает better-sqlite3 и node-pty под Electron
+npm install        # пересобирает node-pty под Electron
 npm start
 ```
 

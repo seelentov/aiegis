@@ -58,3 +58,25 @@ describe('ProjectStore', () => {
     expect(() => s.db.prepare('DELETE FROM results').run()).toThrow(/append-only/);
   });
 });
+
+it('transaction: rolls back on error, a nested one rolls back alone', () => {
+  const db = openDb(':memory:');
+  db.exec('CREATE TABLE t (n INTEGER)');
+  const add = (n: number) => db.prepare('INSERT INTO t VALUES (?)').run(n);
+  const rows = () => (db.prepare('SELECT n FROM t ORDER BY n').all() as { n: number }[]).map((r) => r.n);
+
+  expect(() => db.transaction(() => (add(1), fail()))()).toThrow('boom');
+  expect(rows()).toEqual([]);
+
+  db.transaction(() => {
+    add(2);
+    expect(() => db.transaction(() => (add(3), fail()))()).toThrow('boom');
+    add(4);
+  })();
+  expect(rows()).toEqual([2, 4]);
+  expect(db.isTransaction).toBe(false);
+});
+
+function fail(): never {
+  throw new Error('boom');
+}

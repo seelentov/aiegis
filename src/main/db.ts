@@ -1,8 +1,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 
-export type DB = Database.Database;
+/** How long a statement waits for a lock held by another connection. */
+const BUSY_TIMEOUT_MS = 5000;
+
+export class DB extends DatabaseSync {
+  /** Wraps `fn` in a transaction, or in a savepoint when one is already open. */
+  transaction<T>(fn: () => T): () => T {
+    return () => {
+      const nested = this.isTransaction;
+      this.exec(nested ? 'SAVEPOINT nested' : 'BEGIN');
+      try {
+        const result = fn();
+        this.exec(nested ? 'RELEASE nested' : 'COMMIT');
+        return result;
+      } catch (e) {
+        if (this.isTransaction) this.exec(nested ? 'ROLLBACK TO nested; RELEASE nested' : 'ROLLBACK');
+        throw e;
+      }
+    };
+  }
+}
 
 /** Ordered schema migrations; index + 1 = user_version after applying. */
 const MIGRATIONS: string[] = [
@@ -531,20 +550,20 @@ const MIGRATIONS: string[] = [
 ];
 
 export function migrate(db: DB): void {
-  const version = db.pragma('user_version', { simple: true }) as number;
+  const { user_version: version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
   for (let v = version; v < MIGRATIONS.length; v++) {
     db.transaction(() => {
       db.exec(MIGRATIONS[v]);
-      db.pragma(`user_version = ${v + 1}`);
+      db.exec(`PRAGMA user_version = ${v + 1}`);
     })();
   }
 }
 
 export function openDb(file: string): DB {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new Database(file);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+  const db = new DB(file, { timeout: BUSY_TIMEOUT_MS });
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
   migrate(db);
   return db;
 }

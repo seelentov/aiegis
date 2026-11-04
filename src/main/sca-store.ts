@@ -220,7 +220,7 @@ export class ScaStore {
         `UPDATE sca_inventories SET status = 'failed', finished_at = ?
          WHERE status = 'building' AND run_id IN (SELECT id FROM runs WHERE finished_at IS NOT NULL)`,
       )
-      .run(now()).changes;
+      .run(now()).changes as number;
   }
 
   // --- reports, packages, vulnerabilities ---

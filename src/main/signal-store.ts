@@ -161,7 +161,7 @@ export class SignalStore {
   recoverScans(): number {
     return this.db
       .prepare(`UPDATE scans SET status = 'failed', error = 'interrupted: the app exited during the scan', finished_at = ? WHERE status = 'running'`)
-      .run(now()).changes;
+      .run(now()).changes as number;
   }
 
   // --- suppressions ---

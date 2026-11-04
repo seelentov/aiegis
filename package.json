@@ -30,8 +30,8 @@
     "typecheck": "tsc --noEmit -p .",
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "e2e": "npm run build && ELECTRON_RUN_AS_NODE=1 electron dist/e2e.js",
-    "rebuild": "electron-rebuild -f -w better-sqlite3,node-pty",
-    "postinstall": "electron-rebuild -f -w better-sqlite3,node-pty && node scripts/dev-brand.mjs",
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "postinstall": "electron-rebuild -f -w node-pty && node scripts/dev-brand.mjs",
     "icons": "electron scripts/icons.mjs",
     "dist": "npm run build && electron-builder --publish never"
   },
@@ -84,7 +84,6 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.80",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "better-sqlite3": "^13.0.3",
     "log4js": "6.9.1",
     "mammoth": "^1.13.0",
     "node-pty": "^1.1.0",
@@ -93,7 +92,6 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.1",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

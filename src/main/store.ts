@@ -253,7 +253,7 @@ export class ProjectStore {
 
   /** After a crash, jobs left "running" are put back in the queue. */
   recoverJobs(): number {
-    return this.db.prepare(`UPDATE jobs SET status = 'queued', updated_at = ? WHERE status = 'running'`).run(now()).changes;
+    return this.db.prepare(`UPDATE jobs SET status = 'queued', updated_at = ? WHERE status = 'running'`).run(now()).changes as number;
   }
 
   // --- runs ---
@@ -298,7 +298,7 @@ export class ProjectStore {
   recoverRuns(): number {
     return this.db
       .prepare(`UPDATE runs SET status = 'interrupted', finished_at = ? WHERE finished_at IS NULL`)
-      .run(now()).changes;
+      .run(now()).changes as number;
   }
 
   getRun(id: string): Run | undefined {
@@ -325,7 +325,7 @@ export class ProjectStore {
 
   listResults(filter: { runId?: string; entityType?: string; entityId?: string } = {}): ResultRecord[] {
     const where: string[] = [];
-    const args: unknown[] = [];
+    const args: string[] = [];
     if (filter.runId) (where.push('run_id = ?'), args.push(filter.runId));
     if (filter.entityType) (where.push('entity_type = ?'), args.push(filter.entityType));
     if (filter.entityId) (where.push('entity_id = ?'), args.push(filter.entityId));

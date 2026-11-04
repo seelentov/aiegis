@@ -1,7 +1,7 @@
 import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync } from 'node:fs';
 
-const external = ['electron', 'better-sqlite3', 'node-pty'];
+const external = ['electron', 'node-pty'];
 const common = { bundle: true, sourcemap: true, logLevel: 'info' };
 
 mkdirSync('dist/renderer', { recursive: true });
