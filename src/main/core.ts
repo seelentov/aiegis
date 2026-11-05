@@ -3671,6 +3671,9 @@ export class Core extends EventEmitter {
       case 'entry_points':
         modules(a.moduleId ? [a.moduleId] : undefined);
         break;
+      case 'doc_refresh':
+        this.refreshScope(projectId, a.target);
+        break;
     }
   }
 
@@ -3682,7 +3685,7 @@ export class Core extends EventEmitter {
     const maxTokens = input.maxTokens ?? null;
     if (maxTokens !== null) {
       if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('the token limit must be a positive integer');
-      if (action.kind !== 'matrix' && action.kind !== 'sca') throw new Error('a token limit applies to matrix and SCA actions only; other runs stop at limits.max_tokens_per_run');
+      if (action.kind !== 'matrix' && action.kind !== 'sca' && action.kind !== 'doc_refresh') throw new Error('a token limit applies to matrix, SCA and document check actions only; other runs stop at limits.max_tokens_per_run');
     }
     this.checkedCron(projectId, input.cron);
     await this.checkScheduleAction(projectId, action);
@@ -3802,8 +3805,9 @@ export class Core extends EventEmitter {
     }
   }
 
-  /** Tokens of a run with many sessions; null for the others: `limits.max_tokens_per_run` stops each of their runs. */
+  /** Tokens of the runs that have an estimate; null for the others: `limits.max_tokens_per_run` stops each of their runs. */
   private async estimateScheduleAction(projectId: string, a: ScheduleAction): Promise<number | null> {
+    if (a.kind === 'doc_refresh') return this.estimateDocRefresh(projectId, a.target).tokens;
     if (a.kind === 'sca') return (await this.estimateSca(projectId, { scope: a.scope, moduleIds: a.moduleIds })).tokens;
     if (a.kind !== 'matrix') return null;
     if (!a.slice) return (await this.estimateMatrix(projectId, a.matrixId, a.stage, a.scope)).tokens;
@@ -3840,6 +3844,12 @@ export class Core extends EventEmitter {
         if (!a.moduleId) return started(await this.enqueueAllEntryPoints(projectId), 'maps are already queued');
         if (this.store(projectId).activeJobFor(MODULE_ENTITY, a.moduleId)) throw new NothingToDo('the map of this module is already queued');
         return [(await this.enqueueEntryPoints(projectId, a.moduleId)).id];
+      }
+      case 'doc_refresh': {
+        const r = await this.refreshDocuments(projectId, a.target);
+        if (r.job) return [r.job.id];
+        if (r.failed.length) throw new Error(`could not fetch: ${r.failed.map((f) => `${f.url} (${f.error})`).join(', ')}`);
+        throw new NothingToDo('the sources did not change');
       }
     }
   }

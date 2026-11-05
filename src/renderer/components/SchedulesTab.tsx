@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SCHEDULE_ACTIONS, type Matrix, type MatrixScope, type MatrixStage, type MatrixView, type ModuleSummary, type ProjectInfo, type ScaScope, type Schedule, type ScheduleAction, type ScheduleFiring, type ScheduleInput } from '../../shared/types';
+import { SCHEDULE_ACTIONS, type DocSet, type DocumentSummary, type Matrix, type MatrixScope, type MatrixStage, type MatrixView, type ModuleSummary, type ProjectInfo, type ScaScope, type Schedule, type ScheduleAction, type ScheduleFiring, type ScheduleInput } from '../../shared/types';
 import { api, errorText } from '../api';
 import type { RunFn } from '../App';
 import { SCHEDULE_ACTION, SCHEDULE_OUTCOME, time } from '../format';
@@ -58,6 +58,9 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
   const [mods, setMods] = useState<string[]>(
     a?.kind === 'matrix' ? (a.slice?.modules ?? []) : a?.kind === 'scanners' || a?.kind === 'sca' || a?.kind === 'sca_inventory' ? (a.moduleIds ?? []) : a?.kind === 'entry_points' && a.moduleId ? [a.moduleId] : [],
   );
+  const [refresh, setRefresh] = useState(a?.kind === 'doc_refresh' ? ('setId' in a.target ? `set:${a.target.setId}` : `doc:${a.target.documentId}`) : '');
+  const [sets, setSets] = useState<DocSet[]>([]);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [matrices, setMatrices] = useState<Matrix[]>([]);
   const [modules, setModules] = useState<ModuleSummary[]>([]);
   const [roles, setRoles] = useState<{ name: string; title: string }[]>([]);
@@ -70,6 +73,8 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
       setMatrixId((cur) => cur || (ms[0]?.id ?? ''));
     });
     void run(api.listModules(project.id)).then((ms) => ms && setModules(ms));
+    void run(api.listDocSets(project.id)).then((x) => x && setSets(x.filter((d) => d.links.length)));
+    void run(api.listDocuments(project.id)).then((x) => x && setDocuments(x.filter((d) => d.source && !d.retiredAt)));
     void run(api.listRoles(project.id)).then((rs) => rs && setRoles(rs.filter((r) => r.kind === 'background')));
     void run(api.defaultTaskRole(project.id)).then((r) => r && setRole((cur) => cur || r));
   }, [project.id, run]);
@@ -124,16 +129,18 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
         return { kind, scope: scope as ScaScope, moduleIds };
       case 'entry_points':
         return { kind, moduleId: mods[0] };
+      case 'doc_refresh':
+        return { kind, target: refresh.startsWith('set:') ? { setId: refresh.slice(4) } : { documentId: refresh.slice(4) } };
     }
   };
 
-  const limited = kind === 'matrix' || kind === 'sca';
+  const limited = kind === 'matrix' || kind === 'sca' || kind === 'doc_refresh';
   const save = async () => {
     const input: ScheduleInput = { name, cron, action: action(), maxTokens: limited && maxTokens.trim() ? Number(maxTokens) : null };
     const s = await run(schedule ? api.updateSchedule(project.id, schedule.id, input) : api.createSchedule(project.id, input));
     if (s) onDone(s);
   };
-  const ready = name.trim() && !cronError && (kind === 'task' ? prompt.trim() && role : kind === 'matrix' ? matrixId : true);
+  const ready = name.trim() && !cronError && (kind === 'task' ? prompt.trim() && role : kind === 'matrix' ? matrixId : kind === 'doc_refresh' ? refresh : true);
   const sections = [...new Set((view?.requirements ?? []).map((r) => r.section || '—'))];
 
   return (
@@ -284,6 +291,29 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
         </label>
       )}
 
+      {kind === 'doc_refresh' && (
+        <label>
+          {tr('Set or document')}
+          <select value={refresh} onChange={(e) => setRefresh(e.target.value)}>
+            <option value="" />
+            <optgroup label={tr('Sets')}>
+              {sets.map((d) => (
+                <option key={d.id} value={`set:${d.id}`}>
+                  {d.name}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label={tr('Documents with a link')}>
+              {documents.map((d) => (
+                <option key={d.id} value={`doc:${d.id}`}>
+                  {d.title}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+        </label>
+      )}
+
       {limited && (
         <label>
           {tr('Limit of estimated tokens per firing')}
@@ -319,7 +349,9 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
 
   useEffect(() => setEditing(false), [id]);
   useEffect(() => {
-    void Promise.all([api.listMatrices(project.id), api.listModules(project.id)]).then(([ms, mods]) => setNames(new Map([...ms, ...mods].map((x) => [x.id, x.name]))));
+    void Promise.all([api.listMatrices(project.id), api.listModules(project.id), api.listDocSets(project.id), api.listDocuments(project.id)]).then(([ms, mods, sets, docs]) =>
+      setNames(new Map([...ms, ...mods, ...sets, ...docs.map((d) => ({ id: d.id, name: d.title }))].map((x) => [x.id, x.name]))),
+    );
   }, [project.id, revision]);
   useEffect(() => {
     void run(api.scheduleDetails(project.id, id)).then((s) => setSchedule(s ?? null));
@@ -348,7 +380,7 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
             <dd>{SCHEDULE_ACTION[schedule.action.kind]}</dd>
             <dt>{tr('Parameters')}</dt>
             <dd className="mono small">{JSON.stringify(schedule.action, (k, v: unknown) => (k === 'kind' ? undefined : typeof v === 'string' ? (names.get(v) ?? v) : v))}</dd>
-            {(schedule.action.kind === 'matrix' || schedule.action.kind === 'sca') && (
+            {(schedule.action.kind === 'matrix' || schedule.action.kind === 'sca' || schedule.action.kind === 'doc_refresh') && (
               <>
                 <dt>{tr('Token limit')}</dt>
                 <dd>{schedule.maxTokens ?? tr('from the settings')}</dd>

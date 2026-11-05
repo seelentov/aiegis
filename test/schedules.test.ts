@@ -130,7 +130,7 @@ describe('schedules in the core', () => {
     await expect(core.createSchedule(pid, { ...taskInput('often'), cron: '*/5 * * * *' })).rejects.toThrow(/more often/);
     await expect(core.createSchedule(pid, { ...taskInput('bad'), cron: 'nope' })).rejects.toThrow(/5 fields/);
     await expect(core.createSchedule(pid, { ...taskInput('role'), action: { kind: 'task', prompt: 'x', role: 'nobody' } })).rejects.toThrow(/background role/);
-    await expect(core.createSchedule(pid, { ...taskInput('limit'), maxTokens: 5 })).rejects.toThrow(/matrix and SCA/);
+    await expect(core.createSchedule(pid, { ...taskInput('limit'), maxTokens: 5 })).rejects.toThrow(/matrix, SCA/);
     await expect(core.createSchedule(pid, { ...taskInput('mod'), action: { kind: 'entry_points', moduleId: 'gone' } })).rejects.toThrow(/not found/);
     await expect(core.createSchedule(pid, { ...taskInput('matrix'), action: { kind: 'matrix', matrixId: 'gone', stage: 'verdicts', scope: 'pending' } })).rejects.toThrow();
     await core.createSchedule(pid, taskInput('same'));
@@ -196,6 +196,33 @@ describe('schedules in the core', () => {
     expect((await core.updateSchedule(pid, s.id, { name: 'edited' })).nextAt).toBe(s.nextAt);
     const changed = await core.updateSchedule(pid, s.id, { cron: '0 4 * * *' });
     expect(new Date(changed.nextAt!).getHours()).toBe(4);
+    core.disableSchedule(pid, s.id);
+  });
+
+  it('checks documents: an agent only when the sources changed, a fetch failure is a warning', async () => {
+    const empty = core.saveDocSet(pid, { name: 'Empty', scope: '', links: [] });
+    const action = (setId: string) => ({ kind: 'doc_refresh' as const, target: { setId } });
+    await expect(core.createSchedule(pid, { name: 'no-links', cron: '0 3 * * *', action: action(empty.id), maxTokens: null })).rejects.toThrow(/no links/);
+
+    const set = core.saveDocSet(pid, { name: 'Regulator', scope: 'orders', links: [{ url: 'https://example.invalid/list', insecure: false }] });
+    const dear = await core.createSchedule(pid, { name: 'dear-check', cron: '0 3 * * *', action: action(set.id), maxTokens: 1 });
+    expect((await core.runSchedule(pid, dear.id)).outcome).toBe('over_limit');
+    core.disableSchedule(pid, dear.id);
+
+    const s = await core.createSchedule(pid, { name: 'check', cron: '0 3 * * *', action: action(set.id), maxTokens: null });
+    const refresh = core.refreshDocuments;
+    try {
+      core.refreshDocuments = async () => ({ job: null, compared: 1, unchanged: true, failed: [], reading: 0 });
+      expect((await core.runSchedule(pid, s.id)).outcome).toBe('nothing_to_do');
+      core.refreshDocuments = async () => ({ job: null, compared: 1, unchanged: false, failed: [{ url: 'https://example.invalid/list', error: 'down' }], reading: 0 });
+      expect(await core.runSchedule(pid, s.id)).toMatchObject({ outcome: 'failed', reason: expect.stringContaining('down') });
+    } finally {
+      core.refreshDocuments = refresh;
+    }
+    const started = await core.runSchedule(pid, s.id);
+    expect(started.outcome).toBe('started');
+    expect(jobsOf().find((j) => j.id === started.jobIds[0])?.status).toBe('queued');
+    await drain();
     core.disableSchedule(pid, s.id);
   });
 

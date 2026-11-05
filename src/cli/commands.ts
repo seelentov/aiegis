@@ -123,7 +123,7 @@ async function scheduleId(c: Ctx, ref: string): Promise<string> {
 }
 
 const SCHEDULE_FLAGS =
-  '[--max-tokens <n|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository]';
+  '[--max-tokens <n|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--set <id>] [--document <id>]';
 
 /** Action of `--action` and its flags; the core validates the result. */
 async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
@@ -156,6 +156,8 @@ async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
     case 'entry_points':
       if ((mods?.length ?? 0) > 1) throw new Error('entry_points takes one --module, or none for all modules');
       return { kind, moduleId: mods?.[0] };
+    case 'doc_refresh':
+      return { kind, target: refreshTarget(a) };
   }
 }
 

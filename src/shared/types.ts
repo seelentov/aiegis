@@ -973,9 +973,11 @@ export type ScheduleAction =
   | { kind: 'sca_inventory'; moduleIds?: string[] }
   | { kind: 'sca'; scope?: ScaScope; moduleIds?: string[] }
   /** Without a module: all modules. */
-  | { kind: 'entry_points'; moduleId?: string };
+  | { kind: 'entry_points'; moduleId?: string }
+  /** Compares the sources first: an agent runs only when they changed. */
+  | { kind: 'doc_refresh'; target: DocRefreshTarget };
 
-export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points'] as const satisfies readonly ScheduleAction['kind'][];
+export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points', 'doc_refresh'] as const satisfies readonly ScheduleAction['kind'][];
 
 export interface ScheduleInput {
   name: string;
