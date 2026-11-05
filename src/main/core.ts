@@ -1518,9 +1518,11 @@ export class Core extends EventEmitter {
   }
 
   /** Hash that ignores what changes on every view: for a page, its text without the site's furniture. */
-  private sourceHash(f: Fetched): string {
-    const data = isHtml(f) ? htmlToText(decodeBody(f.body, f.contentType), f.finalUrl).text : f.body;
-    return crypto.createHash('sha256').update(data).digest('hex');
+  private sourceHash(projectId: string, f: Fetched): string {
+    if (!isHtml(f)) return crypto.createHash('sha256').update(f.body).digest('hex');
+    const volatile = this.projectSettings(projectId).doc_refresh.volatile_lines.map((p) => new RegExp(p));
+    const lines = htmlToText(decodeBody(f.body, f.contentType), f.finalUrl).text.split('\n');
+    return crypto.createHash('sha256').update(lines.filter((l) => !volatile.some((v) => v.test(l))).join('\n')).digest('hex');
   }
 
   private setCheck(projectId: string, doc: DocumentSummary, c: Omit<DocCheck, 'at' | 'lastCurrentAt'>): void {
@@ -1540,7 +1542,7 @@ export class Core extends EventEmitter {
     for (const src of base.sources) {
       try {
         const f = await fetchSource(src.url, scope.rules, this.projectSettings(projectId).doc_refresh);
-        if (this.sourceHash(f) !== src.hash) return null;
+        if (this.sourceHash(projectId, f) !== src.hash) return null;
       } catch (e) {
         // Failed last time too: nothing new to look at, and no agent can fetch it either.
         if (src.hash !== null) failed.push({ url: src.url, error: (e as Error).message });
@@ -1660,7 +1662,7 @@ export class Core extends EventEmitter {
     const sub = path.join('fetched', String(id));
     fs.mkdirSync(path.join(dir, sub), { recursive: true });
     const sha256 = crypto.createHash('sha256').update(f.body).digest('hex');
-    const base = { id, url, finalUrl: f.finalUrl, sha256, hash: this.sourceHash(f), unverifiedChannel: f.unverifiedChannel };
+    const base = { id, url, finalUrl: f.finalUrl, sha256, hash: this.sourceHash(projectId, f), unverifiedChannel: f.unverifiedChannel };
     const write = (name: string, data: Buffer | string) => {
       fs.writeFileSync(path.join(dir, sub, name), data);
       return path.join(sub, name);

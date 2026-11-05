@@ -178,6 +178,7 @@ export const ConfigFileSchema = z.looseObject({
       update_min_length_ratio: z.number().min(0).max(1).optional(),
       crop_min_ratio: z.number().min(0).max(1).optional(),
       catalogue_batch: z.number().int().min(1).optional(),
+      volatile_lines: z.array(z.string()).optional(),
       estimate_history_runs: z.number().int().min(1).optional(),
       estimate_tokens: z.number().int().min(1).optional(),
     })

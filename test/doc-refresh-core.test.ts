@@ -147,6 +147,17 @@ describe('document refresher', () => {
     expect(refreshJobs()).toHaveLength(before);
   });
 
+  it('a view counter on a page does not count as a change', async () => {
+    pages.set('/counted', { body: html('<p>Counted rule</p><p>Просмотры: 1</p>') });
+    const doc = await approved('Counted', 'K-1: Counted rule must hold.');
+    core.setDocumentSource(pid, doc, { url: `${base}/counted`, insecure: false });
+    await check({ documentId: doc });
+    pages.set('/counted', { body: html('<p>Counted rule</p><p>Просмотры: 2</p>') });
+    expect((await check({ documentId: doc })).job).toBeNull();
+    pages.set('/counted', { body: html('<p>Counted rule, amended</p><p>Просмотры: 2</p>') });
+    expect((await check({ documentId: doc })).job).not.toBeNull();
+  });
+
   it('force runs the agent; it still changes nothing without a change', async () => {
     const { job } = await check({ setId: set.id }, { force: true });
     expect(job!.status).toBe('done');

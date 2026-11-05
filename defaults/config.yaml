@@ -209,6 +209,8 @@ doc_refresh:
   update_min_length_ratio: 0.5
   # A cut by start and end phrases keeping less than this share of the page is refused as a wrong end phrase.
   crop_min_ratio: 0.5
+  # Lines of a page left out when comparing it with the last check (regular expressions): counters change with every visit.
+  volatile_lines: ["^Просмотры: \\d+$", "^Views?: \\d+$"]
   # Catalogue entries judged by one run.
   catalogue_batch: 25
   # Requirements of different documents sharing this share of words are shown as probable repeats.

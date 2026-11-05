@@ -142,6 +142,7 @@ export interface Settings {
     update_min_length_ratio: number;
     crop_min_ratio: number;
     catalogue_batch: number;
+    volatile_lines: string[];
     estimate_history_runs: number;
     estimate_tokens: number;
   };
@@ -246,7 +247,7 @@ const REQUIRED_SETTINGS: string[] = [
   'sca.scanner_hints_limit',
   'sca.prefilter_max_file_kb',
   'sca.report_max_mb',
-  ...['max_bytes', 'timeout_sec', 'max_redirects', 'user_agent', 'allow_private_addresses', 'page_preview_chars', 'max_links', 'js_page_min_chars', 'restored_min_coverage', 'same_text_max_removed_lines', 'repeat_min_similarity', 'update_min_length_ratio', 'crop_min_ratio', 'catalogue_batch', 'estimate_history_runs', 'estimate_tokens'].map((k) => `doc_refresh.${k}`),
+  ...['max_bytes', 'timeout_sec', 'max_redirects', 'user_agent', 'allow_private_addresses', 'page_preview_chars', 'max_links', 'js_page_min_chars', 'restored_min_coverage', 'same_text_max_removed_lines', 'repeat_min_similarity', 'update_min_length_ratio', 'crop_min_ratio', 'catalogue_batch', 'volatile_lines', 'estimate_history_runs', 'estimate_tokens'].map((k) => `doc_refresh.${k}`),
   'poc.start_timeout_sec',
   'poc.healthcheck_interval_sec',
   'poc.stop_timeout_sec',
