@@ -10,39 +10,38 @@ Links to check (fetch these; you may follow links on the same hosts):
 Documents in force (their files are in your current directory):
 {{documents}}
 
+Taken out of force by a human, do not propose them again:
+{{retired}}
+
+The aim is that this set is complete and current. Missing a document in force is the worst outcome; do not save effort here.
+
 Steps:
 1. `fetch_url` each link. The reply shows only the start of a page: its whole text is in `text_file`, all its links in
-   `links_file`. Long lists do not fit the reply, so search those files.
-2. Go through the documents one at a time. A link pointing straight at a document settles it directly. For every other
-   document search the list pages separately, one `Grep` per document, in `links_file` first and then `text_file`, with no
-   `head_limit`. A result too large for the reply is saved outside your directory and lost to you, so never combine
-   documents in one pattern. Search by the bare date of the document as the page writes dates, then by its bare number
-   (`N 21`, `№ 21`, `N21`), never by a whole phrase: sites name a document by its type or by the act approving it, not as
-   you name it, and a bare number also matches other acts. When you find its own page, `fetch_url` it:
-   a list usually does not state editions, and the document's page does. Compare what it states, including amending acts,
-   with the file you hold. Opening these pages is the point of the check, not a cost to save.
-   Then decide one result:
-   - it matches the source: `report_document_check` with status `current`, the `fetch_id` and what shows it (edition, date);
-   - you could not check it (site down, page needs JavaScript, no own page found, edition not stated on its own page):
-     `report_document_check` with status `unverifiable` and the reason. "Listed, page not opened" is not a reason;
-   - the source shows a change: `propose_document_change`, see below.
-3. If this check covers a set, search the fetched pages for documents that belong to it by its description and are
-   missing from the list: propose `add`. Do not propose documents outside that description.
-4. Reply with a short summary of the results.
+   `links_file`. Sources are written by people and have no fixed form.
+2. Each document in force: find its own page on the sources. Search `links_file`, then `text_file`, one `Grep` per document
+   with no `head_limit` (a result too large for the reply is saved outside your directory and lost to you, so never combine
+   documents in one pattern). Search by the bare date of the document as the page writes dates, then by its bare number
+   (`N 21`, `№ 21`, `N21`), never by a whole phrase: sites name a document by its type or by the act approving it.
+   - Found: `fetch_url` its page and call `request_document_review` with its fetch_id. A separate run reads the document and
+     that page, and decides. Several sources for one document: pass them all.
+   - Not on any source: `report_document_check` with status `unverifiable` and what you searched for.
+3. Every fetched page that is a list of documents: call `request_catalogue_review` with its fetch_id. Separate runs then judge
+   each of its entries, so do not go through them here. If only a list states that a document in force is cancelled or
+   replaced, propose `retire` or `replace` here with that quote.
+4. Reply with a short summary: what was handed over, what was proposed and what could not be checked.
 
-`propose_document_change` kinds:
-- `update`: a new edition of the same document. Fetch the file or the page holding the full new text and pass it in
-  `source_fetch_ids` (several pages in reading order if the document is split). State `edition`.
-- `add`: a new document for this set. `title`, `source_fetch_ids`, `reason`, `quote`.
-- `replace`: another document replaces this one. `title`, `source_fetch_ids` of the new document, and a `quote` stating
-  the replacement.
+`propose_document_change` kinds used here:
+- `replace`: another document replaces one in force. `title`, `source_fetch_ids` of the new document, a `quote` stating it.
 - `retire`: cancelled without replacement. A `quote` stating the cancellation.
-- `link`: a document without a link was found on the source: `source_fetch_ids` with its page, `quote` naming it.
+- `incomplete: true` with `replace`: the source shows only part of the document (login, a fragment). Nothing is stored, the
+  human gets the notice and uploads the file. Never pass a partial text as the document.
 
-For an HTML page pass `start_phrase` and `end_phrase`: the first and last words of the document on the page, copied from
-its `text_file`. The app cuts the text itself, so it stays word for word. If the conversion is really broken (text cut or
-mixed with the site's menus) you may pass the whole text in `restored_text` instead: it is costly and marked for the human,
-and it is refused unless its paragraphs are found on the page.
+For an HTML page pass `start_phrase` and `end_phrase`: the first and last words of the document on the page, copied from its
+`text_file`, the end phrase from the end of the document and not its heading. The app cuts the text itself, so it stays word
+for word, and refuses a cut that drops most of the page.
+
+A page with only a heading and a link to the file: `fetch_url` the file (PDF if offered) and propose from it. `incomplete` is
+only for a document you could not get whole.
 
 `quote` is copied word for word from the text of a page you fetched in this run; `quote_fetch_id` names that page.
 The app refuses a proposal it cannot verify; read the error and either fix the proposal or report the document instead.

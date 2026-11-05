@@ -74,6 +74,9 @@ queue:
 limits:
   # Background run is stopped when input + cache_creation + output tokens exceed this value.
   max_tokens_per_run: 300000
+  # The same for runs that read whole documents: reading into text, requirement extraction, document checks.
+  # Missing a requirement costs more than these runs.
+  max_tokens_per_document_run: 1000000
 
 terminal:
   # macOS application used by "open in external terminal".
@@ -194,6 +197,14 @@ doc_refresh:
   restored_min_coverage: 0.9
   # An update that adds no paragraph and removes at most this many lines is not a change (a saved file's header).
   same_text_max_removed_lines: 1
+  # A new edition shorter than this share of the current one is refused as probably a part of it.
+  update_min_length_ratio: 0.5
+  # A cut by start and end phrases keeping less than this share of the page is refused as a wrong end phrase.
+  crop_min_ratio: 0.5
+  # Catalogue entries judged by one run.
+  catalogue_batch: 25
+  # Requirements of different documents sharing this share of words are shown as probable repeats.
+  repeat_min_similarity: 0.6
   # Estimate before a check: billable tokens per run over this many recent runs of the role...
   estimate_history_runs: 5
   # ...or this value without history.
@@ -278,6 +289,23 @@ tasks:
     role: doc-refresh
     title: { en: "Document check: {{target}}", ru: "Проверка документов: {{target}}" }
     prompt: instructions/tasks/doc-refresh.md
+  # One document against its own pages: reads both and decides (SPEC §24).
+  # Placeholders: as doc_refresh.
+  doc_review:
+    role: doc-refresh
+    title: { en: "Document comparison: {{target}}", ru: "Сверка документа: {{target}}" }
+    prompt: instructions/tasks/doc-review.md
+  # Part of a catalogue: every entry gets a decision (SPEC §24).
+  # Placeholders: as doc_refresh, and entries, proposed.
+  doc_catalogue:
+    role: doc-refresh
+    title: { en: "Catalogue: {{target}}", ru: "Каталог: {{target}}" }
+    prompt: instructions/tasks/doc-catalogue.md
+  # A PDF read into text once, for extraction and checks. Placeholders: project, document_title, file.
+  doc_text:
+    role: doc-text
+    title: { en: "Reading into text: {{document_title}}", ru: "Чтение в текст: {{document_title}}" }
+    prompt: instructions/tasks/doc-text.md
   # AI-written security documents covering the whole application: a plan splits it into documents, then one
   # session writes each; a written document becomes a version for review without an extraction run.
   # Placeholders: project, hint, modules, generated (earlier generated documents), uploaded (uploaded documents).
@@ -388,6 +416,19 @@ roles:
     effort: low
     instructions:
       file: instructions/roles/doc-refresh.md
+    permissions:
+      allow: ["Read(./**)", "Grep(./**)", "Glob(./**)", "mcp__aiegis"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash"]
+
+  # Reads a PDF into text, word for word. A misread word changes a requirement, so this is not a cheap stage.
+  doc-text:
+    title: { en: "Document reader", ru: "Чтение документов" }
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: low
+    instructions:
+      file: instructions/roles/doc-text.md
     permissions:
       allow: ["Read(./**)", "Grep(./**)", "Glob(./**)", "mcp__aiegis"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash"]

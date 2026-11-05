@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import type { DocCheckStatus, DocLink, DocProposal, DocProposalKind, DocRefreshEstimate, DocRefreshTarget, DocSet, DocumentSummary, DocVersionView, ItemChange, Matrix, ProjectInfo, RequirementItem } from '../../shared/types';
+import type { RequirementRepeat, DocCheckStatus, DocInfo, DocLink, JudgedEntry, DocProposal, DocProposalKind, DocRefreshEstimate, DocRefreshTarget, DocSet, DocumentSummary, DocVersionView, ItemChange, Matrix, ProjectInfo, RequirementItem } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { JOB_STATUS, kTokens, REVIEW, time, VERSION_STATUS } from '../format';
@@ -21,10 +21,41 @@ interface Props {
 
 const CHANGE: Record<ItemChange, string> = { added: tr('new|item'), changed: tr('changed|item'), same: '' };
 
-type ItemDraft = { key: string; text: string; section: string; quote: string };
+type ItemDraft = { key: string; text: string; section: string; clause: string; quote: string };
+
+function InfoForm({ info, onSave, onCancel }: { info: DocInfo; onSave: (d: DocInfo) => void; onCancel: () => void }) {
+  const [d, setD] = useState(info);
+  const set = (k: keyof DocInfo) => (e: { target: { value: string } }) => setD({ ...d, [k]: e.target.value });
+  return (
+    <div className="form">
+      <label className="wide">
+        {tr('Full name')}
+        <input value={d.name} onChange={set('name')} />
+      </label>
+      <label>
+        {tr('Number')}
+        <input value={d.number} onChange={set('number')} />
+      </label>
+      <label>
+        {tr('Date')}
+        <input value={d.date} onChange={set('date')} />
+      </label>
+      <label className="wide">
+        {tr('Edition')}
+        <input value={d.edition} onChange={set('edition')} />
+      </label>
+      <div className="wide row">
+        <button className="primary" onClick={() => onSave(d)}>
+          {tr('Save')}
+        </button>
+        <button onClick={onCancel}>{tr('Cancel')}</button>
+      </div>
+    </div>
+  );
+}
 
 function ItemForm({ item, onSave, onCancel }: { item?: RequirementItem; onSave: (d: ItemDraft) => void; onCancel: () => void }) {
-  const [d, setD] = useState<ItemDraft>({ key: item?.key ?? '', text: item?.text ?? '', section: item?.section ?? '', quote: item?.quote ?? '' });
+  const [d, setD] = useState<ItemDraft>({ key: item?.key ?? '', text: item?.text ?? '', section: item?.section ?? '', clause: item?.clause ?? '', quote: item?.quote ?? '' });
   const set = (k: keyof ItemDraft) => (e: { target: { value: string } }) => setD({ ...d, [k]: e.target.value });
   return (
     <div className="form">
@@ -35,6 +66,10 @@ function ItemForm({ item, onSave, onCancel }: { item?: RequirementItem; onSave: 
       <label>
         {tr('Section')}
         <input value={d.section} onChange={set('section')} />
+      </label>
+      <label>
+        {tr('Clause')}
+        <input value={d.clause} onChange={set('clause')} />
       </label>
       <label className="wide">
         {tr('Requirement')}
@@ -58,12 +93,14 @@ function ItemForm({ item, onSave, onCancel }: { item?: RequirementItem; onSave: 
 function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { project: ProjectInfo; view: DocVersionView; run: RunFn; onTerminal: Props['onTerminal']; onCreateMatrix: Props['onCreateMatrix'] }) {
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'changed'>('all');
+  const [editingInfo, setEditingInfo] = useState(false);
   const v = view.version;
+  const cited = [v.info.name, v.info.number, v.info.date, v.info.edition].filter(Boolean).join(', ');
   const editable = v.status === 'review' || v.status === 'failed';
   const active = view.job && (view.job.status === 'queued' || view.job.status === 'running');
   const review = (ids: string[], r: RequirementItem['review']) => void run(api.reviewItems(project.id, v.id, ids, r));
   const save = async (d: ItemDraft) => {
-    const ok = await run(api.saveItem(project.id, v.id, { key: d.key.trim() || null, text: d.text, section: d.section, quote: d.quote }));
+    const ok = await run(api.saveItem(project.id, v.id, { key: d.key.trim() || null, text: d.text, section: d.section, clause: d.clause, quote: d.quote }));
     if (ok) setEditing(null);
   };
   const g = useGrid(
@@ -72,7 +109,7 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
     [
       { key: 'key', title: 'Id', text: (i) => `${i.key} ${CHANGE[i.change]}`, sort: (i) => i.key },
       { key: 'section', title: tr('Section'), text: (i) => i.section, filter: 'enum' },
-      { key: 'text', title: tr('Requirement / quote'), text: (i) => `${i.text} ${i.quote ?? ''}`, sort: (i) => i.text },
+      { key: 'text', title: tr('Requirement / quote'), text: (i) => `${i.text} ${i.quote ?? ''} ${i.clause}`, sort: (i) => i.text },
       { key: 'review', title: tr('Review'), text: (i) => REVIEW[i.review], filter: 'enum' },
       { key: 'actions', title: '', className: 'actions' },
     ],
@@ -101,7 +138,21 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
           {view.job.error && <span className="error-text"> — {view.job.error}</span>}
         </div>
       )}
+      <div className="row">
+        <span className={cited ? '' : 'muted'}>{cited || tr('The document does not state its number or date')}</span>
+        <IconButton icon="edit" title={tr('Change how this version is cited')} onClick={() => setEditingInfo(true)} />
+      </div>
+      {editingInfo && (
+        <div className="card">
+          <InfoForm
+            info={v.info}
+            onSave={(d) => void run(api.saveDocInfo(project.id, v.id, d)).then((ok) => ok && setEditingInfo(false))}
+            onCancel={() => setEditingInfo(false)}
+          />
+        </div>
+      )}
       {view.proposal?.restored && <div className="warn">{RESTORED(view.proposal)}</div>}
+      {view.textByAi && <div className="warn">{tr('AI read this PDF into text, and quotes are matched against that text: compare important items with the file.')}</div>}
       {view.proposal?.unverifiedChannel && <div className="warn">{UNVERIFIED()}</div>}
       {!view.quotesVerified && <div className="warn">{tr('Claude reads the PDF directly: the app does not match quotes against the text, check them during review.')}</div>}
       <div className="toolbar">
@@ -175,7 +226,10 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
                   {i.key}
                   {CHANGE[i.change] && <div className={`status c-${i.change}`}>{CHANGE[i.change]}</div>}
                 </td>
-                <td>{i.section}</td>
+                <td>
+                  {i.section}
+                  {i.clause && <div className="muted small">{i.clause}</div>}
+                </td>
                 <td>
                   <div>{i.text}</div>
                   {i.quote && i.quote !== i.text && <div className="muted small quote">«{i.quote}»</div>}
@@ -351,6 +405,7 @@ export function DocProposalDetailsView({ project, id, revision, run, onSelect }:
       </dl>
       {p.unverifiedChannel && <div className="warn">{UNVERIFIED()}</div>}
       {p.restored && <div className="warn">{RESTORED(p)}</div>}
+      {p.incomplete && <div className="warn">{tr('The source shows only part of this document, so nothing was saved: upload the file yourself. Applying only marks this as handled.')}</div>}
       {blocked && <div className="warn">{blocked}</div>}
       {!decided && (
         <div className="form">
@@ -387,6 +442,8 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
   const [sets, setSets] = useState<DocSet[]>([]);
   const [proposals, setProposals] = useState<DocProposal[]>([]);
   const [versionId, setVersionId] = useState<string | null>(null);
+  const [repeats, setRepeats] = useState<RequirementRepeat[] | null>(null);
+  const [catalogue, setCatalogue] = useState<(readonly [DocSet, JudgedEntry[]])[] | null>(null);
   const [view, setView] = useState<DocVersionView | null>(null);
   const [title, setTitle] = useState('');
   const [uploadSet, setUploadSet] = useState('');
@@ -444,6 +501,7 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
     const r = await run(api.refreshDocuments(project.id, target, { force }));
     if (!r) return;
     if (r.failed.length) notify('warn', tr('“{name}”: could not reach {urls}', { name, urls: r.failed.map((f) => `${f.url} (${f.error})`).join('; ') }));
+    else if (r.reading) notify('info', tr('“{name}”: the document is being read into text first, the check follows', { name }));
     else if (!r.job) notify('info', tr('“{name}”: the sources did not change, no AI was used', { name }));
     else notify('info', tr('“{name}”: the check is queued', { name }));
   };
@@ -527,6 +585,49 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
           </div>
         </div>
       )}
+      <details
+        className="card"
+        onToggle={(e) => {
+          if (e.currentTarget.open) void Promise.all(sets.map(async (x) => [x, (await run(api.catalogueEntries(project.id, x.id))) ?? []] as const)).then(setCatalogue);
+        }}
+      >
+        <summary>{tr('Catalogue entries checked')}</summary>
+        {catalogue?.filter(([, entries]) => entries.length).map(([x, entries]) => (
+          <dl key={x.id} className="details">
+            <dt>{x.name}: {tr('{n} entries, {m} belong to the set', { n: entries.length, m: entries.filter((e) => e.belongs).length })}</dt>
+            {entries.map((e) => (
+              <dd key={e.url} className={e.belongs ? '' : 'muted'}>
+                {e.title || e.url} — {e.reason}
+              </dd>
+            ))}
+          </dl>
+        ))}
+      </details>
+      <details
+        className="card"
+        onToggle={(e) => {
+          if (e.currentTarget.open) void run(api.requirementRepeats(project.id)).then((r) => r && setRepeats(r));
+        }}
+      >
+        <summary>{tr('Probable repeats between documents')}</summary>
+        {repeats === null ? null : repeats.length === 0 ? (
+          <div className="empty">{tr('No probable repeats.')}</div>
+        ) : (
+          repeats.map((r, n) => (
+            <dl key={n} className="details">
+              {r.items.map((i) => (
+                <Fragment key={`${i.documentId}:${i.key}`}>
+                  <dt>{i.citation}</dt>
+                  <dd>
+                    {i.text}
+                    {i.url && <div className="mono small">{i.url}</div>}
+                  </dd>
+                </Fragment>
+              ))}
+            </dl>
+          ))
+        )}
+      </details>
       <details className="card" open={docs.length === 0}>
         <summary>{tr('Write security documents with AI')}</summary>
         <div className="form">

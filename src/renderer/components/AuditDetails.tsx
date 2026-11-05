@@ -163,7 +163,7 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
           {d.requirement.text}
           <br />
           <span className="muted small">
-            {d.requirement.documentTitle} · {d.requirement.section}
+            {d.requirement.citation}
           </span>
         </p>
       )}
@@ -494,6 +494,7 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
             <span className="mono">{c.key ?? c.requirementId}</span> × {c.moduleName ?? c.moduleId}
           </a>
           <div className="muted small">{c.text}</div>
+          {c.citation && <div className="muted small">{c.citation}</div>}
         </div>
       ))}
       </Section>

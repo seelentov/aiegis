@@ -94,7 +94,7 @@ export interface Settings {
   claude: { binary: string; background_args: string[]; interactive_args: string[] };
   pi: { binary: string; background_args: string[]; interactive_args: string[]; tools: Record<string, string[]> };
   queue: { parallelism: number; rate_limit_fallback_pause_sec: number };
-  limits: { max_tokens_per_run: number };
+  limits: { max_tokens_per_run: number; max_tokens_per_document_run: number };
   terminal: {
     external_app: string;
     /** Ended output streams kept in memory. */
@@ -135,6 +135,12 @@ export interface Settings {
     restored_min_coverage: number;
     /** An update adding no paragraph and removing at most this many lines is no change. */
     same_text_max_removed_lines: number;
+    /** Requirements of different documents sharing this share of words are shown as probable repeats. */
+    repeat_min_similarity: number;
+    /** A new edition much shorter than the current one is probably a part of it. */
+    update_min_length_ratio: number;
+    crop_min_ratio: number;
+    catalogue_batch: number;
     estimate_history_runs: number;
     estimate_tokens: number;
   };
@@ -177,7 +183,7 @@ export function scannerSettings(settings: Settings, name: string): ScannerSettin
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'doc_review', 'doc_catalogue', 'doc_text', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
@@ -214,6 +220,7 @@ const REQUIRED_SETTINGS: string[] = [
   'queue.parallelism',
   'queue.rate_limit_fallback_pause_sec',
   'limits.max_tokens_per_run',
+  'limits.max_tokens_per_document_run',
   'terminal.external_app',
   'sessions.free_role',
   'sessions.default_task_role',
@@ -235,7 +242,7 @@ const REQUIRED_SETTINGS: string[] = [
   'sca.scanner_hints_limit',
   'sca.prefilter_max_file_kb',
   'sca.report_max_mb',
-  ...['max_bytes', 'timeout_sec', 'max_redirects', 'user_agent', 'allow_private_addresses', 'page_preview_chars', 'max_links', 'js_page_min_chars', 'restored_min_coverage', 'same_text_max_removed_lines', 'estimate_history_runs', 'estimate_tokens'].map((k) => `doc_refresh.${k}`),
+  ...['max_bytes', 'timeout_sec', 'max_redirects', 'user_agent', 'allow_private_addresses', 'page_preview_chars', 'max_links', 'js_page_min_chars', 'restored_min_coverage', 'same_text_max_removed_lines', 'repeat_min_similarity', 'update_min_length_ratio', 'crop_min_ratio', 'catalogue_batch', 'estimate_history_runs', 'estimate_tokens'].map((k) => `doc_refresh.${k}`),
   'poc.start_timeout_sec',
   'poc.healthcheck_interval_sec',
   'poc.stop_timeout_sec',
@@ -343,11 +350,11 @@ export function agentOf(cfg: EffectiveConfig): 'claude' | 'pi' {
 }
 
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing
- * entries of `roles`/`tasks`/`scanners`/`poc`. Existing values are never changed; comments are preserved. Returns added paths.
+ * entries of the maps in `MERGED_MAPS`. Existing values are never changed; comments are preserved. Returns added paths.
  */
 export function addMissingDefaults(userText: string, defaultsText: string): { text: string; added: string[] } {
   const doc = YAML.parseDocument(userText);

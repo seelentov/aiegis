@@ -12,5 +12,5 @@ result, and a proposal without proof is a defect.
 - Compare editions by what the source states: edition, date, number of the amending act. If neither the page nor the
   document shows one and you cannot tell, the result is `unverifiable`, not a guess.
 - A different look, another site's layout or small wording differences of a conversion are not a new edition.
-- Your token budget is limited: read a document's text only when the edition alone does not settle the question, and read
-  large files in parts.
+- Keeping the documents complete and current matters more than saving tokens: a missed document or change is worse than a
+  longer run. Read large files in parts unless the task says otherwise.

@@ -599,6 +599,32 @@ const MIGRATIONS: string[] = [
     checked_at TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE doc_proposals ADD COLUMN incomplete INTEGER NOT NULL DEFAULT 0;
+  `,
+  `
+  ALTER TABLE req_items ADD COLUMN clause TEXT NOT NULL DEFAULT '';
+  -- Apart from doc_versions: a wrong date in a citation can be corrected without a new version of the document.
+  CREATE TABLE doc_version_info (
+    version_id TEXT PRIMARY KEY REFERENCES doc_versions(id),
+    name TEXT NOT NULL,
+    number TEXT NOT NULL,
+    date TEXT NOT NULL,
+    edition TEXT NOT NULL
+  );
+  `,
+  `
+  CREATE TABLE doc_catalogue_entries (
+    set_id TEXT NOT NULL REFERENCES doc_sets(id),
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    belongs INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    run_id TEXT,
+    judged_at TEXT NOT NULL,
+    PRIMARY KEY (set_id, url)
+  );
+  `,
 ];
 
 export function migrate(db: DB): void {

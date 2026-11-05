@@ -49,6 +49,8 @@ export function coreApi(core: Core): CoreApi {
     setVersionState: (pid, id, st) => core.setVersionState(pid, id, st),
     reviewItems: (pid, id, items, review) => core.reviewItems(pid, id, items, review),
     saveItem: (pid, id, item) => core.saveItem(pid, id, item),
+    catalogueEntries: (pid, setId) => core.catalogueEntries(pid, setId),
+    saveDocInfo: (pid, id, info) => core.saveDocInfo(pid, id, info),
     approveVersion: (pid, id) => core.approveVersion(pid, id),
 
     listMatrices: (pid) => core.listMatrices(pid),
@@ -80,6 +82,7 @@ export function coreApi(core: Core): CoreApi {
     revokeSuppression: (pid, id, reason) => core.revokeSuppression(pid, id, reason),
     renewSuppression: (pid, id, exp) => core.renewSuppression(pid, id, exp),
     currentRequirements: (pid) => core.currentRequirements(pid),
+    requirementRepeats: (pid) => core.requirementRepeats(pid),
 
     scaView: (pid) => core.scaView(pid),
     scaItemDetails: (pid, id) => core.scaItemDetails(pid, id),

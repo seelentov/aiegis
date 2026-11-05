@@ -20,6 +20,9 @@ import type {
   ItemChange,
   Matrix,
   PocResult,
+  CitedRequirement,
+  DocInfo,
+  JudgedEntry,
   RequirementItem,
   ScaItemRef,
   ReviewState,
@@ -27,6 +30,7 @@ import type {
   Verdict,
   VerdictStatus,
 } from '../shared/types';
+import { citationOf } from './documents';
 import { cellId, quoteFound, reqHash, type CellRef } from './matrix';
 import { scaItemId } from './sca';
 import type { Authorship } from './store';
@@ -40,8 +44,9 @@ type Row = Record<string, unknown>;
 
 const VERSION_SELECT = `SELECT v.*,
   (SELECT COUNT(*) FROM req_items i WHERE i.version_id = v.id) AS item_count,
-  (SELECT COUNT(*) FROM req_items i WHERE i.version_id = v.id AND i.review = 'pending') AS pending_count
-  FROM doc_versions v`;
+  (SELECT COUNT(*) FROM req_items i WHERE i.version_id = v.id AND i.review = 'pending') AS pending_count,
+  n.name AS info_name, n.number AS info_number, n.date AS info_date, n.edition AS info_edition
+  FROM doc_versions v LEFT JOIN doc_version_info n ON n.version_id = v.id`;
 
 function toVersion(r: Row): DocVersion {
   return {
@@ -57,6 +62,12 @@ function toVersion(r: Row): DocVersion {
     createdAt: r.created_at as string,
     approvedAt: (r.approved_at as string) ?? null,
     approvedBy: (r.approved_by as string) ?? null,
+    info: {
+      name: (r.info_name as string) ?? '',
+      number: (r.info_number as string) ?? '',
+      date: (r.info_date as string) ?? '',
+      edition: (r.info_edition as string) ?? '',
+    },
   };
 }
 
@@ -88,6 +99,7 @@ function toProposal(r: Row): DocProposal {
     unverifiedChannel: Boolean(r.unverified_channel),
     restored: Boolean(r.restored),
     coverage: (r.coverage as number) ?? null,
+    incomplete: Boolean(r.incomplete),
     versionId: (r.version_id as string) ?? null,
     resultDocumentId: (r.result_document_id as string) ?? null,
     createdAt: r.created_at as string,
@@ -104,6 +116,7 @@ function toItem(r: Row): RequirementItem {
     key: r.key as string,
     text: r.text as string,
     section: r.section as string,
+    clause: r.clause as string,
     quote: r.quote as string,
     review: r.review as ReviewState,
     author: r.author as string,
@@ -332,14 +345,15 @@ export class AuditStore {
     unverifiedChannel: boolean;
     restored: boolean;
     coverage: number | null;
+    incomplete: boolean;
     runId: string;
   }): DocProposal {
     this.db
       .prepare(
-        `INSERT INTO doc_proposals (id, target, set_id, document_id, kind, status, dedupe_key, title, edition, url, reason, quote, quote_url, file, sha256, unverified_channel, restored, coverage, run_id, created_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO doc_proposals (id, target, set_id, document_id, kind, status, dedupe_key, title, edition, url, reason, quote, quote_url, file, sha256, unverified_channel, restored, coverage, run_id, created_at, incomplete)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(p.id, p.target, p.setId, p.documentId, p.kind, p.dedupeKey, p.title, p.edition, p.url, p.reason, p.quote, p.quoteUrl, p.file, p.sha256, p.unverifiedChannel ? 1 : 0, p.restored ? 1 : 0, p.coverage, p.runId, now());
+      .run(p.id, p.target, p.setId, p.documentId, p.kind, p.dedupeKey, p.title, p.edition, p.url, p.reason, p.quote, p.quoteUrl, p.file, p.sha256, p.unverifiedChannel ? 1 : 0, p.restored ? 1 : 0, p.coverage, p.runId, now(), p.incomplete ? 1 : 0);
     return this.getDocProposal(p.id)!;
   }
 
@@ -469,7 +483,7 @@ export class AuditStore {
   /** Adds an item to a version or replaces the one with the same key; review starts over. */
   upsertItem(
     versionId: string,
-    it: { key?: string | null; text: string; section: string; quote: string },
+    it: { key?: string | null; text: string; section: string; clause?: string; quote: string },
     by: Authorship,
     review: ReviewState = 'pending',
   ): RequirementItem {
@@ -482,12 +496,12 @@ export class AuditStore {
       const requirementId = this.ensureRequirement(v.documentId, key);
       this.db
         .prepare(
-          `INSERT INTO req_items (id, version_id, requirement_id, key, text, section, quote, review, author, run_id, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (version_id, key) DO UPDATE SET text = excluded.text, section = excluded.section, quote = excluded.quote,
+          `INSERT INTO req_items (id, version_id, requirement_id, key, text, section, clause, quote, review, author, run_id, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (version_id, key) DO UPDATE SET text = excluded.text, section = excluded.section, clause = excluded.clause, quote = excluded.quote,
              review = excluded.review, author = excluded.author, run_id = excluded.run_id, updated_at = excluded.updated_at`,
         )
-        .run(crypto.randomUUID(), versionId, requirementId, key, text, it.section.trim(), it.quote.trim(), review, by.author, by.runId, now());
+        .run(crypto.randomUUID(), versionId, requirementId, key, text, it.section.trim(), it.clause?.trim() ?? '', it.quote.trim(), review, by.author, by.runId, now());
       return toItem(this.db.prepare('SELECT * FROM req_items WHERE version_id = ? AND key = ?').get(versionId, key) as Row);
     })();
   }
@@ -542,14 +556,49 @@ export class AuditStore {
     return r && toItem(r);
   }
 
+  judgeCatalogueEntry(setId: string, e: Omit<JudgedEntry, 'judgedAt'>, runId: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO doc_catalogue_entries (set_id, url, title, belongs, reason, run_id, judged_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (set_id, url) DO UPDATE SET belongs = excluded.belongs, reason = excluded.reason, run_id = excluded.run_id, judged_at = excluded.judged_at`,
+      )
+      .run(setId, e.url, e.title, Number(e.belongs), e.reason.trim(), runId, now());
+  }
+
+  catalogueEntries(setId: string): JudgedEntry[] {
+    return (this.db.prepare('SELECT * FROM doc_catalogue_entries WHERE set_id = ? ORDER BY belongs DESC, title').all(setId) as Row[]).map((r) => ({
+      url: r.url as string,
+      title: r.title as string,
+      belongs: Boolean(r.belongs),
+      reason: r.reason as string,
+      judgedAt: r.judged_at as string,
+    }));
+  }
+
+  setVersionInfo(versionId: string, info: DocInfo): void {
+    const { name, number, date, edition } = info;
+    this.db
+      .prepare(
+        `INSERT INTO doc_version_info (version_id, name, number, date, edition) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (version_id) DO UPDATE SET name = excluded.name, number = excluded.number, date = excluded.date, edition = excluded.edition`,
+      )
+      .run(versionId, name.trim(), number.trim(), date.trim(), edition.trim());
+  }
+
+  /** An item with the grounds to name it by: its document as of the item's own version. */
+  citedItem(item: RequirementItem): CitedRequirement {
+    const v = this.getVersion(item.versionId)!;
+    const documentTitle = this.getDocumentTitle(v.documentId) ?? '';
+    return { ...item, documentTitle, citation: citationOf(documentTitle, v.info, item) };
+  }
+
   /** Current requirements of documents: accepted items of their latest approved versions, in document order. */
-  currentItems(documentIds: string[]): (RequirementItem & { documentTitle: string })[] {
-    const out: (RequirementItem & { documentTitle: string })[] = [];
+  currentItems(documentIds: string[]): CitedRequirement[] {
+    const out: CitedRequirement[] = [];
     for (const d of documentIds) {
       const v = this.currentVersion(d);
       if (!v) continue;
-      const title = this.getDocumentTitle(d) ?? '';
-      for (const i of this.listItems(v.id)) if (i.review === 'accepted') out.push({ ...i, documentTitle: title });
+      for (const i of this.listItems(v.id)) if (i.review === 'accepted') out.push(this.citedItem(i));
     }
     return out;
   }

@@ -14,6 +14,7 @@ import type {
   DocRefreshEstimate,
   DocRefreshStart,
   DocRefreshTarget,
+  RequirementRepeat,
   DocSet,
   AppEvent,
   Cell,
@@ -44,6 +45,10 @@ import type {
   ProjectInfo,
   RawFinding,
   RecheckOffer,
+  CatalogueEntry,
+  CitedRequirement,
+  DocInfo,
+  JudgedEntry,
   RequirementItem,
   ResultRecord,
   ReviewState,
@@ -113,6 +118,9 @@ import {
   detectFormat,
   DOC_GEN_ENTITY,
   DOC_REFRESH_ENTITY,
+  DOC_TEXT_ENTITY,
+  probableRepeats,
+  TEXT_PART_FILE,
   DOC_PLAN_ENTITY,
   documentText,
   parseGeneratedDoc,
@@ -300,7 +308,17 @@ export interface RefreshProposalInput {
   startPhrase?: string;
   endPhrase?: string;
   restoredText?: string;
+  incomplete?: boolean;
 }
+
+/** What continues when a PDF has been read into text. */
+type DocTextThen = { extract: true } | { target: DocRefreshTarget; force?: boolean; parent?: string };
+
+/** Documents requested by a set's check for a comparison of their own. */
+const REVIEWS_FILE = 'reviews.json';
+const CATALOGUES_FILE = 'catalogues.json';
+/** Runs that read whole documents: they have their own token limit. */
+const DOCUMENT_RUNS = [DOC_VERSION_ENTITY, DOC_TEXT_ENTITY, DOC_REFRESH_ENTITY];
 
 const NO_CHECK_RESULT = 'the check finished without a result for this document';
 
@@ -362,6 +380,10 @@ export class Core extends EventEmitter {
       docRefreshFetch: (pid, runId, url) => this.docRefreshFetch(pid, runId, url),
       docRefreshReport: (pid, runId, r) => this.docRefreshReport(pid, runId, r),
       docRefreshPropose: (pid, runId, p) => this.docRefreshPropose(pid, runId, p),
+      docRefreshRequestReview: (pid, runId, documentId, fetchIds, reason) => this.docRefreshRequestReview(pid, runId, documentId, fetchIds, reason),
+      docRefreshRequestCatalogue: (pid, runId, fetchId) => this.docRefreshRequestCatalogue(pid, runId, fetchId),
+      docRefreshJudge: (pid, runId, entries) => this.docRefreshJudge(pid, runId, entries),
+      saveDocText: (pid, versionId, part, text, last) => this.saveDocText(pid, versionId, part, text, last),
       saveGeneratedDoc: (pid, runId, slug, md) => this.saveGeneratedDoc(pid, runId, slug, md),
       pocCheck: (pid, action, waitSec) => this.pocCheck(pid, action, waitSec),
       onWrite: (pid) => {
@@ -929,7 +951,62 @@ export class Core extends EventEmitter {
     return this.docVersion(projectId, versionId);
   }
 
+  /** Extraction works from the text: a PDF is read into text first, and is read directly only if that fails. */
   private async enqueueExtraction(projectId: string, versionId: string): Promise<Job> {
+    if (documentText(this.docDir(projectId, versionId)) === null) return this.enqueueDocText(projectId, versionId, { extract: true });
+    return this.queueExtraction(projectId, versionId);
+  }
+
+  /** Queues the reading of a PDF into `text.md`; `then` says what continues when it ends, with or without the text. */
+  private async enqueueDocText(projectId: string, versionId: string, then: DocTextThen): Promise<Job> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const active = s.activeJobFor(DOC_TEXT_ENTITY, versionId);
+    if (active) return active;
+    const v = s.audit.getVersion(versionId);
+    if (!v) throw new Error(`version ${versionId} not found`);
+    const spec = this.taskSpec(projectId, 'doc_text');
+    const vars = { project: p.name, document_title: s.audit.getDocumentTitle(v.documentId) ?? '', file: agentFile(this.docDir(projectId, versionId)) };
+    return this.addAgentJob(
+      projectId,
+      { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity: { type: DOC_TEXT_ENTITY, id: versionId }, payload: { then } },
+      await headSha(p.root),
+    );
+  }
+
+  /** append_document_text: parts in order; the last one makes the text available. */
+  saveDocText(projectId: string, versionId: string, part: number, text: string, last: boolean): { chars: number } {
+    const dir = this.docDir(projectId, versionId);
+    const file = path.join(dir, TEXT_PART_FILE);
+    if (part === 1) fs.writeFileSync(file, text);
+    else if (fs.existsSync(file)) fs.appendFileSync(file, `\n${text}`);
+    else throw new Error('start with part 1');
+    const chars = fs.readFileSync(file, 'utf8').length;
+    if (last) fs.renameSync(file, path.join(dir, TEXT_FILE));
+    return { chars };
+  }
+
+  /** The end of a reading, whatever came of it: what waited for the text continues. A missing text is not a dead end. */
+  private async afterDocText(projectId: string, runId: string, status: RunStatus): Promise<void> {
+    const s = this.store(projectId);
+    const run = s.getRun(runId);
+    const job = run?.jobId ? s.getJob(run.jobId) : undefined;
+    if (!job || status === 'cancelled' || status === 'taken_over' || status === 'rate_limited' || status === 'exited') return;
+    const then = job.payload.then as DocTextThen;
+    const v = s.audit.getVersion(job.entityId);
+    const text = documentText(this.docDir(projectId, job.entityId));
+    if (text === null) agentLog.warn('run %s: no text for version %s (%s), the PDF is read directly', runId, job.entityId, status);
+    if ('extract' in then) {
+      if (!v || v.status !== 'extracting') return;
+      if (text !== null) s.audit.carryOverItems(v, text);
+      await this.queueExtraction(projectId, v.id);
+    } else {
+      await this.refreshDocuments(projectId, then.target, { force: then.force, parent: then.parent, textDone: true });
+    }
+    this.auditChanged(projectId);
+  }
+
+  private async queueExtraction(projectId: string, versionId: string): Promise<Job> {
     const p = this.project(projectId);
     const a = this.store(projectId).audit;
     const v = a.getVersion(versionId);
@@ -975,7 +1052,7 @@ export class Core extends EventEmitter {
     const v = s.audit.getVersion(versionId);
     if (!v) throw new Error(`version ${versionId} not found`);
     if (v.status === 'approved') throw new Error('an approved version is immutable');
-    if (s.activeJobFor(DOC_VERSION_ENTITY, versionId)) throw new Error('the extraction is still running');
+    if (s.activeJobFor(DOC_VERSION_ENTITY, versionId) || s.activeJobFor(DOC_TEXT_ENTITY, versionId)) throw new Error('the extraction is still running');
     if (status === 'review' && !v.itemCount) throw new Error('the version has no items');
     s.audit.setVersionStatus(versionId, status);
     this.auditChanged(projectId);
@@ -1152,15 +1229,17 @@ export class Core extends EventEmitter {
     const a = s.audit;
     const version = a.getVersion(versionId);
     if (!version) throw new Error(`version ${versionId} not found`);
-    const job = s.latestJobFor(DOC_VERSION_ENTITY, versionId);
+    const job = s.activeJobFor(DOC_TEXT_ENTITY, versionId) ?? s.latestJobFor(DOC_VERSION_ENTITY, versionId) ?? s.latestJobFor(DOC_TEXT_ENTITY, versionId);
     const dir = this.docDir(projectId, versionId);
+    const hasText = documentText(dir) !== null;
     return {
       document: { id: version.documentId, title: a.getDocumentTitle(version.documentId) ?? '' },
       version,
       ...a.versionDiff(version),
       job: job ? { id: job.id, status: job.status, lastRunId: job.lastRunId, error: job.error } : null,
       sourceFile: sourceFile(dir),
-      quotesVerified: version.format !== 'pdf',
+      quotesVerified: hasText,
+      textByAi: hasText && version.format === 'pdf',
       proposal: a.proposalOfVersion(versionId),
     };
   }
@@ -1173,13 +1252,21 @@ export class Core extends EventEmitter {
   }
 
   /** Manual add/edit of an item during review: authored by human and accepted. */
-  saveItem(projectId: string, versionId: string, it: { key?: string | null; text: string; section: string; quote: string }): RequirementItem {
+  saveItem(projectId: string, versionId: string, it: { key?: string | null; text: string; section: string; clause?: string; quote: string }): RequirementItem {
     const a = this.store(projectId).audit;
     const v = a.getVersion(versionId);
     if (!v || v.status === 'approved' || v.status === 'discarded') throw new Error('the version is not editable');
     const item = a.upsertItem(versionId, it, { author: 'human', runId: null }, 'accepted');
     this.auditChanged(projectId);
     return item;
+  }
+
+  /** Allowed after approval too: it corrects how the document is named, not its requirements. */
+  saveDocInfo(projectId: string, versionId: string, info: DocInfo): void {
+    const a = this.store(projectId).audit;
+    if (!a.getVersion(versionId)) throw new Error(`version ${versionId} not found`);
+    a.setVersionInfo(versionId, info);
+    this.auditChanged(projectId);
   }
 
   approveVersion(projectId: string, versionId: string): void {
@@ -1281,6 +1368,12 @@ export class Core extends EventEmitter {
     const a = this.store(projectId).audit;
     const p = a.getDocProposal(id);
     if (!p || p.status !== 'pending') throw new Error('only a pending proposal can be applied');
+    if (p.incomplete) {
+      // Nothing to apply: the human took note and uploads the document.
+      a.decideDocProposal(id, 'applied', { versionId: null, resultDocumentId: p.documentId });
+      this.auditChanged(projectId);
+      return a.getDocProposal(id)!;
+    }
     const dir = this.proposalDir(projectId, id);
     const file = p.file ? path.join(dir, p.file) : '';
     const doc = p.documentId ? a.getDocument(p.documentId) : undefined;
@@ -1361,17 +1454,18 @@ export class Core extends EventEmitter {
       if (!set.links.length) throw new Error(`the set "${set.name}" has no links to check`);
       docs = a.listDocuments().filter((d) => d.setId === set!.id && !d.retiredAt);
       links = all = set.links;
-      entityId = `set:${set.id}`;
-      title = set.name;
+      entityId = target.entries ? `catalogue:${set.id}.${target.batch}` : `set:${set.id}`;
+      title = target.entries ? `${set.name}, ${target.batch}` : set.name;
     } else {
       const doc = a.getDocument(target.documentId);
       if (!doc) throw new Error(`document ${target.documentId} not found`);
       if (doc.retiredAt) throw new Error(`the document "${doc.title}" is out of force`);
-      if (!doc.source) throw new Error(`the document "${doc.title}" has no link to check`);
+      const pages = target.pages?.map((url) => ({ url, insecure: false }));
+      if (!doc.source && !pages?.length) throw new Error(`the document "${doc.title}" has no link to check`);
       set = doc.setId ? a.getDocSet(doc.setId) : undefined;
       docs = [doc];
-      links = [doc.source];
-      all = [doc.source, ...(set?.links ?? [])];
+      links = pages?.length ? pages : [doc.source!];
+      all = [...links, ...(doc.source ? [doc.source] : []), ...(set?.links ?? [])];
       entityId = `doc:${doc.id}`;
       title = doc.title;
     }
@@ -1397,7 +1491,7 @@ export class Core extends EventEmitter {
       links: scope.links.map((l) => l.url),
       tokens: runs.length ? Math.round(runs.reduce((x, y) => x + y, 0) / runs.length) : settings.doc_refresh.estimate_tokens,
       tokensSource: runs.length ? 'history' : 'config',
-      maxTokensPerRun: settings.limits.max_tokens_per_run,
+      maxTokensPerRun: settings.limits.max_tokens_per_document_run,
     };
   }
 
@@ -1441,20 +1535,27 @@ export class Core extends EventEmitter {
       else this.setCheck(projectId, d, { ...c, status: 'current', note: c.status === 'current' ? c.note : 'the source did not change', runId: null });
     }
     this.auditChanged(projectId);
-    return { job: null, compared: base.sources.length, unchanged: !failed.length, failed };
+    return { job: null, compared: base.sources.length, unchanged: !failed.length, failed, reading: 0 };
   }
 
   /** Starts a check. A repeated call returns the active job; `force` runs the agent even if the sources look unchanged. */
-  async refreshDocuments(projectId: string, target: DocRefreshTarget, o: { force?: boolean } = {}): Promise<DocRefreshStart> {
+  async refreshDocuments(projectId: string, target: DocRefreshTarget, o: { force?: boolean; parent?: string; textDone?: boolean } = {}): Promise<DocRefreshStart> {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const scope = this.refreshScope(projectId, target);
     const active = s.activeJobFor(DOC_REFRESH_ENTITY, scope.entityId);
-    if (active) return { job: active, compared: 0, unchanged: false, failed: [] };
-    const spec = this.taskSpec(projectId, 'doc_refresh');
-    if (!o.force) {
+    if (active) return { job: active, compared: 0, unchanged: false, failed: [], reading: 0 };
+    const entries = 'setId' in target ? target.entries : undefined;
+    const spec = this.taskSpec(projectId, entries ? 'doc_catalogue' : 'documentId' in target ? 'doc_review' : 'doc_refresh');
+    if (!o.force && !entries) {
       const same = await this.compareWithBaseline(projectId, scope);
       if (same) return same;
+    }
+    // A document is compared by its text: one without it is read first, once.
+    const held = scope.docs[0]?.current;
+    if ('documentId' in target && held && !o.textDone && documentText(this.docDir(projectId, held.id)) === null) {
+      const job = await this.enqueueDocText(projectId, held.id, { target, force: o.force, parent: o.parent });
+      return { job, compared: 0, unchanged: false, failed: [], reading: 1 };
     }
     const cwd = this.refreshDir(projectId, scope.entityId);
     fs.rmSync(cwd, { recursive: true, force: true });
@@ -1481,6 +1582,9 @@ export class Core extends EventEmitter {
       scope: scope.set?.scope || '(not described)',
       links: scope.links.map((l) => `- ${l.url}`).join('\n'),
       documents: lines.join('\n') || '(none)',
+      retired: this.store(projectId).audit.listDocuments().filter((d) => d.setId === scope.set?.id && d.retiredAt).map((d) => `- "${d.title}"`).join('\n') || '(none)',
+      entries: entries?.map((e) => `- ${e.url} ${e.title}`).join('\n') ?? '',
+      proposed: s.audit.listDocProposals().filter((x) => x.kind === 'add' && x.status === 'pending' && x.setId === scope.set?.id).map((x) => `- "${x.title}"`).join('\n') || '(none)',
     };
     const job = this.addAgentJob(
       projectId,
@@ -1489,12 +1593,12 @@ export class Core extends EventEmitter {
         title: renderTemplate(spec.title, vars),
         prompt: renderTemplate(spec.template, vars, spec.file),
         entity: { type: DOC_REFRESH_ENTITY, id: scope.entityId },
-        payload: { target, fingerprint: scope.fingerprint, documents: scope.docs.map((d) => d.id), links: scope.links.map((l) => l.url), allowed_hosts: scope.rules.allowedHosts },
+        payload: { target, force: Boolean(o.force), parent: o.parent ?? null, fingerprint: scope.fingerprint, documents: entries ? [] : scope.docs.map((d) => d.id), links: scope.links.map((l) => l.url), allowed_hosts: scope.rules.allowedHosts },
       },
       await headSha(p.root),
     );
     this.auditChanged(projectId);
-    return { job, compared: 0, unchanged: false, failed: [] };
+    return { job, compared: 0, unchanged: false, failed: [], reading: 0 };
   }
 
   private refreshDir(projectId: string, entityId: string): string {
@@ -1600,7 +1704,9 @@ export class Core extends EventEmitter {
     if (kind === 'link' && doc!.source) throw new Error('the document already has a link');
 
     const sources = (input.sourceFetchIds ?? []).map(fetched);
-    const needsContent = kind === 'update' || kind === 'add' || kind === 'replace';
+    const incomplete = Boolean(input.incomplete);
+    if (incomplete && kind !== 'update' && kind !== 'add' && kind !== 'replace') throw new Error('only a new document or edition can be incomplete');
+    const needsContent = !incomplete && (kind === 'update' || kind === 'add' || kind === 'replace');
     if ((needsContent || kind === 'link') && !sources.length) throw new Error('pass source_fetch_ids');
     const binary = sources.find((f) => f.kind === 'pdf' || f.kind === 'docx');
     if (binary && sources.length > 1) throw new Error('a file is one source: several sources are for a document split into pages');
@@ -1624,12 +1730,16 @@ export class Core extends EventEmitter {
     if (needsContent && !binary) {
       const whole = sources.map(textOf).join('\n');
       if (input.restoredText?.trim()) {
-        cover = coverage(input.restoredText, whole);
+        // A text consolidated from an amending act is made of that act and the current version.
+        const held = kind === 'update' && doc!.current ? (documentText(this.docDir(projectId, doc!.current.id)) ?? '') : '';
+        cover = coverage(input.restoredText, `${whole}\n${held}`);
         if (cover < settings.restored_min_coverage) throw new Error(`only ${Math.round(cover * 100)}% of the paragraphs of restored_text are on the page; ${Math.round(settings.restored_min_coverage * 100)}% is required`);
         text = input.restoredText;
         restored = true;
       } else if (input.startPhrase && input.endPhrase) {
         text = cropText(whole, input.startPhrase, input.endPhrase);
+        if (text.length < whole.length * settings.crop_min_ratio)
+          throw new Error(`the phrases keep ${text.length} of the ${whole.length} characters of the page, so the end phrase probably stops inside the document: take the last words of the document, or pass incomplete if the page shows only part of it`);
       } else if (sources.every((f) => f.kind === 'text')) {
         text = whole;
       } else {
@@ -1640,6 +1750,8 @@ export class Core extends EventEmitter {
     if (kind === 'update') {
       if (binary && doc!.current?.sha256 === binary.sha256) throw new Error('this file is the current version: report the document as current');
       const current = doc!.current ? documentText(this.docDir(projectId, doc!.current.id)) : null;
+      if (text !== null && !restored && current !== null && text.length < current.length * settings.update_min_length_ratio)
+        throw new Error(`the text has ${text.length} characters against ${current.length} of the current version, so the page probably shows only part of it: pass incomplete, or find the whole text`);
       if (text !== null && current !== null && sameText(text, current, settings.same_text_max_removed_lines)) throw new Error('the text brings nothing new compared to the current version: report the document as current');
     }
 
@@ -1690,11 +1802,89 @@ export class Core extends EventEmitter {
       unverifiedChannel: [...sources, ...(input.quoteFetchId === undefined ? [] : [fetched(input.quoteFetchId)])].some((f) => f.unverifiedChannel),
       restored,
       coverage: cover,
+      incomplete,
       runId,
     });
     if (doc && kind !== 'link') this.setCheck(projectId, doc, { status: 'changed', note: input.reason.trim(), url: sources[0]?.finalUrl ?? quoteUrl, unverifiedChannel: false, runId });
     this.auditChanged(projectId);
     return { id, duplicate: false };
+  }
+
+  /** request_document_review: the set's check found the document's own page; a run of its own compares them when the check ends. */
+  docRefreshRequestReview(projectId: string, runId: string, documentId: string, fetchIds: number[], reason: string): { queued: boolean } {
+    const { scope, dir, index, job } = this.refreshContext(projectId, runId);
+    if (!('setId' in (job.payload.target as DocRefreshTarget))) throw new Error('only the check of a set hands documents over: compare this one now');
+    if (!scope.docs.some((d) => d.id === documentId)) throw new Error(`document ${documentId} is not part of this check`);
+    if (!fetchIds.length) throw new Error('pass the fetch_ids of the document\'s own pages');
+    const pages = fetchIds.map((id) => {
+      const f = index.find((x) => x.id === id && x.kind !== 'error');
+      if (!f) throw new Error(`fetch_id ${id} is not a successful fetch of this run`);
+      return f.url;
+    });
+    const all = this.refreshReviews(dir);
+    fs.writeFileSync(path.join(dir, REVIEWS_FILE), JSON.stringify({ ...all, [documentId]: { pages, reason } }, null, 1));
+    return { queued: true };
+  }
+
+  /** request_catalogue_review: a list page of the set's check; its entries are judged part by part when the check ends. */
+  docRefreshRequestCatalogue(projectId: string, runId: string, fetchId: number): { queued: boolean } {
+    const { dir, index, job } = this.refreshContext(projectId, runId);
+    const target = job.payload.target as DocRefreshTarget;
+    if (!('setId' in target) || target.entries) throw new Error('only the check of a set hands over catalogues');
+    if (!index.some((f) => f.id === fetchId && f.kind === 'html')) throw new Error(`fetch_id ${fetchId} is not a page fetched in this run`);
+    fs.writeFileSync(path.join(dir, CATALOGUES_FILE), JSON.stringify([...new Set([...this.refreshCatalogues(dir), fetchId])]));
+    return { queued: true };
+  }
+
+  private refreshCatalogues(dir: string): number[] {
+    const file = path.join(dir, CATALOGUES_FILE);
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
+  }
+
+  /** judge_catalogue_entries: only the entries of this run's part. */
+  docRefreshJudge(projectId: string, runId: string, entries: { url: string; belongs: boolean; reason: string }[]): { left: number } {
+    const { job } = this.refreshContext(projectId, runId);
+    const target = job.payload.target as DocRefreshTarget;
+    if (!('setId' in target) || !target.entries) throw new Error('only a part of a catalogue judges entries');
+    const own = new Map(target.entries.map((e) => [e.url, e]));
+    const a = this.store(projectId).audit;
+    for (const e of entries) {
+      const entry = own.get(e.url);
+      if (!entry) throw new Error(`${e.url} is not an entry of this part`);
+      a.judgeCatalogueEntry(target.setId, { ...entry, belongs: e.belongs, reason: e.reason }, runId);
+    }
+    this.auditChanged(projectId);
+    return { left: this.entriesLeft(projectId, target.setId, target.entries).length };
+  }
+
+  private entriesLeft(projectId: string, setId: string, entries: CatalogueEntry[]): CatalogueEntry[] {
+    const judged = new Set(this.store(projectId).audit.catalogueEntries(setId).map((e) => e.url));
+    return entries.filter((e) => !judged.has(e.url));
+  }
+
+  /** Entries of the list pages of a check that nobody judged yet: links of the page's own host, once each. */
+  private catalogueParts(projectId: string, setId: string, dir: string): CatalogueEntry[][] {
+    const index = this.fetchIndex(dir);
+    const found = new Map<string, CatalogueEntry>();
+    for (const id of this.refreshCatalogues(dir)) {
+      const page = index.find((f) => f.id === id)!;
+      for (const line of fs.readFileSync(path.join(dir, 'fetched', String(id), 'links.txt'), 'utf8').split('\n')) {
+        const [url, title = ''] = line.split('\t');
+        if (url && hostOf(url) === hostOf(page.finalUrl) && !found.has(url)) found.set(url, { url, title });
+      }
+    }
+    const left = this.entriesLeft(projectId, setId, [...found.values()]);
+    const size = this.projectSettings(projectId).doc_refresh.catalogue_batch;
+    return Array.from({ length: Math.ceil(left.length / size) }, (_, n) => left.slice(n * size, (n + 1) * size));
+  }
+
+  catalogueEntries(projectId: string, setId: string): JudgedEntry[] {
+    return this.store(projectId).audit.catalogueEntries(setId);
+  }
+
+  private refreshReviews(dir: string): Record<string, { pages: string[]; reason: string }> {
+    const file = path.join(dir, REVIEWS_FILE);
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   }
 
   /** The end of a check: what stayed unreported is unverifiable; a successful run becomes the baseline of the next one. */
@@ -1704,19 +1894,43 @@ export class Core extends EventEmitter {
     const job = run?.jobId ? s.getJob(run.jobId) : undefined;
     if (!job || status === 'cancelled' || status === 'taken_over' || status === 'rate_limited' || status === 'exited') return;
     const docs = (job.payload.documents as string[]).flatMap((id) => s.audit.getDocument(id) ?? []);
+    const reviews = status === 'succeeded' ? this.refreshReviews(this.refreshDir(projectId, job.entityId)) : {};
     for (const d of docs) {
-      if (d.lastCheck?.runId !== runId) this.setCheck(projectId, d, { status: 'unverifiable', note: error ?? (status === 'token_limit' ? 'the token limit of the run was reached' : NO_CHECK_RESULT), url: null, unverifiedChannel: false, runId });
+      if (d.lastCheck?.runId !== runId && !reviews[d.id]) this.setCheck(projectId, d, { status: 'unverifiable', note: error ?? (status === 'token_limit' ? 'the token limit of the run was reached' : NO_CHECK_RESULT), url: null, unverifiedChannel: false, runId });
     }
+    // Its set's sources did not change, so the set's next check would not come back to this document otherwise.
+    if (status !== 'succeeded' && job.payload.parent) s.audit.deleteRefreshBaseline(String(job.payload.parent));
     if (status !== 'succeeded') return;
+    const target = job.payload.target as DocRefreshTarget;
+    const part = 'setId' in target ? target.entries : undefined;
+    const parent = String(job.payload.parent ?? job.entityId);
+    if (part && this.entriesLeft(projectId, (target as { setId: string }).setId, part).length) s.audit.deleteRefreshBaseline(parent);
     const sources = new Map<string, string | null>((job.payload.links as string[]).map((u) => [u, null]));
     const allowed = job.payload.allowed_hosts as string[];
     for (const f of this.fetchIndex(this.refreshDir(projectId, job.entityId))) if (allowed.includes(hostOf(f.url))) sources.set(f.url, f.hash);
-    s.audit.saveRefreshBaseline(
-      job.entityId,
-      String(job.payload.fingerprint),
-      [...sources].map(([url, hash]) => ({ url, hash })),
-      Object.fromEntries(docs.flatMap((d) => (s.audit.getDocument(d.id)?.lastCheck?.url ? [[d.id, s.audit.getDocument(d.id)!.lastCheck!.url!]] : []))),
-    );
+    if (!part)
+      s.audit.saveRefreshBaseline(
+        job.entityId,
+        String(job.payload.fingerprint),
+        [...sources].map(([url, hash]) => ({ url, hash })),
+        Object.fromEntries(docs.flatMap((d) => (s.audit.getDocument(d.id)?.lastCheck?.url ? [[d.id, s.audit.getDocument(d.id)!.lastCheck!.url!]] : []))),
+      );
+    for (const [documentId, r] of Object.entries(reviews)) {
+      void this.refreshDocuments(projectId, { documentId, pages: r.pages }, { force: Boolean(job.payload.force), parent: job.entityId }).catch((e) => {
+        agentLog.error('document %s: its comparison did not start: %s', documentId, (e as Error).message);
+        const d = s.audit.getDocument(documentId);
+        if (d) this.setCheck(projectId, d, { status: 'unverifiable', note: (e as Error).message, url: null, unverifiedChannel: false, runId });
+        s.audit.deleteRefreshBaseline(parent);
+      });
+    }
+    // shortcut: a part that finds an amendment while the document's own comparison still runs loses that request; parts queue after the comparisons, so this needs a very slow comparison.
+    if (part || !('setId' in target)) return;
+    this.catalogueParts(projectId, target.setId, this.refreshDir(projectId, job.entityId)).forEach((entries, n) => {
+      void this.refreshDocuments(projectId, { setId: target.setId, entries, batch: n + 1 }, { parent: job.entityId }).catch((e) => {
+        agentLog.error('set %s: part %d of the catalogue did not start: %s', target.setId, n + 1, (e as Error).message);
+        s.audit.deleteRefreshBaseline(job.entityId);
+      });
+    });
   }
 
   /** The set of AI-written documents: one per project; a repeated plan keeps it, whatever name the agent gives now. */
@@ -1751,7 +1965,7 @@ export class Core extends EventEmitter {
   }
 
   /** Modules (empty list = all current) and current requirements of a matrix. */
-  private matrixScope(s: ProjectStore, matrix: Matrix): { modules: Module[]; requirements: (RequirementItem & { documentTitle: string })[] } {
+  private matrixScope(s: ProjectStore, matrix: Matrix): { modules: Module[]; requirements: CitedRequirement[] } {
     const modules = matrix.moduleIds.length ? matrix.moduleIds.map((id) => s.getModule(id)).filter((m): m is Module => Boolean(m)) : s.listModules();
     return { modules, requirements: s.audit.currentItems(matrix.documentIds) };
   }
@@ -1865,7 +2079,7 @@ export class Core extends EventEmitter {
     return {
       cell,
       module,
-      requirement: item ? { ...item, documentTitle: (doc && a.getDocumentTitle(doc)) || '' } : null,
+      requirement: item ? a.citedItem(item) : null,
       verdicts: a.verdictHistory(ref).map((v) => ({ ...v, run: v.runId ? (s.getRun(v.runId) ?? null) : null })),
       triage: a.triageHistory(ref),
       findings,
@@ -2091,7 +2305,7 @@ export class Core extends EventEmitter {
 
   private cellLabel(s: ProjectStore, c: CellRef): CellLabel {
     const item = s.audit.currentItem(c.requirementId) ?? s.audit.latestItem(c.requirementId);
-    return { ...c, moduleName: s.getModule(c.moduleId)?.name ?? null, key: item?.key ?? null, text: item?.text ?? null };
+    return { ...c, moduleName: s.getModule(c.moduleId)?.name ?? null, key: item?.key ?? null, text: item?.text ?? null, citation: item ? s.audit.citedItem(item).citation : null };
   }
 
   findingDetails(projectId: string, id: string): FindingDetails {
@@ -2333,7 +2547,7 @@ export class Core extends EventEmitter {
       description: fl.description,
       files: fl.files.map((e) => `- ${e.file}${e.line ? `:${e.line}` : ''}${e.note ? ` — ${e.note}` : ''}`).join('\n'),
       recommendation: fl.recommendation ?? '—',
-      cells: fl.cells.map((c) => this.cellLabel(s, c)).map((l) => `- ${l.key ?? l.requirementId}: ${l.text ?? ''} (module ${l.moduleName ?? l.moduleId})`).join('\n') || '—',
+      cells: fl.cells.map((c) => this.cellLabel(s, c)).map((l) => `- ${l.key ?? l.requirementId}: ${l.text ?? ''} (module ${l.moduleName ?? l.moduleId})${l.citation ? `\n  Grounds: ${l.citation}` : ''}`).join('\n') || '—',
     };
     return this.spawnInteractive(projectId, {
       role: spec.role,
@@ -2857,12 +3071,20 @@ export class Core extends EventEmitter {
   }
 
   /** Current requirements of all documents (suppression scope "item × module"). */
-  currentRequirements(projectId: string): (RequirementItem & { documentTitle: string })[] {
+  currentRequirements(projectId: string): CitedRequirement[] {
     const a = this.store(projectId).audit;
     return a.currentItems(a.listDocuments().map((d) => d.id));
   }
 
   // --- SCA (SPEC §4, Q11) ---
+
+  /** Probable repeats among the requirements in force, each with its document and quote; nothing is merged. */
+  requirementRepeats(projectId: string): RequirementRepeat[] {
+    const docs = new Map(this.store(projectId).audit.listDocuments().map((d) => [d.id, d]));
+    const items = this.currentRequirements(projectId).map((i) => ({ ...i, documentId: this.store(projectId).audit.getVersion(i.versionId)!.documentId }));
+    const view = (i: (typeof items)[number]) => ({ key: i.key, section: i.section, citation: i.citation, text: i.text, quote: i.quote, documentId: i.documentId, documentTitle: i.documentTitle, url: docs.get(i.documentId)?.source?.url ?? null });
+    return probableRepeats(items, this.projectSettings(projectId).doc_refresh.repeat_min_similarity).map((p) => ({ similarity: p.similarity, items: [view(p.a), view(p.b)] }));
+  }
 
   private scaChanged(projectId: string): void {
     this.send({ type: 'sca-changed', projectId });
@@ -3367,7 +3589,7 @@ export class Core extends EventEmitter {
     // Requirement extraction reads the stored document; inventories build in their own worktree (build tools write
     // there); everything else runs in a worktree at the job's commit.
     const cwd =
-      job.entityType === DOC_VERSION_ENTITY
+      job.entityType === DOC_VERSION_ENTITY || job.entityType === DOC_TEXT_ENTITY
         ? this.docDir(p.id, job.entityId)
         : job.entityType === DOC_REFRESH_ENTITY
           ? this.refreshDir(p.id, job.entityId)
@@ -3490,7 +3712,7 @@ export class Core extends EventEmitter {
         signal,
         logPath,
         terminalId,
-        maxTokens: cfg.settings.limits.max_tokens_per_run,
+        maxTokens: DOCUMENT_RUNS.includes(job.entityType ?? '') ? cfg.settings.limits.max_tokens_per_document_run : cfg.settings.limits.max_tokens_per_run,
       });
       // env-setup is done once the environment the session described has started: in the session's own last check,
       // or else in a check the app runs now.
@@ -3616,7 +3838,12 @@ export class Core extends EventEmitter {
         const c = s0.audit.getDocument(id)?.lastCheck;
         return c?.runId === runId && c.note !== NO_CHECK_RESULT;
       });
-      if (!reported && !s0.audit.proposalsOfRun(runId)) return 'the run finished, but no result was recorded: the agent did not report any document';
+      if (!reported && !s0.audit.proposalsOfRun(runId) && !Object.keys(this.refreshReviews(this.refreshDir(job.projectId, job.entityId))).length) return 'the run finished, but no result was recorded: the agent did not report any document';
+    }
+    const part = job.entityType === DOC_REFRESH_ENTITY ? (job.payload.target as { setId: string; entries?: CatalogueEntry[] }) : undefined;
+    if (part?.entries) {
+      const left = this.entriesLeft(job.projectId, part.setId, part.entries).length;
+      if (left) return `the run finished, but ${left} catalogue entries have no decision: they come back in the next check`;
     }
     if (job.entityType === SCA_MODULE_ENTITY && s0.sca.inventoryOf(runId, job.entityId)?.status !== 'complete')
       return 'the run finished, but no inventory was recorded: the agent did not call set_inventory_summary';
@@ -3650,6 +3877,7 @@ export class Core extends EventEmitter {
       if (v && (v.status === 'extracting' || v.status === 'failed')) s.audit.setVersionStatus(v.id, ok ? 'review' : 'failed');
     }
     if (run?.entityType === DOC_REFRESH_ENTITY) this.finishDocRefresh(projectId, runId, status, error);
+    if (run?.entityType === DOC_TEXT_ENTITY) void this.afterDocText(projectId, runId, status).catch((e) => agentLog.error('run %s: what waited for the text did not start: %s', runId, (e as Error).message));
     this.send({ type: 'modules-changed', projectId });
     this.send({ type: 'audit-changed', projectId });
     this.scaChanged(projectId);

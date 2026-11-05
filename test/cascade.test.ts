@@ -133,6 +133,16 @@ describe('config files', () => {
     expect(ensureGlobalDefaults(defaults, g)).toEqual({ added: [], updated: [], outdated: [] });
   });
 
+  it('a config from an older version gets new limits and refresher settings, keeping its own', () => {
+    const g = tmpDir();
+    write(path.join(g, 'config.yaml'), 'limits:\n  max_tokens_per_run: 5\ndoc_refresh:\n  max_bytes: 7\n');
+    const { added } = ensureGlobalDefaults(DEFAULTS_DIR, g);
+    expect(added).toEqual(expect.arrayContaining(['limits.max_tokens_per_document_run', 'doc_refresh.repeat_min_similarity']));
+    const cfg = parseConfigText(fs.readFileSync(path.join(g, 'config.yaml'), 'utf8'), 'config.yaml');
+    expect(cfg.limits!.max_tokens_per_run).toBe(5);
+    expect(cfg.doc_refresh!.max_bytes).toBe(7);
+  });
+
   it('ensureGlobalDefaults never overwrites user values, only adds missing keys and roles/tasks entries', () => {
     const g = tmpDir();
     const file = path.join(g, 'config.yaml');

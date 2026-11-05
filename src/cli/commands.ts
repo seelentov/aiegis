@@ -211,12 +211,20 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   },
   saveItem: {
     name: 'doc item',
-    usage: '<version> --text <text> --section <name> [--key <key>] [--quote <text>]',
+    usage: '<version> --text <text> --section <name> [--key <key>] [--clause <text>] [--quote <text>]',
     help: 'Add or change a requirement',
-    run: (a, c) => c.call('saveItem', c.pid(), a.pos[0], { key: a.one('key') ?? null, text: required(a, 'text'), section: required(a, 'section'), quote: a.one('quote') ?? '' }),
+    run: (a, c) => c.call('saveItem', c.pid(), a.pos[0], { key: a.one('key') ?? null, text: required(a, 'text'), section: required(a, 'section'), clause: a.one('clause') ?? '', quote: a.one('quote') ?? '' }),
+  },
+  catalogueEntries: { name: 'doc catalogue', usage: '<set>', help: 'Show the decision on every catalogue entry of a set', columns: ['belongs', 'title', 'reason'], run: (a, c) => c.call('catalogueEntries', c.pid(), a.pos[0]) },
+  saveDocInfo: {
+    name: 'doc info',
+    usage: '<version> [--name <text>] [--number <text>] [--date <text>] [--edition <text>]',
+    help: 'Set how a version is cited; a value left out becomes empty',
+    run: (a, c) => c.call('saveDocInfo', c.pid(), a.pos[0], { name: a.one('name') ?? '', number: a.one('number') ?? '', date: a.one('date') ?? '', edition: a.one('edition') ?? '' }),
   },
   approveVersion: { name: 'doc approve', usage: '<version>', help: 'Approve a reviewed version', run: (a, c) => c.call('approveVersion', c.pid(), a.pos[0]) },
-  currentRequirements: { name: 'doc requirements', usage: '', help: 'List current requirements', columns: ['key', 'section', 'documentTitle', 'text'], run: (_a, c) => c.call('currentRequirements', c.pid()) },
+  requirementRepeats: { name: 'doc repeats', usage: '', help: 'Show requirements of different documents that probably say the same', run: (_a, c) => c.call('requirementRepeats', c.pid()) },
+  currentRequirements: { name: 'doc requirements', usage: '', help: 'List current requirements', columns: ['key', 'citation', 'text'], run: (_a, c) => c.call('currentRequirements', c.pid()) },
 
   listMatrices: { name: 'matrix list', usage: '', help: 'List matrices', columns: ['id', 'name'], run: (_a, c) => c.call('listMatrices', c.pid()) },
   saveMatrix: {

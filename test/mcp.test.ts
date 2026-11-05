@@ -45,6 +45,10 @@ const server = new AiegisMcpServer(tokens, {
   docRefreshReport: () => {
     throw new Error('not used here');
   },
+  docRefreshRequestReview: () => ({ queued: true }),
+  docRefreshRequestCatalogue: () => ({ queued: true }),
+  docRefreshJudge: () => ({ left: 0 }),
+  saveDocText: () => ({ chars: 0 }),
   docRefreshPropose: () => {
     throw new Error('not used here');
   },
@@ -215,6 +219,9 @@ describe('MCP requirement, matrix and finding tools', () => {
     const args = { version_id: v.id, key: 'A-1', text: 'Endpoints check authorization', section: 'Access', quote: 'every endpoint must check  authorization' };
     expect(JSON.parse(text(await c.callTool({ name: 'add_requirement', arguments: args })))).toMatchObject({ saved: 'A-1', items_in_version: 1 });
     expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, quote: 'made up' } }))).toMatch(/quote is not in the document/);
+    expect(text(await c.callTool({ name: 'set_document_info', arguments: { version_id: args.version_id, date: '2025', quote: 'made up' } }))).toMatch(/quote is not in the document/);
+    await c.callTool({ name: 'set_document_info', arguments: { version_id: args.version_id, date: '2025', quote: args.quote } });
+    expect(store.audit.getVersion(args.version_id)!.info).toMatchObject({ date: '2025', number: '' });
     expect(text(await c.callTool({ name: 'add_requirement', arguments: { ...args, version_id: other.id } }))).toMatch(/outside the token scope/);
     expect(a.listItems(v.id)).toMatchObject([{ key: 'A-1', review: 'pending', author: 'ai:requirements', runId: run.id }]);
     a.setVersionStatus(v.id, 'review');

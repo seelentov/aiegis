@@ -120,7 +120,7 @@ export const ConfigFileSchema = z.looseObject({
       rate_limit_fallback_pause_sec: z.number().int().min(1).optional(),
     })
     .optional(),
-  limits: z.looseObject({ max_tokens_per_run: z.number().int().min(1).optional() }).optional(),
+  limits: z.looseObject({ max_tokens_per_run: z.number().int().min(1).optional(), max_tokens_per_document_run: z.number().int().min(1).optional() }).optional(),
   terminal: z.looseObject({ external_app: z.string().optional(), keep_ended_streams: z.number().int().min(0).optional() }).optional(),
   sessions: z.looseObject({ free_role: z.string().optional(), default_task_role: z.string().optional() }).optional(),
   matrix: z
@@ -167,6 +167,10 @@ export const ConfigFileSchema = z.looseObject({
       js_page_min_chars: z.number().int().min(0).optional(),
       restored_min_coverage: z.number().min(0).max(1).optional(),
       same_text_max_removed_lines: z.number().int().min(0).optional(),
+      repeat_min_similarity: z.number().min(0).max(1).optional(),
+      update_min_length_ratio: z.number().min(0).max(1).optional(),
+      crop_min_ratio: z.number().min(0).max(1).optional(),
+      catalogue_batch: z.number().int().min(1).optional(),
       estimate_history_runs: z.number().int().min(1).optional(),
       estimate_tokens: z.number().int().min(1).optional(),
     })

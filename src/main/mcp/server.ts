@@ -25,7 +25,7 @@ import {
   type ScaReport,
 } from '../../shared/types';
 import type { Settings } from '../config/loader';
-import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, DOC_REFRESH_ENTITY, sha256File } from '../documents';
+import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, DOC_REFRESH_ENTITY, DOC_TEXT_ENTITY, sha256File } from '../documents';
 import type { RefreshProposalInput } from '../core';
 import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { CARRIED_AUTHOR } from '../audit-store';
@@ -69,6 +69,10 @@ export interface McpServices {
   docRefreshFetch(projectId: string, runId: string, url: string): Promise<Record<string, unknown>>;
   docRefreshReport(projectId: string, runId: string, r: { documentId: string; status: 'current' | 'unverifiable'; note: string; fetchId?: number; edition?: string }): void;
   docRefreshPropose(projectId: string, runId: string, p: RefreshProposalInput): { id: string; duplicate: boolean };
+  docRefreshRequestReview(projectId: string, runId: string, documentId: string, fetchIds: number[], reason: string): { queued: boolean };
+  docRefreshRequestCatalogue(projectId: string, runId: string, fetchId: number): { queued: boolean };
+  docRefreshJudge(projectId: string, runId: string, entries: { url: string; belongs: boolean; reason: string }[]): { left: number };
+  saveDocText(projectId: string, versionId: string, part: number, text: string, last: boolean): { chars: number };
   saveGeneratedDoc(projectId: string, runId: string, slug: string, md: string): { title: string; sections: Record<string, number> };
   /** Called after an agent wrote something, so the UI can refresh. */
   onWrite(projectId: string): void;
@@ -131,6 +135,24 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       }),
   );
 
+  // Reading a document into text writes that text and nothing else (SPEC §24).
+  const reading = grant.scope.find((e) => e.type === DOC_TEXT_ENTITY);
+  if (reading) {
+    server.registerTool(
+      'append_document_text',
+      {
+        description: 'Save the text of the document in parts, in reading order. Part 1 starts over; `last: true` on the final part makes the text available.',
+        inputSchema: { part: z.number().int().min(1), text: z.string().min(1), last: z.boolean() },
+      },
+      async ({ part, text, last }) =>
+        guard({ kind: 'write', entity: reading }, () => {
+          liveRun();
+          return ok(svc.saveDocText(pid, reading.id, part, text, last));
+        }),
+    );
+    return server;
+  }
+
   // The refresher reads untrusted pages: its token reaches nothing but its own tools (SPEC §24).
   const refresh = grant.scope.find((e) => e.type === DOC_REFRESH_ENTITY);
   if (refresh) {
@@ -163,6 +185,42 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         }),
     );
     server.registerTool(
+      'request_document_review',
+      {
+        description: 'Check of a set only: hand a document over to its own comparison, given the fetches of its own pages. It runs when this check ends, and only if those pages changed since the last comparison.',
+        inputSchema: { document_id: z.string(), fetch_ids: z.array(z.number().int()).min(1), reason: z.string().min(1) },
+      },
+      async ({ document_id, fetch_ids, reason }) =>
+        guard({ kind: 'write', entity: refresh }, () => {
+          liveRun();
+          return ok(svc.docRefreshRequestReview(pid, grant.runId, document_id, fetch_ids, reason));
+        }),
+    );
+    server.registerTool(
+      'request_catalogue_review',
+      {
+        description: 'Check of a set only: this fetched page lists documents. When the check ends, separate runs judge each of its entries not judged yet.',
+        inputSchema: { fetch_id: z.number().int() },
+      },
+      async ({ fetch_id }) =>
+        guard({ kind: 'write', entity: refresh }, () => {
+          liveRun();
+          return ok(svc.docRefreshRequestCatalogue(pid, grant.runId, fetch_id));
+        }),
+    );
+    server.registerTool(
+      'judge_catalogue_entries',
+      {
+        description: 'Part of a catalogue only: record the decision on its entries. An entry without one stays open and comes back in the next check.',
+        inputSchema: { entries: z.array(z.object({ url: z.string(), belongs: z.boolean().describe('It belongs to the set: in force here or proposed'), reason: z.string().min(1) })).min(1) },
+      },
+      async ({ entries }) =>
+        guard({ kind: 'write', entity: refresh }, () => {
+          liveRun();
+          return ok(svc.docRefreshJudge(pid, grant.runId, entries));
+        }),
+    );
+    server.registerTool(
       'propose_document_change',
       {
         description: 'Propose a change for a human to decide on. The app verifies it: the quote must be word for word on a page fetched in this run, an update must really differ from the current version. See your task for the kinds.',
@@ -177,7 +235,8 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           source_fetch_ids: z.array(z.number().int()).optional().describe('The new document: one file, or its pages in reading order'),
           start_phrase: z.string().optional().describe('First words of the document on the page'),
           end_phrase: z.string().optional().describe('Last words of the document on the page'),
-          restored_text: z.string().optional().describe('Whole text, only when the conversion of the page is really broken'),
+          restored_text: z.string().optional().describe('Whole text: when the conversion of the page is really broken, or consolidated from the current version and an amending act'),
+          incomplete: z.boolean().optional().describe('The source shows only part of the new document: nothing is stored, a human uploads the file'),
         },
       },
       async (p) =>
@@ -195,6 +254,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
             startPhrase: p.start_phrase,
             endPhrase: p.end_phrase,
             restoredText: p.restored_text,
+            incomplete: p.incomplete,
           });
           svc.onWrite(pid);
           return ok(r);
@@ -431,10 +491,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         key: z.string().optional().describe('Id used in the document; omit to let aiegis generate one'),
         text: z.string().min(1).describe('The requirement, self-contained, one or two sentences'),
         section: z.string().describe('Section or group heading of the document'),
+        clause: z.string().optional().describe('Clause as the document numbers it, e.g. "п. 5.2", "подп. б п. 44", "таблица 1"; omit if it has no number'),
         quote: z.string().min(1).describe('Exact source sentence(s) from the document'),
       },
     },
-    async ({ version_id, key, text, section, quote }) =>
+    async ({ version_id, key, text, section, clause, quote }) =>
       guard({ kind: 'write', entity: { type: DOC_VERSION_ENTITY, id: version_id } }, () => {
         liveRun();
         const a = svc.store(pid).audit;
@@ -448,9 +509,38 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           .listItems(version_id)
           .find((i) => i.author === CARRIED_AUTHOR && (i.key === key?.trim() || quoteFound(i.quote, quote) || quoteFound(quote, i.quote)));
         if (carried) return fail(`item ${carried.key} was carried over from the previous version unchanged: do not extract this text again`);
-        const item = a.upsertItem(version_id, { key, text, section, quote }, by);
+        const item = a.upsertItem(version_id, { key, text, section, clause, quote }, by);
         svc.onWrite(pid);
         return ok({ saved: item.key, requirement_id: item.requirementId, items_in_version: a.listItems(version_id).length });
+      }),
+  );
+
+  server.registerTool(
+    'set_document_info',
+    {
+      description:
+        'Record what your document version says about itself, as it writes it; requirements are cited by this. Omit what the document does not state, never work it out. Requires doc_version:<version_id> in scope.',
+      inputSchema: {
+        version_id: z.string(),
+        name: z.string().optional().describe('Full official name'),
+        number: z.string().optional().describe('Number with its sign, e.g. "№ 117", "N 240/24/5531"'),
+        date: z.string().optional().describe('Date of the document or of the act approving it'),
+        edition: z.string().optional().describe('Edition or amending act, e.g. "ред. от 20.01.2026"'),
+        quote: z.string().min(1).describe('Exact words of the document stating the number or date, or its heading if it has neither'),
+      },
+    },
+    async ({ version_id, name, number, date, edition, quote }) =>
+      guard({ kind: 'write', entity: { type: DOC_VERSION_ENTITY, id: version_id } }, () => {
+        liveRun();
+        const a = svc.store(pid).audit;
+        const v = a.getVersion(version_id);
+        if (!v) return fail(`version ${version_id} not found`);
+        if (v.status === 'approved') return fail('the version is already approved; changes are not possible');
+        const doc = svc.documentText(pid, version_id);
+        if (doc !== null && !quoteFound(doc, quote)) return fail('the quote is not in the document text: copy it verbatim');
+        a.setVersionInfo(version_id, { name: name ?? '', number: number ?? '', date: date ?? '', edition: edition ?? '' });
+        svc.onWrite(pid);
+        return ok({ saved: true });
       }),
   );
 

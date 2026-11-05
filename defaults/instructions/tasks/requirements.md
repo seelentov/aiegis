@@ -13,5 +13,6 @@ requirement, even if reworded; may be empty):
 
 Steps:
 1. Read `{{file}}` completely.
-2. Call `add_requirement` with `version_id` `{{version_id}}` for each requirement not already recorded.
-3. Reply with the number of requirements you recorded.
+2. Call `set_document_info` with `version_id` `{{version_id}}`.
+3. Call `add_requirement` with `version_id` `{{version_id}}` for each requirement not already recorded.
+4. Reply with the number of requirements you recorded.

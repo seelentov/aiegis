@@ -29,5 +29,6 @@ async function main(): Promise<void> {
 
 main().catch((e: Error) => {
   console.error(`aiegis: ${e.message}`);
-  process.exitCode = e instanceof NotRunning ? 2 : 1;
+  // Exit outright: a service that failed to start may hold open handles and would hang without a socket.
+  process.exit(e instanceof NotRunning ? 2 : 1);
 });

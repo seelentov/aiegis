@@ -59,6 +59,19 @@ if (!args.includes('-p')) {
     // Matrix prompts list cells as "- requirement_id `<id>` — <key> (<section>): <text>".
     const reqLines = [...prompt.matchAll(/^- requirement_id `([^`]+)` — [^:]+: (.*)$/gm)].map((m) => ({ id: m[1], text: m[2] }));
     const moduleOf = () => /module_id `([^`]+)`/.exec(prompt)[1];
+    if (prompt.includes('into text. The file is')) {
+      if (prompt.includes('UNREADABLE')) return done('no text');
+      await mcp('append_document_text', { part: 2, text: 'too early', last: false });
+      await mcp('append_document_text', { part: 1, text: 'R-1: Read rule must hold.', last: false });
+      const r = await mcp('append_document_text', { part: 2, text: 'R-2: Second rule must hold.', last: true });
+      return done(r.content[0].text);
+    }
+    if (prompt.includes('Judge part of a catalogue')) {
+      const entries = [...prompt.matchAll(/^- (https?:\S+) (.*)$/gm)].filter((m) => m[1].includes('/e'));
+      const judged = entries.filter((m) => m[2] !== 'LEFT' || entries.length === 1);
+      const r = await mcp('judge_catalogue_entries', { entries: judged.map((m) => ({ url: m[1], belongs: m[2] === 'One', reason: 'by its name' })) });
+      return done(r.content[0].text);
+    }
     if (prompt.includes('Check documents of project')) {
       const out = [];
       const call = async (n, a) => {
@@ -81,6 +94,28 @@ if (!args.includes('-p')) {
         const text = last.text_file ? fs.readFileSync(last.text_file, 'utf8') : '';
         const quote_fetch_id = last.fetch_id;
         const first = docs[0];
+        const own = last.links?.find((l) => l.text.startsWith('OWN'));
+        if (own) {
+          changed = true;
+          const g = json(await call('fetch_url', { url: own.url }));
+          await call('request_document_review', { document_id: docs[0], fetch_ids: [999], reason: 'bad fetch' });
+          await call('request_document_review', { document_id: docs[0], fetch_ids: [g.fetch_id], reason: 'its own page' });
+        }
+        if (text.includes('LIST PAGE')) await call('request_catalogue_review', { fetch_id: last.fetch_id });
+        if (text.includes('CUT SHORT')) {
+          changed = true;
+          await call('propose_document_change', { kind: 'update', document_id: docs[0], edition: 'c1', reason: 'cut', quote: 'CUT SHORT', quote_fetch_id, source_fetch_ids: [last.fetch_id], start_phrase: 'CUT SHORT', end_phrase: 'CUT SHORT' });
+        }
+        if (text.includes('PART ONLY')) {
+          changed = true;
+          await call('propose_document_change', { kind: 'update', document_id: docs[0], edition: 'p1', reason: 'cut', quote: 'PART ONLY', quote_fetch_id, source_fetch_ids: [last.fetch_id], start_phrase: 'PART ONLY', end_phrase: 'PART ONLY' });
+          await call('propose_document_change', { kind: 'update', document_id: docs[0], edition: 'p1', reason: 'only a part is public', quote: 'PART ONLY', quote_fetch_id, incomplete: true });
+        }
+        if (text.includes('AMENDS')) {
+          changed = true;
+          const held = fs.readFileSync(`current/${docs[0]}/text.md`, 'utf8');
+          await call('propose_document_change', { kind: 'update', document_id: docs[0], edition: 'a1', reason: 'consolidated', quote: 'AMENDS', quote_fetch_id, source_fetch_ids: [last.fetch_id], restored_text: `${held}\nAMENDS clause` });
+        }
         if (text.includes('NEW EDITION')) {
           changed = true;
           await call('propose_document_change', { kind: 'update', document_id: first, reason: 'no edition', source_fetch_ids: [last.fetch_id], start_phrase: 'NEW EDITION', end_phrase: 'END' });

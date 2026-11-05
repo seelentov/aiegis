@@ -169,6 +169,14 @@ export type DocFormat = 'md' | 'pdf' | 'docx';
 /** extracting -> review -> approved; failed if the extraction run did not succeed; discarded by the user. */
 export type DocVersionStatus = 'extracting' | 'review' | 'approved' | 'failed' | 'discarded';
 
+/** What the document says about itself, as it writes it; empty when it does not say. */
+export interface DocInfo {
+  name: string;
+  number: string;
+  date: string;
+  edition: string;
+}
+
 export interface DocVersion {
   id: string;
   documentId: string;
@@ -183,6 +191,7 @@ export interface DocVersion {
   createdAt: string;
   approvedAt: string | null;
   approvedBy: string | null;
+  info: DocInfo;
 }
 
 export interface DocumentSummary {
@@ -237,7 +246,21 @@ export interface DocCheck {
   runId: string | null;
 }
 
-export type DocRefreshTarget = { setId: string } | { documentId: string };
+/** `pages`: the document's own pages found by the check of its set, instead of its own link. */
+export interface CatalogueEntry {
+  url: string;
+  title: string;
+}
+
+/** A catalogue entry with the decision on it: a set is complete only if every entry was looked at. */
+export interface JudgedEntry extends CatalogueEntry {
+  belongs: boolean;
+  reason: string;
+  judgedAt: string;
+}
+
+/** `entries`: one part of a catalogue, not the set's own check. */
+export type DocRefreshTarget = { setId: string; entries?: CatalogueEntry[]; batch?: number } | { documentId: string; pages?: string[] };
 
 export type DocProposalKind = 'update' | 'add' | 'replace' | 'retire' | 'link';
 export type DocProposalStatus = 'pending' | 'applied' | 'rejected' | 'outdated';
@@ -262,6 +285,8 @@ export interface DocProposal {
   restored: boolean;
   /** Share of the restored text's paragraphs found on the page. */
   coverage: number | null;
+  /** The source shows only part of the document: a human uploads the file, the proposal cannot be applied. */
+  incomplete: boolean;
   versionId: string | null;
   resultDocumentId: string | null;
   createdAt: string;
@@ -276,6 +301,14 @@ export interface DocRefreshStart {
   compared: number;
   unchanged: boolean;
   failed: { url: string; error: string }[];
+  /** Documents without text being read first; the check starts when they are done. */
+  reading: number;
+}
+
+/** Requirements of different documents that probably say the same; nothing is merged. */
+export interface RequirementRepeat {
+  similarity: number;
+  items: { key: string; section: string; citation: string; text: string; quote: string; documentId: string; documentTitle: string; url: string | null }[];
 }
 
 export interface DocRefreshEstimate {
@@ -310,12 +343,17 @@ export interface RequirementItem {
   key: string;
   text: string;
   section: string;
+  /** Clause of this edition as the document numbers it; the key stays the same across editions. */
+  clause: string;
   quote: string;
   review: ReviewState;
   author: string;
   runId: string | null;
   updatedAt: string;
 }
+
+/** A requirement with its grounds: enough to name it as the reason of a task. */
+export type CitedRequirement = RequirementItem & { documentTitle: string; citation: string };
 
 export type ItemChange = 'added' | 'changed' | 'same';
 
@@ -332,6 +370,8 @@ export interface DocVersionView {
   sourceFile: string | null;
   /** Quotes are checked against the extracted text (MD, DOCX); PDF is read by claude directly. */
   quotesVerified: boolean;
+  /** A PDF whose text was read by AI: quotes are matched against that reading, not against the file itself. */
+  textByAi: boolean;
   /** The refresher proposal this version came from (SPEC §24). */
   proposal: DocProposal | null;
 }
@@ -406,7 +446,7 @@ export interface MatrixView {
   matrix: Matrix;
   head: string;
   modules: Module[];
-  requirements: (RequirementItem & { documentTitle: string })[];
+  requirements: CitedRequirement[];
   cells: Cell[];
 }
 
@@ -517,6 +557,7 @@ export interface CellLabel {
   requirementId: string;
   key: string | null;
   text: string | null;
+  citation: string | null;
 }
 
 export interface FindingDetails {
@@ -534,7 +575,7 @@ export interface FindingDetails {
 export interface CellDetails {
   cell: Cell;
   module: Module | null;
-  requirement: (RequirementItem & { documentTitle: string }) | null;
+  requirement: CitedRequirement | null;
   /** Newest first. */
   verdicts: (Verdict & { run: Run | null })[];
   triage: TriageMark[];

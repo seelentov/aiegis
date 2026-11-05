@@ -30,11 +30,15 @@ import type {
   ModuleSummary,
   ProjectInfo,
   QueueState,
+  CitedRequirement,
+  DocInfo,
+  JudgedEntry,
   RequirementItem,
   ResultRecord,
   ReviewState,
   Run,
   Scan,
+  RequirementRepeat,
   ScaEstimate,
   ScaInput,
   ScaItemDetails,
@@ -116,7 +120,9 @@ export interface AiegisApi {
   retryExtraction(projectId: string, versionId: string): Job;
   setVersionState(projectId: string, versionId: string, status: 'review' | 'discarded'): void;
   reviewItems(projectId: string, versionId: string, itemIds: string[], review: ReviewState): void;
-  saveItem(projectId: string, versionId: string, item: { key?: string | null; text: string; section: string; quote: string }): RequirementItem;
+  saveItem(projectId: string, versionId: string, item: { key?: string | null; text: string; section: string; clause?: string; quote: string }): RequirementItem;
+  catalogueEntries(projectId: string, setId: string): JudgedEntry[];
+  saveDocInfo(projectId: string, versionId: string, info: DocInfo): void;
   approveVersion(projectId: string, versionId: string): void;
 
   listMatrices(projectId: string): Matrix[];
@@ -155,7 +161,9 @@ export interface AiegisApi {
   revokeSuppression(projectId: string, id: string, reason: string): Suppression;
   /** Re-confirms a suppression at HEAD (new record, the old one is revoked). */
   renewSuppression(projectId: string, id: string, expiresAt?: string | null): Suppression;
-  currentRequirements(projectId: string): (RequirementItem & { documentTitle: string })[];
+  currentRequirements(projectId: string): CitedRequirement[];
+  /** Requirements of different documents that probably say the same; nothing is merged. */
+  requirementRepeats(projectId: string): RequirementRepeat[];
 
   /** Modules with their current dependency inventory and SCA items. */
   scaView(projectId: string): ScaView;

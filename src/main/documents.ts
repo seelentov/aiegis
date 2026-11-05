@@ -1,11 +1,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { DocFormat, DocPlanEntry } from '../shared/types';
+import type { DocFormat, DocInfo, DocPlanEntry } from '../shared/types';
 
 /** File names inside a document version directory (`<data>/<project>/documents/<version-id>/`). */
 export const SOURCE_BASENAME = 'source';
 export const TEXT_FILE = 'text.md';
+/** Text of a PDF while an agent is still writing it. */
+export const TEXT_PART_FILE = 'text.part';
 
 export function detectFormat(filename: string): DocFormat {
   const ext = path.extname(filename).toLowerCase();
@@ -21,7 +23,8 @@ export function sha256File(file: string): string {
 
 /**
  * Copies an imported document into its version directory and prepares what the agent reads:
- * MD and DOCX become `text.md` (also used to verify quotes); PDF is read by claude itself.
+ * MD and DOCX become `text.md` (also used to verify quotes); PDF is read by claude itself, and gets `text.md` from an
+ * agent when a document check first needs it.
  * Returns the file name the agent should read.
  */
 export async function stageDocument(src: string, dir: string, format: DocFormat): Promise<string> {
@@ -54,6 +57,33 @@ export function agentFile(dir: string): string {
   return src;
 }
 
+/** Requirements of different documents with mostly the same words: pairs, the closest first. Nothing is merged. */
+/**
+ * The grounds of a requirement as one line, from what is known: nothing is made up for a document that does not say.
+ * A generated key (R-001) is not in the document, so it names nothing there.
+ */
+export function citationOf(title: string, info: DocInfo, item: { key: string; clause: string; section: string }): string {
+  const clause = item.clause || (/^R-\d+$/.test(item.key) ? '' : item.key);
+  return [info.name || title, info.number, info.date, info.edition, clause, item.section].filter(Boolean).join(', ');
+}
+
+export function probableRepeats<T extends { documentId: string; text: string }>(items: T[], minSimilarity: number): { similarity: number; a: T; b: T }[] {
+  const words = items.map((i) => new Set(i.text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []));
+  const out: { similarity: number; a: T; b: T }[] = [];
+  items.forEach((a, i) => {
+    for (let j = i + 1; j < items.length; j++) {
+      if (a.documentId === items[j].documentId) continue;
+      const [x, y] = [words[i], words[j]];
+      if (!x.size || !y.size) continue;
+      let shared = 0;
+      for (const w of x) if (y.has(w)) shared++;
+      const similarity = shared / (x.size + y.size - shared);
+      if (similarity >= minSimilarity) out.push({ similarity, a, b: items[j] });
+    }
+  });
+  return out.sort((p, q) => q.similarity - p.similarity);
+}
+
 /** Stored copy of the imported file, or null. */
 export function sourceFile(dir: string): string | null {
   if (!fs.existsSync(dir)) return null;
@@ -66,6 +96,8 @@ export const DOC_PLAN_ENTITY = 'doc_plan';
 export const DOC_GEN_ENTITY = 'doc_gen';
 /** A check of a set (`set:<id>`) or of one document (`doc:<id>`) against its links (SPEC §24). */
 export const DOC_REFRESH_ENTITY = 'doc_refresh';
+/** One reading of a PDF into text; the entity id is the document version. */
+export const DOC_TEXT_ENTITY = 'doc_text';
 
 
 /**

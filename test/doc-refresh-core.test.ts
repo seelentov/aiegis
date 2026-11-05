@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -7,6 +8,7 @@ import YAML from 'yaml';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ensureGlobalDefaults } from '../src/main/config/loader';
 import { Core } from '../src/main/core';
+import { citationOf, probableRepeats } from '../src/main/documents';
 import type { DocSet, DocumentSummary, Job } from '../src/shared/types';
 import { DEFAULTS_DIR, tmpDir, write } from './helpers';
 
@@ -308,5 +310,129 @@ describe('document refresher', () => {
     expect(done.map((p) => p.status)).toEqual(['applied']);
     await expect(core.acceptAllDocAdditions(pid, s.id)).rejects.toThrow(/empty set/);
     await settled(core.docVersion(pid, done[0].versionId!).job!.id);
+  });
+
+  it('a set hands a document to its own comparison, which runs only when its page changed', async () => {
+    pages.set('/cat', { body: html(`<a href="/own">OWN page</a>`) });
+    pages.set('/own', { body: html('A page of the document') });
+    const s = core.saveDocSet(pid, { name: 'Hand over', scope: 'rules', links: [{ url: `${base}/cat`, insecure: false }] });
+    const doc = await approved('Handed', 'H-1: Handed rule must hold.\n', { setId: s.id });
+    const runs = () => refreshJobs().filter((j) => j.entityId === `doc:${doc}`);
+    const first = await check({ setId: s.id });
+    expect(logOf(first.job!)).toContain('not a successful fetch');
+    expect(first.job!.status).toBe('done');
+    await waitFor(() => runs().length === 1 && !['queued', 'running'].includes(runs()[0].status));
+    expect(runs()[0].payload.target).toEqual({ documentId: doc, pages: [`${base}/own`] });
+    expect(docOf(doc).lastCheck!.status).toBe('current');
+    expect((await check({ setId: s.id })).job).toBeNull();
+    expect(runs()).toHaveLength(1);
+    // Only its own page changed: the catalogue looks the same, and the change still reaches the document.
+    pages.set('/own', { body: html('A page of the document, amended') });
+    const again = await check({ setId: s.id });
+    expect(again.job).not.toBeNull();
+    await waitFor(() => runs().length === 2 && !['queued', 'running'].includes(runs()[0].status));
+  });
+
+  it('a source with only part of the new text: refused as a document, kept as a notice', async () => {
+    const doc = await approved('Long one', `${'L-1: A long rule that must hold everywhere.\n'.repeat(20)}`);
+    pages.set('/part', { body: html('<p>PART ONLY</p>') });
+    core.setDocumentSource(pid, doc, { url: `${base}/part`, insecure: false });
+    const { job } = await check({ documentId: doc });
+    expect(logOf(job!)).toContain('shows only part');
+    const notice = pending().find((p) => p.documentId === doc)!;
+    expect(notice).toMatchObject({ incomplete: true, edition: 'p1' });
+    const versions = docOf(doc).versions.length;
+    expect((await core.acceptDocProposal(pid, notice.id)).status).toBe('applied');
+    expect(docOf(doc).versions).toHaveLength(versions);
+  });
+
+  it('a catalogue: every entry gets a decision; one left without it comes back, the judged ones do not', async () => {
+    pages.set('/list', { body: html(`LIST PAGE<a href="/e1">One</a><a href="/e2">LEFT</a><a href="/e3">Three</a><a href="https://other.example/e4">Elsewhere</a>`) });
+    const s = core.saveDocSet(pid, { name: 'Catalogue', scope: 'rules', links: [{ url: `${base}/list`, insecure: false }] });
+    await approved('Listed', 'I-1: Listed rule must hold.\n', { setId: s.id });
+    const parts = () => refreshJobs().filter((j) => j.entityId.startsWith(`catalogue:${s.id}`));
+    const settled = (n: number) => parts().length === n && parts().every((j) => !['queued', 'running'].includes(j.status));
+    await check({ setId: s.id });
+    await waitFor(() => settled(1));
+    expect(parts()[0].status).toBe('failed');
+    expect(parts()[0].error).toContain('1 catalogue entries have no decision');
+    expect(core.catalogueEntries(pid, s.id).map((e) => [e.title, e.belongs])).toEqual([['One', true], ['Three', false]]);
+    await check({ setId: s.id });
+    await waitFor(() => settled(2));
+    const again = parts().find((j) => j.status === 'done')!;
+    expect((again.payload.target as { entries: unknown[] }).entries).toEqual([{ url: `${base}/e2`, title: 'LEFT' }]);
+    expect(core.catalogueEntries(pid, s.id)).toHaveLength(3);
+    expect((await check({ setId: s.id })).job).toBeNull();
+  });
+
+  it('a cut that drops most of the page is refused: the end phrase stopped at the heading', async () => {
+    const doc = await approved('Cut one', 'C-1: Short rule.');
+    pages.set('/cut', { body: html(`<p>CUT SHORT</p>${'<p>A clause of the new edition that must not be lost.</p>'.repeat(10)}`) });
+    core.setDocumentSource(pid, doc, { url: `${base}/cut`, insecure: false });
+    const { job } = await check({ documentId: doc });
+    expect(logOf(job!)).toContain('the end phrase probably stops inside the document');
+    expect(pending().find((p) => p.documentId === doc)).toBeUndefined();
+  });
+
+  it('a text consolidated from an amending act is checked against the act and the current version', async () => {
+    const doc = await approved('Amended', 'M-1: Amended rule must hold.\n');
+    pages.set('/act', { body: html('<p>AMENDS clause</p>') });
+    core.setDocumentSource(pid, doc, { url: `${base}/act`, insecure: false });
+    await check({ documentId: doc });
+    expect(pending().find((p) => p.documentId === doc)).toMatchObject({ restored: true, coverage: 1, edition: 'a1' });
+  });
+
+  it('a PDF is read into text before extraction; the quotes are then checked and marked as read by AI', async () => {
+    const file = path.join(tmpDir(), 'scan.pdf');
+    write(file, '%PDF-1.4 scan');
+    const v = await core.importDocument(pid, file, { title: 'Scan' });
+    expect(v.job!.status === 'queued' || v.job!.status === 'running').toBe(true);
+    await waitFor(() => core.docVersion(pid, v.version.id).version.status === 'review');
+    const view = core.docVersion(pid, v.version.id);
+    expect(fs.readFileSync(path.join(core.store(pid).getRun(core.store(pid).getJob(v.job!.id)!.lastRunId!)!.cwd!, 'text.md'), 'utf8')).toBe('R-1: Read rule must hold.\nR-2: Second rule must hold.');
+    expect(view).toMatchObject({ quotesVerified: true, textByAi: true });
+    expect(view.items.length).toBeGreaterThan(0);
+  });
+
+  it('a PDF that could not be read still goes to extraction directly', async () => {
+    const file = path.join(tmpDir(), 'bad.pdf');
+    write(file, '%PDF-1.4 scan');
+    const v = await core.importDocument(pid, file, { title: 'UNREADABLE' });
+    await waitFor(() => core.docVersion(pid, v.version.id).version.status !== 'extracting');
+    expect(core.docVersion(pid, v.version.id)).toMatchObject({ quotesVerified: false, textByAi: false });
+  });
+
+  it('a requirement names its grounds from what is known, and nothing else', () => {
+    const none = { name: '', number: '', date: '', edition: '' };
+    const info = { name: 'Order on protection', number: 'No. 7', date: '01.02.2025', edition: 'as of 03.04.2026' };
+    expect(citationOf('Short', info, { key: 'K', clause: 'cl. 5', section: 'II' })).toBe('Order on protection, No. 7, 01.02.2025, as of 03.04.2026, cl. 5, II');
+    expect(citationOf('Own guide', none, { key: 'R-001', clause: '', section: 'Sessions' })).toBe('Own guide, Sessions');
+    expect(citationOf('Own guide', none, { key: 'AUTH-3', clause: '', section: '' })).toBe('Own guide, AUTH-3');
+  });
+
+  it('the name of a version can be corrected after approval; a new version carries the clause of an item', async () => {
+    const doc = await approved('Cited', 'C-1: A rule.');
+    const a = core.store(pid).audit;
+    const v = docOf(doc).current!;
+    core.saveDocInfo(pid, v.id, { name: 'Full', number: 'N 1', date: '2025', edition: '' });
+    expect(a.getVersion(v.id)!.info.date).toBe('2025');
+    const [item] = core.currentRequirements(pid).filter((i) => i.versionId === v.id);
+    expect(item.citation).toContain('Full, N 1, 2025');
+    const fresh = a.addVersion(doc, { filename: 'n.md', format: 'md', sha256: 'x' }, crypto.randomUUID());
+    expect(fresh.info.name).toBe('');
+    a.upsertItem(fresh.id, { ...item, clause: 'cl. 9' }, { author: 'human', runId: null });
+    expect(a.listItems(fresh.id)[0].clause).toBe('cl. 9');
+  });
+
+  it('probable repeats: across documents only, closest first, nothing merged', () => {
+    const items = [
+      { documentId: 'a', text: 'Passwords must be stored with a strong hash' },
+      { documentId: 'a', text: 'Passwords must be stored with a strong hash function' },
+      { documentId: 'b', text: 'Passwords must be stored with a strong hash' },
+      { documentId: 'c', text: 'Logs are kept for one year' },
+    ];
+    const r = probableRepeats(items, 0.6);
+    expect(r.map((p) => [p.a.documentId, p.b.documentId])).toEqual([['a', 'b'], ['a', 'b']]);
+    expect(r[0].similarity).toBe(1);
   });
 });
