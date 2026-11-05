@@ -963,6 +963,58 @@ export interface EffectiveConfigView {
 export const LOG_LEVELS = ['error', 'warn', 'info', 'debug', 'trace'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
+/** What a schedule starts (SPEC §25). */
+export type ScheduleAction =
+  | { kind: 'task'; prompt: string; role: string; title?: string }
+  /** `slice` narrows verdicts to its unchecked and stale cells; `scope` applies to the whole matrix. */
+  | { kind: 'matrix'; matrixId: string; stage: MatrixStage; scope: MatrixScope; slice?: MatrixSlice & { cells?: string[] } }
+  /** Empty list = all modules, null = the whole repository. */
+  | { kind: 'scanners'; moduleIds: string[] | null }
+  | { kind: 'sca_inventory'; moduleIds?: string[] }
+  | { kind: 'sca'; scope?: ScaScope; moduleIds?: string[] }
+  /** Without a module: all modules. */
+  | { kind: 'entry_points'; moduleId?: string };
+
+export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points'] as const satisfies readonly ScheduleAction['kind'][];
+
+export interface ScheduleInput {
+  name: string;
+  cron: string;
+  action: ScheduleAction;
+  /** Own limit of estimated tokens per firing; null = `schedules.max_tokens_per_firing`. */
+  maxTokens: number | null;
+}
+
+export type ScheduleOutcome = 'started' | 'missed' | 'overlap' | 'over_limit' | 'nothing_to_do' | 'failed';
+
+export interface ScheduleFiring {
+  id: string;
+  scheduleId: string;
+  trigger: 'schedule' | 'manual';
+  outcome: ScheduleOutcome;
+  reason: string | null;
+  jobIds: string[];
+  /** Planned time; null for a manual firing. */
+  scheduledAt: string | null;
+  firedAt: string;
+}
+
+export interface Schedule extends ScheduleInput {
+  id: string;
+  enabled: boolean;
+  /** Null while disabled. */
+  nextAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastFiring: ScheduleFiring | null;
+}
+
+export interface CronPreview {
+  /** Time zone the expression runs in: the one of the process. */
+  timezone: string;
+  next: string[];
+}
+
 export type AppEvent =
   | { type: 'jobs-changed'; projectId: string }
   | { type: 'runs-changed'; projectId: string }
@@ -970,6 +1022,7 @@ export type AppEvent =
   | { type: 'audit-changed'; projectId: string }
   | { type: 'signals-changed'; projectId: string }
   | { type: 'sca-changed'; projectId: string }
+  | { type: 'schedules-changed'; projectId: string }
   | { type: 'queue-changed'; state: QueueState }
   | { type: 'terminals-changed' }
   | { type: 'terminal-data'; terminalId: string; data: string }

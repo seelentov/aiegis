@@ -90,6 +90,14 @@ sessions:
   # Role preselected for ad-hoc background tasks.
   default_task_role: task
 
+schedules:
+  # A cron expression firing more often than this is rejected when saved.
+  min_interval_minutes: 15
+  # A firing missed while the app was not running starts once if it is at most this late; an older one is only recorded.
+  catch_up_window_hours: 12
+  # Estimated tokens above which a matrix or SCA firing does not start, unless the schedule sets its own limit.
+  max_tokens_per_firing: 1000000
+
 matrix:
   # Max cells (requirements of one module and group) in one verdict session.
   batch_size: 6

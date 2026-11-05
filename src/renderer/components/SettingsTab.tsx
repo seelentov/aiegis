@@ -24,6 +24,7 @@ const SECTION_TITLES: Record<string, string> = {
   limits: tr('Limits'),
   terminal: tr('Terminal'),
   sessions: tr('Sessions'),
+  schedules: tr('Schedules'),
   matrix: tr('Matrix'),
   findings: tr('Findings'),
   scanners: tr('Scanners'),

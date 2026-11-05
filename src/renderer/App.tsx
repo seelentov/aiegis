@@ -10,6 +10,7 @@ import { MatrixTab } from './components/MatrixTab';
 import { ModulesTab } from './components/ModulesTab';
 import { QueueTab } from './components/QueueTab';
 import { ScaTab } from './components/ScaTab';
+import { SchedulesTab } from './components/SchedulesTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SignalsTab } from './components/SignalsTab';
 import { Icon, IconButton, type IconName } from './components/Icon';
@@ -27,6 +28,7 @@ const TABS = [
   { id: 'modules', title: tr('Modules'), icon: 'layers', stage: 2, group: 'sources' },
   { id: 'documents', title: tr('Documents'), icon: 'file', stage: 3, group: 'sources' },
   { id: 'queue', title: tr('Queue'), icon: 'list', stage: 1, group: 'system' },
+  { id: 'schedules', title: tr('Schedules'), icon: 'clock', stage: 1, group: 'system' },
   { id: 'settings', title: tr('Settings'), icon: 'sliders', stage: 1, group: 'system' },
 ] as const satisfies readonly { id: string; title: string; icon: IconName; stage: number; group: string }[];
 
@@ -42,6 +44,7 @@ const SELECTION_KIND: Record<Selection['kind'], string> = {
   suppression: tr('suppression'),
   sca: tr('vulnerability'),
   'doc-proposal': tr('proposal'),
+  schedule: tr('schedule'),
 };
 
 const MAC = navigator.platform.startsWith('Mac');
@@ -115,7 +118,8 @@ export function App() {
       if (e.key === 'Escape' && !t.closest('input, textarea, select, .terminal-panel')) return setSelection(null);
       // VS Code bindings; capture phase so the terminal does not swallow them.
       if (!(MAC ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;
-      const n = Number(e.key);
+      // The tenth tab is on the 0 key, as the digits are laid out.
+      const n = e.key === '0' ? 10 : Number(e.key);
       if (n >= 1 && n <= TABS.length) setTab(TABS[n - 1].id);
       else if (e.code === 'KeyB') setSidebarOpen(!sidebarOpen);
       else if (e.code === 'KeyJ') setTermCollapsed(!termCollapsed);
@@ -185,7 +189,7 @@ export function App() {
     <button
       key={t.id}
       className={`activity-item ${t.id === tab ? 'active' : ''} ${i > 0 && TABS[i - 1].group !== t.group && t.group !== 'system' ? 'group-start' : ''}`}
-      title={`${t.title} (${MOD}${i + 1})`}
+      title={`${t.title} (${MOD}${(i + 1) % 10})`}
       aria-label={t.title}
       aria-current={t.id === tab ? 'page' : undefined}
       onClick={() => setTab(t.id)}
@@ -278,6 +282,8 @@ export function App() {
                   onSelect={setSelection}
                   onTerminal={showTerminal}
                 />
+              ) : tab === 'schedules' ? (
+                <SchedulesTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
               ) : tab === 'modules' ? (
                 <ModulesTab
                   project={project}

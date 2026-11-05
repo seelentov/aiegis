@@ -18,6 +18,7 @@ import type {
 import { AuditStore } from './audit-store';
 import { entryPointKey, touchedFiles } from './modules';
 import { ScaStore } from './sca-store';
+import { ScheduleStore } from './schedule-store';
 import { SignalStore } from './signal-store';
 
 const now = () => new Date().toISOString();
@@ -176,6 +177,8 @@ export class ProjectStore {
   readonly signals: SignalStore;
   /** SCA inputs, dependency inventories and reachability verdicts. */
   readonly sca: ScaStore;
+  /** Schedules and their firings. */
+  readonly schedules: ScheduleStore;
 
   constructor(
     readonly projectId: string,
@@ -184,6 +187,7 @@ export class ProjectStore {
     this.audit = new AuditStore(db);
     this.signals = new SignalStore(db);
     this.sca = new ScaStore(db);
+    this.schedules = new ScheduleStore(db);
   }
 
   // --- jobs ---

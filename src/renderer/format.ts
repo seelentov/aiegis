@@ -12,6 +12,8 @@ import type {
   Severity,
   SignalKind,
   StaleReason,
+  ScheduleAction,
+  ScheduleOutcome,
   SuppressionScope,
   SuppressionState,
   TokenUsage,
@@ -37,6 +39,24 @@ export const RUN_STATUS: Record<RunStatus, string> = {
   taken_over: tr('taken over|run'),
   exited: tr('exited'),
   interrupted: tr('interrupted'),
+};
+
+export const SCHEDULE_ACTION: Record<ScheduleAction['kind'], string> = {
+  task: tr('Agent task'),
+  matrix: tr('Matrix stage'),
+  scanners: tr('Scanners'),
+  sca_inventory: tr('SCA inventory'),
+  sca: tr('SCA run'),
+  entry_points: tr('Entry point map'),
+};
+
+export const SCHEDULE_OUTCOME: Record<ScheduleOutcome, string> = {
+  started: tr('started'),
+  missed: tr('missed'),
+  overlap: tr('skipped: still running'),
+  over_limit: tr('over the limit'),
+  nothing_to_do: tr('nothing to do'),
+  failed: tr('failed'),
 };
 
 export function time(iso: string | null): string {

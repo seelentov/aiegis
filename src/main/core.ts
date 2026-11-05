@@ -21,6 +21,7 @@ import type {
   CellDetails,
   CellLabel,
   ConfigFileInfo,
+  CronPreview,
   DocPlanEntry,
   DocumentSummary,
   DocVersionView,
@@ -55,6 +56,11 @@ import type {
   Run,
   RunStatus,
   Scan,
+  Schedule,
+  ScheduleAction,
+  ScheduleFiring,
+  ScheduleInput,
+  ScheduleOutcome,
   ScaEstimate,
   ScaInput,
   ScaInventory,
@@ -210,6 +216,7 @@ import {
   SUPPRESSION_VALIDITY,
   type SignalQuery,
 } from './signals';
+import { NothingToDo, nextFire, nextFires, parseAction, parseCron, shortestGapMinutes, type Cron } from './schedules';
 import { ProjectStore, type Authorship } from './store';
 import { Terminals, type PtySpawn } from './terminals';
 import { WorktreeCache } from './worktrees';
@@ -280,6 +287,10 @@ const log = getLogger('core');
 const agentLog = getLogger('agent');
 const scanLog = getLogger('scanners');
 
+/** How often due schedules are looked for: an interval survives sleep and clock changes, unlike a timer set for the planned time. */
+const SCHEDULE_TICK_MS = 15_000;
+const CRON_PREVIEW_FIRES = 5;
+
 /** Everything the app does, independent of Electron (used by the window process and by headless runners). */
 /** One `fetch_url` of a refresher's run (`fetched/index.json` in its directory). */
 interface RefreshFetch {
@@ -339,6 +350,12 @@ export class Core extends EventEmitter {
   readonly mcp: AiegisMcpServer;
   readonly queue: JobQueue;
   private readonly stores = new Map<string, ProjectStore>();
+  private scheduleTimer: NodeJS.Timeout | null = null;
+  private scheduleTicking = false;
+  /** Schedules being fired, `project/schedule`: a manual firing must not race a planned one. */
+  private readonly firingSchedules = new Set<string>();
+  /** Firings in progress: their stores stay open until they end. */
+  private readonly scheduleWork = new Set<Promise<unknown>>();
   private readonly worktrees = new Map<string, WorktreeCache>();
   /** jobId -> stream terminal and completion of the current background run. */
   private readonly activeRuns = new Map<string, { runId: string; terminalId: string; done: Promise<void> }>();
@@ -436,11 +453,16 @@ export class Core extends EventEmitter {
     }
     this.queue.pump();
     void this.reportScanners();
+    void this.trackFiring(this.tickSchedules());
+    this.scheduleTimer = setInterval(() => void this.trackFiring(this.tickSchedules()), SCHEDULE_TICK_MS);
+    this.scheduleTimer.unref();
   }
 
   /** `requeue`: the running jobs go back to the queue and continue after the next start (the service). */
   async shutdown(o: { requeue?: boolean } = {}): Promise<void> {
     log.info('shutting down');
+    if (this.scheduleTimer) clearInterval(this.scheduleTimer);
+    await Promise.allSettled(this.scheduleWork);
     const running = this.allRunningJobs();
     const idle = this.queue.close();
     for (const job of running) this.queue.stop(job, 'cancelled');
@@ -2029,7 +2051,12 @@ export class Core extends EventEmitter {
   }
 
   async matrixSlice(projectId: string, matrixId: string, slice: MatrixSlice): Promise<string[]> {
-    const view = await this.matrixView(projectId, matrixId);
+    const cells = this.sliceCells(await this.matrixView(projectId, matrixId), slice);
+    const todo = cells.filter((c) => c.status === 'not_checked' || c.stale);
+    return (todo.length ? todo : cells).map((c) => cellId(c));
+  }
+
+  private sliceCells(view: MatrixView, slice: MatrixSlice) {
     const modules = view.modules.filter((m) => !slice.modules || slice.modules.includes(m.id) || slice.modules.includes(m.name));
     const requirements = view.requirements.filter(
       (r) =>
@@ -2038,9 +2065,7 @@ export class Core extends EventEmitter {
     );
     const moduleIds = new Set(modules.map((m) => m.id));
     const requirementIds = new Set(requirements.map((r) => r.requirementId));
-    const cells = view.cells.filter((c) => moduleIds.has(c.moduleId) && requirementIds.has(c.requirementId) && !c.activeJob);
-    const todo = cells.filter((c) => c.status === 'not_checked' || c.stale);
-    return (todo.length ? todo : cells).map((c) => cellId(c));
+    return view.cells.filter((c) => moduleIds.has(c.moduleId) && requirementIds.has(c.requirementId) && !c.activeJob);
   }
 
   async matrixView(projectId: string, matrixId: string): Promise<MatrixView> {
@@ -2169,7 +2194,7 @@ export class Core extends EventEmitter {
   async runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Promise<Job[]> {
     const matrix = this.matrixOf(this.store(projectId), matrixId);
     const { free } = await this.stageCells(projectId, matrix, stage, scope);
-    if (!free.length) throw new Error('no cells to check');
+    if (!free.length) throw new NothingToDo('no cells to check');
     return this.enqueueBatches(projectId, matrix, stage, this.planCells(projectId, stage, free));
   }
 
@@ -2203,7 +2228,7 @@ export class Core extends EventEmitter {
   /** Verdict re-check of cells; a single cell is its own session. */
   async recheckCells(projectId: string, cells: string[], matrixId?: string): Promise<Job[]> {
     const { groups, busy } = this.recheckGroups(projectId, cells, matrixId);
-    if (!groups.length) throw new Error(busy ? 'these cells are already queued' : 'no cells to check');
+    if (!groups.length) throw new NothingToDo(busy ? 'these cells are already queued' : 'no cells to check');
     const jobs: Job[] = [];
     for (const g of groups) jobs.push(...(await this.enqueueBatches(projectId, g.matrix, 'verdicts', this.planCells(projectId, 'verdicts', g.cells))));
     return jobs;
@@ -3454,7 +3479,7 @@ export class Core extends EventEmitter {
     const s = this.store(projectId);
     const sha = await headSha(this.project(projectId).root);
     const { free, busy } = await this.scaSelect(projectId, o);
-    if (!free.length) throw new Error(busy ? 'these SCA items are already queued' : 'no SCA items to check');
+    if (!free.length) throw new NothingToDo(busy ? 'these SCA items are already queued' : 'no SCA items to check');
     const plan = await this.scaPlan(projectId, sha, free);
     for (const x of plan.auto) {
       const { mod, pkg } = this.scaTarget(s, x);
@@ -3572,6 +3597,251 @@ export class Core extends EventEmitter {
     this.scaChanged(projectId);
     this.auditChanged(projectId);
     return f;
+  }
+
+  // --- schedules (SPEC §25) ---
+
+  private scheduleOf(s: ProjectStore, id: string): Schedule {
+    const found = s.schedules.get(id);
+    if (!found) throw new Error(`schedule ${id} not found`);
+    return found;
+  }
+
+  private checkedCron(projectId: string, cron: string): Cron {
+    const c = parseCron(cron);
+    const min = this.projectSettings(projectId).schedules.min_interval_minutes;
+    if (shortestGapMinutes(c, new Date(), min) < min) throw new Error(`this cron expression fires more often than every ${min} minutes (schedules.min_interval_minutes)`);
+    return c;
+  }
+
+  cronPreview(projectId: string, cron: string): CronPreview {
+    const next = nextFires(this.checkedCron(projectId, cron), new Date(), CRON_PREVIEW_FIRES);
+    return { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, next: next.map((d) => d.toISOString()) };
+  }
+
+  listSchedules(projectId: string): Schedule[] {
+    return this.store(projectId).schedules.list();
+  }
+
+  scheduleDetails(projectId: string, id: string): Schedule {
+    return this.scheduleOf(this.store(projectId), id);
+  }
+
+  scheduleHistory(projectId: string, id: string, limit?: number): ScheduleFiring[] {
+    const s = this.store(projectId);
+    return s.schedules.firings(this.scheduleOf(s, id).id, limit);
+  }
+
+  /** Verdict cells of a sliced firing: only unchecked and stale ones, a sliced schedule must not re-check everything each time. */
+  private async scheduleCells(projectId: string, matrixId: string, slice: NonNullable<Extract<ScheduleAction, { kind: 'matrix' }>['slice']>): Promise<string[]> {
+    const view = await this.matrixView(projectId, matrixId);
+    const missing = (refs: string[] | undefined, known: (string | null)[], what: string) => {
+      for (const r of refs ?? []) if (!known.includes(r)) throw new Error(`${what} ${r} is not in this matrix`);
+    };
+    missing(slice.modules, view.modules.flatMap((m) => [m.id, m.name]), 'module');
+    missing(slice.requirements, view.requirements.flatMap((r) => [r.requirementId, r.key]), 'requirement');
+    missing(slice.section === undefined ? undefined : [slice.section], view.requirements.map((r) => r.section || '—'), 'section');
+    missing(slice.cells, view.cells.map((c) => cellId(c)), 'cell');
+    return this.sliceCells(view, slice)
+      .filter((c) => (c.status === 'not_checked' || c.stale) && (!slice.cells || slice.cells.includes(cellId(c))))
+      .map((c) => cellId(c));
+  }
+
+  /** What an action refers to still exists: checked when saving and again when firing. */
+  private async checkScheduleAction(projectId: string, a: ScheduleAction): Promise<void> {
+    const s = this.store(projectId);
+    const modules = (ids: string[] | null | undefined) => {
+      const known = new Set(s.listModules().map((m) => m.id));
+      for (const id of ids ?? []) if (!known.has(id)) throw new Error(`module ${id} not found`);
+    };
+    switch (a.kind) {
+      case 'task':
+        if (!this.roles(projectId).some((r) => r.name === a.role && r.kind === 'background')) throw new Error(`${a.role} is not a background role`);
+        break;
+      case 'matrix':
+        this.matrixOf(s, a.matrixId);
+        if (a.slice && a.stage === 'triage') throw new Error('triage runs on the whole matrix');
+        if (a.slice) await this.scheduleCells(projectId, a.matrixId, a.slice);
+        break;
+      case 'scanners':
+      case 'sca_inventory':
+      case 'sca':
+        modules(a.moduleIds);
+        break;
+      case 'entry_points':
+        modules(a.moduleId ? [a.moduleId] : undefined);
+        break;
+    }
+  }
+
+  private async checkedSchedule(projectId: string, input: ScheduleInput, id?: string): Promise<ScheduleInput> {
+    const name = input.name?.trim();
+    if (!name) throw new Error('a schedule needs a name');
+    if (this.store(projectId).schedules.list().some((x) => x.name === name && x.id !== id)) throw new Error(`schedule ${name} already exists`);
+    const action = parseAction(input.action);
+    const maxTokens = input.maxTokens ?? null;
+    if (maxTokens !== null) {
+      if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('the token limit must be a positive integer');
+      if (action.kind !== 'matrix' && action.kind !== 'sca') throw new Error('a token limit applies to matrix and SCA actions only; other runs stop at limits.max_tokens_per_run');
+    }
+    this.checkedCron(projectId, input.cron);
+    await this.checkScheduleAction(projectId, action);
+    return { name, cron: input.cron.trim(), action, maxTokens };
+  }
+
+  async createSchedule(projectId: string, input: ScheduleInput): Promise<Schedule> {
+    const checked = await this.checkedSchedule(projectId, input);
+    const created = this.store(projectId).schedules.create(checked, nextFire(parseCron(checked.cron), new Date()).toISOString());
+    this.send({ type: 'schedules-changed', projectId });
+    return created;
+  }
+
+  async updateSchedule(projectId: string, id: string, patch: Partial<ScheduleInput>): Promise<Schedule> {
+    const s = this.store(projectId);
+    const cur = this.scheduleOf(s, id);
+    const checked = await this.checkedSchedule(projectId, { name: cur.name, cron: cur.cron, action: cur.action, maxTokens: cur.maxTokens, ...patch }, id);
+    const nextAt = !cur.enabled ? null : checked.cron === cur.cron ? cur.nextAt : nextFire(parseCron(checked.cron), new Date()).toISOString();
+    const updated = s.schedules.update(id, checked, nextAt);
+    this.send({ type: 'schedules-changed', projectId });
+    return updated;
+  }
+
+  enableSchedule(projectId: string, id: string): Schedule {
+    const s = this.store(projectId);
+    const cur = this.scheduleOf(s, id);
+    if (cur.enabled) return cur;
+    const updated = s.schedules.setEnabled(id, true, nextFire(parseCron(cur.cron), new Date()).toISOString());
+    this.send({ type: 'schedules-changed', projectId });
+    return updated;
+  }
+
+  disableSchedule(projectId: string, id: string): Schedule {
+    const s = this.store(projectId);
+    this.scheduleOf(s, id);
+    const updated = s.schedules.setEnabled(id, false, null);
+    this.send({ type: 'schedules-changed', projectId });
+    return updated;
+  }
+
+  removeSchedule(projectId: string, id: string): void {
+    const s = this.store(projectId);
+    this.scheduleOf(s, id);
+    s.schedules.remove(id);
+    this.send({ type: 'schedules-changed', projectId });
+  }
+
+  async runSchedule(projectId: string, id: string): Promise<ScheduleFiring> {
+    return this.trackFiring(this.fireSchedule(projectId, this.scheduleOf(this.store(projectId), id), 'manual', null));
+  }
+
+  private trackFiring<T>(work: Promise<T>): Promise<T> {
+    const tracked = work.finally(() => this.scheduleWork.delete(tracked));
+    this.scheduleWork.add(tracked);
+    return tracked;
+  }
+
+  /** Fires what is due; `at` is the current time. */
+  async tickSchedules(at = new Date()): Promise<void> {
+    if (this.scheduleTicking) return;
+    this.scheduleTicking = true;
+    try {
+      for (const p of this.registry.list()) {
+        try {
+          const s = this.store(p.id);
+          const windowMs = this.projectSettings(p.id).schedules.catch_up_window_hours * 3_600_000;
+          for (const due of s.schedules.due(at.toISOString())) {
+            // Lateness counts from the newest missed time: after a weekend off, last night's firing still runs.
+            const cron = parseCron(due.cron);
+            let planned = new Date(due.nextAt!);
+            for (let n = nextFire(cron, planned); n <= at; n = nextFire(cron, n)) planned = n;
+            const scheduledAt = planned.toISOString();
+            // Moved first: whatever happens to this firing, the next tick does not repeat it.
+            s.schedules.setNext(due.id, nextFire(cron, at).toISOString());
+            if (at.getTime() - planned.getTime() > windowMs) this.recordFiring(p.id, due, 'schedule', scheduledAt, 'missed', 'the app was not running at the planned time', []);
+            else await this.fireSchedule(p.id, due, 'schedule', scheduledAt);
+          }
+        } catch (e) {
+          log.error('schedules of project %s: %s', p.id, (e as Error).message);
+        }
+      }
+    } finally {
+      this.scheduleTicking = false;
+    }
+  }
+
+  private recordFiring(projectId: string, sched: Schedule, trigger: ScheduleFiring['trigger'], scheduledAt: string | null, outcome: ScheduleOutcome, reason: string | null, jobIds: string[]): ScheduleFiring {
+    const firing = this.store(projectId).schedules.addFiring({ scheduleId: sched.id, trigger, outcome, reason, jobIds, scheduledAt });
+    log.info('schedule %s (%s): %s', sched.name, trigger, outcome);
+    if (outcome === 'over_limit' || outcome === 'failed') this.notice('warn', `Schedule "${sched.name}" did not start: ${reason}`, projectId);
+    this.send({ type: 'schedules-changed', projectId });
+    return firing;
+  }
+
+  private async fireSchedule(projectId: string, sched: Schedule, trigger: ScheduleFiring['trigger'], scheduledAt: string | null): Promise<ScheduleFiring> {
+    const key = `${projectId}/${sched.id}`;
+    if (this.firingSchedules.has(key)) return this.recordFiring(projectId, sched, trigger, scheduledAt, 'overlap', 'the previous firing is still starting', []);
+    this.firingSchedules.add(key);
+    try {
+      const s = this.store(projectId);
+      const active = s.schedules.lastStarted(sched.id)?.jobIds.some((id) => {
+        const status = s.getJob(id)?.status;
+        return status === 'queued' || status === 'running';
+      });
+      if (active) return this.recordFiring(projectId, sched, trigger, scheduledAt, 'overlap', 'jobs of the previous firing are not finished', []);
+      await this.checkScheduleAction(projectId, sched.action);
+      const limit = sched.maxTokens ?? this.projectSettings(projectId).schedules.max_tokens_per_firing;
+      const estimate = await this.estimateScheduleAction(projectId, sched.action);
+      if (estimate !== null && estimate > limit) return this.recordFiring(projectId, sched, trigger, scheduledAt, 'over_limit', `estimate ${estimate} tokens is above the limit ${limit}`, []);
+      const jobs = await this.startScheduleAction(projectId, sched.action);
+      return this.recordFiring(projectId, sched, trigger, scheduledAt, 'started', null, jobs);
+    } catch (e) {
+      const nothing = e instanceof NothingToDo;
+      return this.recordFiring(projectId, sched, trigger, scheduledAt, nothing ? 'nothing_to_do' : 'failed', (e as Error).message, []);
+    } finally {
+      this.firingSchedules.delete(key);
+    }
+  }
+
+  /** Tokens of a run with many sessions; null for the others: `limits.max_tokens_per_run` stops each of their runs. */
+  private async estimateScheduleAction(projectId: string, a: ScheduleAction): Promise<number | null> {
+    if (a.kind === 'sca') return (await this.estimateSca(projectId, { scope: a.scope, moduleIds: a.moduleIds })).tokens;
+    if (a.kind !== 'matrix') return null;
+    if (!a.slice) return (await this.estimateMatrix(projectId, a.matrixId, a.stage, a.scope)).tokens;
+    const cells = await this.scheduleCells(projectId, a.matrixId, a.slice);
+    if (!cells.length) throw new NothingToDo('no unchecked or stale cells in this slice');
+    return (await this.estimateRecheck(projectId, cells, a.matrixId)).tokens;
+  }
+
+  /** Starts an action through the method the UI and CLI call; returns the jobs of the firing. */
+  private async startScheduleAction(projectId: string, a: ScheduleAction): Promise<string[]> {
+    const started = (jobs: Job[], what: string) => {
+      if (!jobs.length) throw new NothingToDo(what);
+      return jobs.map((j) => j.id);
+    };
+    switch (a.kind) {
+      case 'task':
+        return [(await this.enqueueTask(projectId, { prompt: a.prompt, role: a.role, title: a.title })).id];
+      case 'matrix':
+        return started(
+          a.slice ? await this.recheckCells(projectId, await this.scheduleCells(projectId, a.matrixId, a.slice), a.matrixId) : await this.runMatrix(projectId, a.matrixId, a.stage, a.scope),
+          'no cells to check',
+        );
+      case 'scanners': {
+        const r = await this.runScanners(projectId, { moduleIds: a.moduleIds });
+        if (!r.jobs.length && r.unavailable.length && !r.cached.length) throw new Error(`scanners are not available: ${r.unavailable.join(', ')}`);
+        return started(r.jobs, 'scans of this commit already exist');
+      }
+      case 'sca_inventory':
+        return started(await this.enqueueScaInventories(projectId, a.moduleIds), 'inventories are already queued');
+      case 'sca':
+        // The prefilter may close every item without AI: that is a started run with no jobs.
+        return (await this.runSca(projectId, { scope: a.scope, moduleIds: a.moduleIds })).jobs.map((j) => j.id);
+      case 'entry_points': {
+        if (!a.moduleId) return started(await this.enqueueAllEntryPoints(projectId), 'maps are already queued');
+        if (this.store(projectId).activeJobFor(MODULE_ENTITY, a.moduleId)) throw new NothingToDo('the map of this module is already queued');
+        return [(await this.enqueueEntryPoints(projectId, a.moduleId)).id];
+      }
+    }
   }
 
   // --- background execution ---

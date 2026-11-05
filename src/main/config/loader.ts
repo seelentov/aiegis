@@ -101,6 +101,7 @@ export interface Settings {
     keep_ended_streams: number;
   };
   sessions: { free_role: string; default_task_role: string };
+  schedules: { min_interval_minutes: number; catch_up_window_hours: number; max_tokens_per_firing: number };
   matrix: {
     batch_size: number;
     triage_batch_size: number;
@@ -224,6 +225,9 @@ const REQUIRED_SETTINGS: string[] = [
   'terminal.external_app',
   'sessions.free_role',
   'sessions.default_task_role',
+  'schedules.min_interval_minutes',
+  'schedules.catch_up_window_hours',
+  'schedules.max_tokens_per_firing',
   'matrix.batch_size',
   'matrix.triage_batch_size',
   'matrix.estimate_history_runs',
