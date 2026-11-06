@@ -3160,13 +3160,15 @@ export class Core extends EventEmitter {
     }
     picked.sort((a, b) => Number(b.scope === 'requirement_module') - Number(a.scope === 'requirement_module'));
     if (!picked.length) return '(none)';
+    // No text of an imported report reaches a prompt: the agent reads it only through get_signals, marked as imported.
+    const rule = (x: Suppression) => (isImportedScanner(x.scanner ?? '') ? 'a rule of an imported report' : `${x.scanner} rule \`${x.ruleId}\``);
     return picked
       .map((x) => {
         const what =
           x.scope === 'finding'
-            ? `${x.scanner} rule \`${x.ruleId}\` at ${x.file}${x.line ? `:${x.line}` : ''}`
+            ? `${rule(x)} at ${x.file}${x.line ? `:${x.line}` : ''}`
             : x.scope === 'rule_glob'
-              ? `${x.scanner} rule \`${x.ruleId}\` in files ${x.globs.join(', ')}`
+              ? `${rule(x)} in files ${x.globs.join(', ')}`
               : `all signals for requirement ${items.find((i) => i.requirementId === x.requirementId)?.key ?? x.requirementId} in this module`;
         return `- ${what} — suppressed by ${x.author} at commit ${x.commitSha.slice(0, 8)}: ${x.reason.replace(/\s+/g, ' ').trim()}`;
       })

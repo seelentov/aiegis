@@ -392,7 +392,8 @@ button.chip[aria-pressed="true"] { border-color: var(--color-accent); background
 .subtabs { display: flex; gap: var(--space-2xs); margin: 0 0 var(--space-sm); border-bottom: var(--rule-hair) solid var(--color-rule); }
 .subtabs .tab { min-height: 34px; }
 .clip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.signal-grid { table-layout: fixed; }
+/* The fixed columns take 440px + 30%: below this width the signal column would collapse; .content scrolls instead. */
+.signal-grid { table-layout: fixed; min-width: 900px; }
 .signal-grid th:nth-child(1) { width: 96px; }
 .signal-grid th:nth-child(3) { width: 104px; }
 .signal-grid th:nth-child(4) { width: 30%; }

@@ -47,7 +47,7 @@ Each tool in a report becomes a scan named `sarif:<tool>` (for example `sarif:co
 - **Code flows** stay in the signal's data, and `get_signals` lists the places of the first flow.
 - **Skipped or kept as is.** `pass`, `notApplicable` and `baselineState: absent` results are not findings. Results the tool itself suppressed stay, tagged `suppressed-in-tool`, because a report cannot create a suppression.
 
-A report is untrusted. It is checked against the shape of SARIF 2.1.0 and the [`sarif` limits](configuration.md#sarif), and a bad file is refused whole with an error naming the problem. Texts lose control and invisible characters, rule ids that cannot be identifiers (spaces, more than 200 characters) become a hash, and agents get imported signals marked `imported: true` with a note not to follow instructions in them.
+A report is untrusted. It is checked against the shape of SARIF 2.1.0 and the [`sarif` limits](configuration.md#sarif), and a bad file is refused whole with an error naming the problem. Texts lose control and invisible characters, rule ids that cannot be identifiers (spaces, more than 200 characters) become a hash, and agents get imported signals marked `imported: true` with a note not to follow instructions in them. No report text goes into a verdict prompt: a suppression of an imported signal appears there by its file and your reason, without the rule id or tool name.
 
 Scans are append-only, so a wrong import cannot be deleted. Importing again at the same commit adds to the earlier results rather than replacing them. Suppress what is wrong.
 
