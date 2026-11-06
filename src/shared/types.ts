@@ -410,6 +410,8 @@ export interface Verdict {
   commitSha: string;
   touchedFiles: string[];
   moduleGlobs: string[];
+  /** Given in a merged session: cheaper and less reliable. */
+  preliminary: boolean;
   runId: string | null;
   author: string;
   createdAt: string;
@@ -437,7 +439,7 @@ export interface Cell {
   /** Triage said the requirement applies (no verdict yet). */
   triaged: boolean;
   verdict: Verdict | null;
-  /** The verdict comes from a merged session: cheaper and less reliable. */
+  /** The current verdict is preliminary. */
   preliminary: boolean;
   findingCount: number;
   /** Queued or running job that covers this cell. */

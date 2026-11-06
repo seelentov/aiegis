@@ -694,7 +694,18 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       ...(s.latestSnapshot(mod.id)?.touchedFiles ?? []),
     ]);
     return s.audit.addVerdict(
-      { ...c, itemId: item.id, reqHash: reqHash(item.text), status, reason, evidence, commitSha: run.commitSha, touchedFiles: [...touched].sort(), moduleGlobs: mod.globs },
+      {
+        ...c,
+        itemId: item.id,
+        reqHash: reqHash(item.text),
+        status,
+        reason,
+        evidence,
+        commitSha: run.commitSha,
+        touchedFiles: [...touched].sort(),
+        moduleGlobs: mod.globs,
+        preliminary: Boolean(run.jobId && s.getJob(run.jobId)?.payload.economy),
+      },
       by,
     );
   };

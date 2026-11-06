@@ -2029,8 +2029,7 @@ export class Core extends EventEmitter {
 
   private cellContext(projectId: string, head: string) {
     const a = this.store(projectId).audit;
-    const economyAuthor = `ai:${this.taskRole(projectId, 'matrix_economy')}`;
-    return { head, economyAuthor, verdicts: a.latestVerdicts(), triage: a.latestTriage(), counts: a.findingCounts(), busy: this.busyCells(projectId) };
+    return { head, verdicts: a.latestVerdicts(), triage: a.latestTriage(), counts: a.findingCounts(), busy: this.busyCells(projectId) };
   }
 
   /** Current state of a cell: latest verdict, staleness by code (validity at HEAD) and by requirement text. */
@@ -2062,7 +2061,7 @@ export class Core extends EventEmitter {
         staleReasons: reasons,
         triaged: !v && Boolean(t?.applicable && t.reqHash === hash),
         verdict: v,
-        preliminary: v?.author === ctx.economyAuthor,
+        preliminary: v?.preliminary ?? false,
         findingCount: ctx.counts.get(id) ?? 0,
         activeJob: ctx.busy.get(id) ?? null,
       },

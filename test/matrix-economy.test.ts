@@ -74,7 +74,8 @@ beforeAll(async () => {
 afterAll(() => core.shutdown());
 
 describe('merged sessions of a large run', () => {
-  it('stay off by default and below the threshold', async () => {
+  it('stay off at zero and below the threshold', async () => {
+    setAbove(0);
     const off = await core.estimateMatrix(pid, matrixId, 'verdicts', 'pending');
     expect(off).toMatchObject({ mode: 'usual', role: 'matrix', cells: 6, tokens: 6 * 17000 });
     expect(off.alternative).toBeUndefined();
@@ -108,7 +109,7 @@ describe('merged sessions of a large run', () => {
     expect(done.payload).toMatchObject({ economy: true, cells: expect.any(Array) });
     expect(String(done.payload.prompt)).toContain('Check the modules of project');
     const view = await core.matrixView(pid, matrixId);
-    expect(view.cells.every((c) => c.status === 'pass' && c.preliminary && c.verdict?.author === 'ai:matrix-economy')).toBe(true);
+    expect(view.cells.every((c) => c.status === 'pass' && c.preliminary && c.verdict?.preliminary && c.verdict.author === 'ai:matrix-economy')).toBe(true);
     expect(await core.matrixSlice(pid, matrixId, { preliminary: true })).toHaveLength(6);
   });
 

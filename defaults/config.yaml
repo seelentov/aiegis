@@ -111,7 +111,7 @@ matrix:
     verdicts: 17000
   # A verdict run estimated above this many tokens goes as merged sessions: much cheaper, verdicts are preliminary.
   # 0 turns merged sessions off. "Run as usual" in the estimate panel and --force keep the usual sessions.
-  economy_above_tokens: 0
+  economy_above_tokens: 1000000
   # Max cells in a merged session. Modules with few cells share one, a larger module takes its own.
   economy_batch_size: 100
   # Dry-run estimate without history: billable tokens of a merged session (measured: it depends little on its cells).
