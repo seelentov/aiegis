@@ -92,7 +92,7 @@ const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }],
 /** Builds an MCP server instance whose tools are bound to one grant. */
 /** "The scanners found nothing" is not evidence for a pass (role prompt); the agent must argue from the code. */
 export const NO_SIGNALS_REASON =
-  /\b(no|zero|without|absence of)\b[^.;]{0,30}\b(signals?|scanners?|semgrep|gitleaks|trivy)\b|\b(signals?|scanners?|semgrep|gitleaks|trivy)\b[^.;]{0,30}\b(returned|found|reported|showed?)\s+(no|nothing|none)\b/i;
+  /\b(no|zero|without|absence of)\b[^.;]{0,30}\b(signals?|scanners?|semgrep|gitleaks|trivy)\b|\b(signals?|scanners?|semgrep|gitleaks|trivy)\b[^.;]{0,30}\b(returned|found|reported|showed?)\s+(no|nothing|none)\b|(?<![а-яё])(нет|без|отсутств[а-яё]*)(?![а-яё])[^.;]{0,30}(сигнал|сканер|semgrep|gitleaks|trivy)|(сигнал|сканер|semgrep|gitleaks|trivy)[^.;]{0,30}(?<![а-яё])(нет|ничего|не\s+(наш|наход|обнаруж|выяв|показ|сообщ|вернул|дал))/i;
 
 const pocStep = z.object({
   action: z.string().min(1).describe('Request or command that was run (no secret values)'),
