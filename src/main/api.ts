@@ -82,6 +82,7 @@ export function coreApi(core: Core): CoreApi {
     scannerStatus: (pid, refresh) => core.scannerStatus(pid, refresh),
     runScanners: (pid, o) => core.runScanners(pid, o),
     listScans: (pid) => core.listScans(pid),
+    importSarif: (pid, file, o) => core.importSarif(pid, file, o),
     signalsView: (pid, commit) => core.signalsView(pid, commit),
     signalDetails: (pid, id) => core.signalDetails(pid, id),
     listSuppressions: (pid) => core.listSuppressions(pid),

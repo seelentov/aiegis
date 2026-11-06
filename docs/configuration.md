@@ -174,7 +174,7 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 |---|---|
 | `enabled` | Turn it on or off |
 | `binary` | The executable, from `PATH` |
-| `format` | Output normalizer: `semgrep`, `gitleaks` or `trivy` |
+| `format` | Output normalizer: `semgrep`, `gitleaks`, `trivy` or `sarif` |
 | `version_args` | Availability check at startup |
 | `args` | Command line. Placeholders are whole arguments only: `{{targets}}` (all paths in one call) or `{{target}}` (one call per path), exactly one of them; `{{report}}` is a report file, otherwise stdout is parsed |
 | `ok_exit_codes` | Exit codes meaning the scan completed |
@@ -187,6 +187,18 @@ scanners:
   semgrep:
     args: ["scan", "--config", "p/default", "--config", ".aiegis/semgrep/", "--json", "--quiet", "--metrics", "off", "--disable-version-check", "{{targets}}"]
 ```
+
+### `sarif`
+
+Limits for [imported reports](signals.md#importing-sarif) and scanners with `format: sarif`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `sarif.max_file_mb` | `100` | A larger file is rejected before it is read (imports only) |
+| `sarif.max_results` | `50000` | A report with more results is rejected |
+| `sarif.max_text_chars` | `4000` | Each text of a report is cut to this length |
+| `sarif.max_code_flows` | `3` | Code flows kept per result |
+| `sarif.max_flow_steps` | `50` | Steps kept per flow |
 
 ### `signals`, `suppressions`
 

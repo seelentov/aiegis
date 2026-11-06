@@ -122,6 +122,7 @@ export interface Settings {
     exclude_kinds: string[];
     requirements: Record<string, { kinds?: string[]; cwe?: string[]; rules?: string[] }>;
   };
+  sarif: { max_file_mb: number; max_results: number; max_text_chars: number; max_code_flows: number; max_flow_steps: number };
   suppressions: { few_shot_limit: number; apply_stale: boolean };
   sca: {
     estimate_history_runs: number;
@@ -254,6 +255,11 @@ const REQUIRED_SETTINGS: string[] = [
   'signals.max_per_call',
   'signals.exclude_kinds',
   'signals.requirements',
+  'sarif.max_file_mb',
+  'sarif.max_results',
+  'sarif.max_text_chars',
+  'sarif.max_code_flows',
+  'sarif.max_flow_steps',
   'suppressions.few_shot_limit',
   'suppressions.apply_stale',
   'sca.estimate_history_runs',

@@ -201,6 +201,7 @@ Scanners. See [Signals](signals.md).
 | `scanner status [--refresh]` | Show scanners |
 | `scanner run [--module <name>...] [--repository]` | Queue scans at HEAD: of modules (default: all) or of the whole repository |
 | `scanner list` | List scans |
+| `scanner import <file> [--commit <sha>] [--source-root <path>]` | Import a SARIF 2.1.0 report; --commit is required when the report names none |
 
 ## signal
 

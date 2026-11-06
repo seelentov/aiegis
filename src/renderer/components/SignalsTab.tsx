@@ -22,10 +22,46 @@ type View = 'signals' | 'suppressions' | 'scans';
 
 const SEV_RANK = Object.fromEntries(SEVERITIES.map((s, i) => [s, SEVERITIES.length - i])) as Record<Severity, number>;
 
+/** Import of an external SARIF report; the commit is needed only when the report names none. */
+function SarifImportForm({ project, run, notify, onDone }: Pick<Props, 'project' | 'run' | 'notify'> & { onDone: () => void }) {
+  const [commit, setCommit] = useState('');
+  const [sourceRoot, setSourceRoot] = useState('');
+  const importFile = async () => {
+    const file = await run(api.pickSarifFile());
+    if (!file) return;
+    const scans = await run(api.importSarif(project.id, file, { commit: commit.trim() || null, sourceRoot: sourceRoot.trim() || null }));
+    if (!scans) return;
+    const warnings = scans.reduce((n, s) => n + s.warnings.length, 0);
+    notify(warnings ? 'warn' : 'info', tr('SARIF imported: {list}; results {n}, warnings {w}', { list: scans.map((s) => s.scanner).join(', '), n: scans.reduce((n, s) => n + s.findingCount, 0), w: warnings }));
+    onDone();
+  };
+  return (
+    <div className="card">
+      <div className="form">
+        <label>
+          {tr('Commit (required if the report names none)')}
+          <input className="mono" value={commit} onChange={(e) => setCommit(e.target.value)} />
+        </label>
+        <label>
+          {tr('Source root (if paths are absolute and from another machine)')}
+          <input className="mono" value={sourceRoot} onChange={(e) => setSourceRoot(e.target.value)} />
+        </label>
+        <div className="row">
+          <button className="primary" onClick={() => void importFile()}>
+            {tr('Choose a file and import')}
+          </button>
+          <button onClick={onDone}>{tr('Cancel')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Scanner availability (checked at startup) and scan buttons. */
 function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 'run' | 'notify' | 'revision'>) {
   const [status, setStatus] = useState<ScannerStatus[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [importing, setImporting] = useState(false);
   useEffect(() => {
     void run(api.scannerStatus(project.id)).then((s) => s && setStatus(s));
   }, [project.id, run]);
@@ -43,6 +79,7 @@ function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 
     notify(r.jobs.length ? 'info' : 'warn', tr('Scan: {result}', { result: parts.join('; ') || tr('no scanners enabled') }));
   };
   return (
+    <>
     <div className="toolbar">
       {status.map((s) => (
         <span key={s.name} className={`status ${s.available ? 'r-succeeded' : s.enabled ? 'r-failed' : ''}`} title={s.error ?? `${s.binary} · ${s.format}`}>
@@ -54,12 +91,17 @@ function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 
         <IconButton icon="scan" className="primary" title={tr('Scan the files of all modules')} label={tr('Modules')} onClick={() => void scan([])} />
         <IconButton icon="scan" title={tr('Scan the whole repository')} label={tr('Repository')} onClick={() => void scan(null)} />
       </span>
+      <button title={tr('Import a SARIF 2.1.0 report of an external tool')} aria-pressed={importing} onClick={() => setImporting(!importing)}>
+        {tr('Import SARIF')}
+      </button>
       {jobs.map((j) => (
         <span key={j.id} className={`status s-${j.status}`} title={j.title}>
           {j.role}: {JOB_STATUS[j.status]}
         </span>
       ))}
     </div>
+    {importing && <SarifImportForm project={project} run={run} notify={notify} onDone={() => setImporting(false)} />}
+    </>
   );
 }
 
@@ -87,7 +129,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
   );
 
   if (!view) return null;
-  if (!view.commit) return <div className="empty">{tr('No scans yet. Run the scanners with the button above or matrix verdicts (scans are queued automatically).')}</div>;
+  if (!view.commit) return <div className="empty">{tr('No scans yet. Run the scanners with the button above, import a SARIF report, or run matrix verdicts (scans are queued automatically).')}</div>;
 
   return (
     <>

@@ -1,0 +1,16 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": { "driver": { "name": "Mini Tool" } },
+      "versionControlProvenance": [{ "repositoryUri": "https://example.com/repo.git", "revisionId": "__COMMIT__" }],
+      "results": [
+        {
+          "ruleId": "mini-rule",
+          "message": { "text": "Unsafe call" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "svc/Api.java" }, "region": { "startLine": 2 } } }]
+        }
+      ]
+    }
+  ]
+}
