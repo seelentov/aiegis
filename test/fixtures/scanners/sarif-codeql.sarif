@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": { "name": "CodeQL", "semanticVersion": "2.19.1" },
+        "extensions": [
+          {
+            "name": "codeql/java-queries",
+            "rules": [
+              { "id": "java/path-injection", "name": "java/path-injection", "shortDescription": { "text": "Uncontrolled data used in path expression" } },
+              {
+                "id": "java/sql-injection",
+                "name": "java/sql-injection",
+                "shortDescription": { "text": "Query built from user-controlled sources" },
+                "defaultConfiguration": { "level": "error" },
+                "messageStrings": { "default": { "text": "This query depends on a {0}." } },
+                "properties": { "tags": ["security", "external/cwe/cwe-089", "external/cwe/cwe-564"], "security-severity": "9.8", "problem.severity": "error" }
+              }
+            ]
+          }
+        ]
+      },
+      "versionControlProvenance": [{ "repositoryUri": "https://example.com/repo.git", "revisionId": "__COMMIT__", "branch": "refs/heads/main" }],
+      "originalUriBaseIds": { "%SRCROOT%": { "uri": "file:///home/runner/work/repo/repo/" } },
+      "artifacts": [{ "location": { "uri": "svc/Api.java", "uriBaseId": "%SRCROOT%" } }, { "location": { "uri": "lib/Util.java", "uriBaseId": "%SRCROOT%" } }],
+      "results": [
+        {
+          "rule": { "id": "java/sql-injection", "index": 1, "toolComponent": { "index": 0 } },
+          "message": { "id": "default", "arguments": ["user-provided value"] },
+          "partialFingerprints": { "primaryLocationLineHash": "39fa2ee980eb94b0:1", "primaryLocationStartColumnFingerprint": "12" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "index": 0 }, "region": { "startLine": 3, "endLine": 3, "snippet": { "text": "stmt.execute(q);" } } } }],
+          "codeFlows": [
+            {
+              "threadFlows": [
+                {
+                  "locations": [
+                    { "location": { "physicalLocation": { "artifactLocation": { "uri": "lib/Util.java", "uriBaseId": "%SRCROOT%" }, "region": { "startLine": 1 } }, "message": { "text": "source" } } },
+                    { "location": { "physicalLocation": { "artifactLocation": { "uri": "file:///usr/lib/jvm/Driver.java" }, "region": { "startLine": 99 } }, "message": { "text": "outside the repository" } } },
+                    { "location": { "physicalLocation": { "artifactLocation": { "uri": "svc/Api.java", "uriBaseId": "%SRCROOT%" }, "region": { "startLine": 3 } }, "message": { "text": "sink" } } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

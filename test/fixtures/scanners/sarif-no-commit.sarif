@@ -1,0 +1,35 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Corp SAST",
+          "version": "7.1",
+          "rules": [
+            { "id": "CS-1", "name": "WeakHash", "defaultConfiguration": { "level": "note" }, "properties": { "cwe": "CWE-327" } },
+            {
+              "id": "CS-2",
+              "fullDescription": { "text": "Taint reaches a query" },
+              "relationships": [{ "target": { "id": "89", "toolComponent": { "name": "CWE" } } }],
+              "properties": { "tags": ["severity:critical"] }
+            },
+            { "id": "CS-3", "properties": { "tags": ["misconfiguration", "HIGH"] } }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CS-1",
+          "ruleIndex": 0,
+          "message": { "text": "Weak hash" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "file:///ci/checkout/svc/Api.java" }, "region": { "startLine": 2 } } }]
+        },
+        { "ruleId": "CS-2", "message": { "markdown": "Taint **reaches** a query" }, "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "/ci/checkout/lib/Util.java" } } }] },
+        { "ruleId": "CS-3", "message": {}, "level": "warning", "taxa": [{ "id": "16", "toolComponent": { "name": "CWE" } }], "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "svc/Api.java" } } }] },
+        { "ruleId": "CS-1", "kind": "pass", "message": { "text": "Checked" } },
+        { "ruleId": "CS-1", "baselineState": "absent", "message": { "text": "Fixed" } }
+      ]
+    }
+  ]
+}

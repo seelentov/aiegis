@@ -162,6 +162,10 @@ export interface AiegisApi {
   /** Queues scans at HEAD of modules (empty list = all modules) or of the whole repository (null). */
   runScanners(projectId: string, o: { moduleIds: string[] | null }): { jobs: Job[]; cached: string[]; unavailable: string[] };
   listScans(projectId: string): Scan[];
+  /** Imports a SARIF 2.1.0 report as finished scans; `commit` is required when the report names none. */
+  importSarif(projectId: string, file: string, o?: { commit?: string | null; sourceRoot?: string | null }): Scan[];
+  /** File dialog for a SARIF report; null if cancelled. */
+  pickSarifFile(): string | null;
   signalsView(projectId: string, commit?: string | null): SignalsView;
   signalDetails(projectId: string, signalId: string): SignalDetails;
   listSuppressions(projectId: string): SuppressionView[];
@@ -237,6 +241,7 @@ export const UI_METHODS = [
   'pickAndAddProject',
   'pickDocumentFile',
   'pickScaInputFile',
+  'pickSarifFile',
   'newSession',
   'openRun',
   'openExternal',

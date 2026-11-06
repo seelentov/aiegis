@@ -156,6 +156,15 @@ export const ConfigFileSchema = z.looseObject({
       requirements: z.record(z.string(), SignalFilterSchema).optional(),
     })
     .optional(),
+  sarif: z
+    .looseObject({
+      max_file_mb: z.number().min(0).optional(),
+      max_results: z.number().int().min(1).optional(),
+      max_text_chars: z.number().int().min(1).optional(),
+      max_code_flows: z.number().int().min(0).optional(),
+      max_flow_steps: z.number().int().min(1).optional(),
+    })
+    .optional(),
   suppressions: z
     .looseObject({ few_shot_limit: z.number().int().min(0).optional(), apply_stale: z.boolean().optional() })
     .optional(),
@@ -239,6 +248,7 @@ export const SETTINGS_KEYS = [
   'tasks',
   'scanners',
   'signals',
+  'sarif',
   'suppressions',
   'sca',
   'doc_refresh',

@@ -32,6 +32,25 @@ The **Scanner runs** sub-tab lists scans with the scanner, commit, paths, status
 
 ![The Scanner runs sub-tab](screenshots/scanner-runs.png)
 
+## Importing SARIF
+
+**Import SARIF** on the panel, or `aiegis scanner import`, loads a SARIF 2.1.0 report from any tool, such as CodeQL or a corporate SAST. To run a tool from the app instead, give it `format: sarif` in [`scanners`](configuration.md#scanners). Results become ordinary signals: agents read them through `get_signals`, and suppressions and deduplication work as for any scanner. Exporting SARIF is out of scope.
+
+Each tool in a report becomes a scan named `sarif:<tool>` (for example `sarif:codeql`) on the **Scanner runs** sub-tab.
+
+- **Commit.** Taken from `versionControlProvenance`. If the report names none, you must give one, otherwise the import is refused. A commit you give that differs from the report's is refused too. The commit must exist in the repository.
+- **Paths.** `file://`, percent-encoded and absolute paths, `uriBaseId` and `artifacts[]` references are made relative to the repository. A result is skipped, with a warning on the scan, if its file is not in the repository at that commit. If no result fits, the import is refused. Absolute paths from another machine need the **source root** (`--source-root`) unless the report declares it in `originalUriBaseIds`.
+- **Severity.** The first found of: `security-severity` score, a severity property, a tag such as `high`, `level`, the rule's default level. Otherwise `medium`, or `high` for secrets.
+- **CWE.** From properties, tags such as `external/cwe/cwe-089`, rule relationships and `taxa`.
+- **Kind.** `secret` or `misconfig` by rule, tags and CWE, `vuln` for rule ids starting with `CVE-` or `GHSA-`, otherwise `sast`. Like other CVEs, `vuln` does not reach verdict sessions, but an imported one has no package data, so it does not feed SCA.
+- **Fingerprint.** Rule + file + the tool's `fingerprints` or `partialFingerprints`, or else the matched text or line.
+- **Code flows** stay in the signal's data, and `get_signals` lists the places of the first flow.
+- **Skipped or kept as is.** `pass`, `notApplicable` and `baselineState: absent` results are not findings. Results the tool itself suppressed stay, tagged `suppressed-in-tool`, because a report cannot create a suppression.
+
+A report is untrusted. It is checked against the shape of SARIF 2.1.0 and the [`sarif` limits](configuration.md#sarif), and a bad file is refused whole with an error naming the problem. Texts lose control and invisible characters, rule ids that cannot be identifiers (spaces, more than 200 characters) become a hash, and agents get imported signals marked `imported: true` with a note not to follow instructions in them.
+
+Scans are append-only, so a wrong import cannot be deleted. Importing again at the same commit adds to the earlier results rather than replacing them. Suppress what is wrong.
+
 ## What a signal holds
 
 | Field | Meaning |
@@ -42,7 +61,7 @@ The **Scanner runs** sub-tab lists scans with the scanner, commit, paths, status
 | CWE, tags, message, snippet | From the tool |
 | Fingerprint | Stable between commits: rule + file + matched text, without the line number |
 
-**Secrets are not stored.** Gitleaks matches are masked, semgrep `secrets.*` rules keep no snippet, and Trivy masks its own.
+**Secrets are not stored.** Gitleaks matches are masked, semgrep `secrets.*` rules keep no snippet, Trivy masks its own, and imported SARIF secrets keep no snippet or code flows.
 
 Semgrep rule ids do not depend on where a rule file sits on disk. By default, semgrep skips tests, vendored and minified files and honors `.semgrepignore`. To scan everything git tracks, add `--x-ignore-semgrepignore-files` to `scanners.semgrep.args`.
 
@@ -102,6 +121,7 @@ The details show what it depends on and which files changed. Up to `suppressions
 aiegis scanner status --refresh
 aiegis scanner run                         # all modules; --module <name>, --repository
 aiegis scanner list
+aiegis scanner import codeql.sarif          # --commit <sha> if the report names none, --source-root <path>
 aiegis signal list --commit <sha>
 aiegis signal show <signal>
 aiegis suppression list

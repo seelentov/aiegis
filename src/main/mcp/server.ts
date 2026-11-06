@@ -955,7 +955,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     'get_signals',
     {
       description:
-        "Scanner signals (Semgrep, Gitleaks, Trivy, normalized) in a module's files, from scans at your run's commit (or the newest scanned one); signals suppressed by humans are filtered out. Hints to verify, not a complete list.",
+        "Scanner signals (Semgrep, Gitleaks, Trivy, imported SARIF reports, normalized) in a module's files, from scans at your run's commit (or the newest scanned one); signals suppressed by humans are filtered out. Hints to verify, not a complete list.",
       inputSchema: {
         module_id: z.string(),
         requirement_id: z.string().optional().describe('The requirement you are checking: applies its suppressions and configured relevance'),

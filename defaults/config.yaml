@@ -181,6 +181,18 @@ signals:
   # `rules` are regular expressions over rule ids. Without an entry the agent filters signals itself.
   requirements: {}
 
+# Imported SARIF 2.1.0 reports ("Import SARIF", `aiegis scanner import`) and scanners with `format: sarif`.
+sarif:
+  # A larger file is rejected before it is read (imports only).
+  max_file_mb: 100
+  # A report with more results is rejected.
+  max_results: 50000
+  # Each text of a report (message, rule title, snippet, code flow step) is cut to this length.
+  max_text_chars: 4000
+  # Code flows kept per result, and steps kept per flow.
+  max_code_flows: 3
+  max_flow_steps: 50
+
 suppressions:
   # Max relevant suppressions mixed into a matrix verdict prompt as few-shot examples.
   few_shot_limit: 5

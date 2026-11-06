@@ -95,7 +95,7 @@ describe('normalizers (fixture outputs of the real tools)', () => {
     expect(vulns.length).toBe(2);
     expect(vulns[0]).toMatchObject({ ruleId: 'CVE-2020-8203', file: 'app/package-lock.json', severity: 'high', cwe: ['CWE-770', 'CWE-1321'] });
     expect(vulns[0].data).toMatchObject({ package: 'lodash', version: '4.17.15', vulnerability_id: 'CVE-2020-8203', fixed_version: '4.17.19', purl: 'pkg:npm/lodash@4.17.15', pkg_type: 'npm' });
-    expect(Object.keys(NORMALIZERS).sort()).toEqual(['gitleaks', 'semgrep', 'trivy']);
+    expect(Object.keys(NORMALIZERS).sort()).toEqual(['gitleaks', 'sarif', 'semgrep', 'trivy']);
   });
 
   it('repoPath resolves paths reported relative to the cwd or to the target', () => {

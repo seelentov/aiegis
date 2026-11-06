@@ -355,6 +355,12 @@ export const COMMANDS: Record<CoreMethod, Command> = {
     run: async (a, c) => c.call('runScanners', c.pid(), { moduleIds: a.has('repository') ? null : await moduleIds(c, a.all('module')) }),
   },
   listScans: { name: 'scanner list', usage: '', help: 'List scans', run: (_a, c) => c.call('listScans', c.pid()) },
+  importSarif: {
+    name: 'scanner import',
+    usage: '<file> [--commit <sha>] [--source-root <path>]',
+    help: 'Import a SARIF 2.1.0 report; --commit is required when the report names none',
+    run: (a, c) => c.call('importSarif', c.pid(), c.abs(a.pos[0]), { commit: a.one('commit'), sourceRoot: a.one('source-root') }),
+  },
   signalsView: { name: 'signal list', usage: '[--commit <sha>]', help: 'Show SAST signals', run: (a, c) => c.call('signalsView', c.pid(), a.one('commit')) },
   signalDetails: { name: 'signal show', usage: '<signal>', help: 'Show a signal', run: (a, c) => c.call('signalDetails', c.pid(), a.pos[0]) },
 

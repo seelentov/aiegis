@@ -37,6 +37,10 @@ function api(): ApiImpl {
       const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], title: 'Dependency file (lock file, SBOM, scanner report)' });
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
     },
+    pickSarifFile: async () => {
+      const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], title: 'SARIF report', filters: [{ name: 'SARIF', extensions: ['sarif', 'json'] }] });
+      return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+    },
     newSession: (pid) => core.newSession(pid),
     openRun: (pid, runId) => core.openRun(pid, runId),
     openExternal: (pid, runId) => core.openExternal(pid, runId),
