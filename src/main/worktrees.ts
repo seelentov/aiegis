@@ -34,13 +34,18 @@ export class WorktreeCache {
         log.warn('worktree %s is broken and will be recreated: %s', wt, e.message);
         return '';
       });
-      if (head === sha) return wt;
+      // `git worktree add` holds this lock until its checkout ends: left behind, it means an interrupted, partial tree.
+      const lock = head && path.join(await git(wt, ['rev-parse', '--absolute-git-dir']), 'locked');
+      const partial = Boolean(lock) && fs.existsSync(lock);
+      if (partial) log.warn('worktree %s was left incomplete and will be recreated', wt);
+      if (head === sha && !partial) return wt;
       fs.rmSync(wt, { recursive: true, force: true });
     }
     fs.mkdirSync(this.dir, { recursive: true });
     log.debug('creating worktree %s', wt);
     await git(this.repoRoot, ['worktree', 'prune']);
-    await git(this.repoRoot, ['worktree', 'add', '--detach', wt, sha]);
+    // Twice: prune keeps the registration of an interrupted add, and only this overrides its lock.
+    await git(this.repoRoot, ['worktree', 'add', '--force', '--force', '--detach', wt, sha]);
     return wt;
   }
 }
