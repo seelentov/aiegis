@@ -107,6 +107,9 @@ export interface Settings {
     triage_batch_size: number;
     estimate_history_runs: number;
     estimate_tokens_per_cell: { triage: number; verdicts: number };
+    economy_above_tokens: number;
+    economy_batch_size: number;
+    estimate_tokens_per_economy_session: number;
   };
   diff_check: { batch_size: number; max_diff_kb_in_prompt: number; estimate_tokens_per_requirement: number };
   findings: { similar_limit: number };
@@ -186,7 +189,7 @@ export function scannerSettings(settings: Settings, name: string): ScannerSettin
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'doc_review', 'doc_catalogue', 'doc_text', 'matrix_triage', 'matrix_verdicts', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'doc_review', 'doc_catalogue', 'doc_text', 'matrix_triage', 'matrix_verdicts', 'matrix_economy', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
@@ -235,6 +238,9 @@ const REQUIRED_SETTINGS: string[] = [
   'matrix.estimate_history_runs',
   'matrix.estimate_tokens_per_cell.triage',
   'matrix.estimate_tokens_per_cell.verdicts',
+  'matrix.economy_above_tokens',
+  'matrix.economy_batch_size',
+  'matrix.estimate_tokens_per_economy_session',
   'diff_check.batch_size',
   'diff_check.max_diff_kb_in_prompt',
   'diff_check.estimate_tokens_per_requirement',

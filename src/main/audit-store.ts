@@ -149,6 +149,7 @@ function toVerdict(r: Row): Verdict {
     commitSha: r.commit_sha as string,
     touchedFiles: JSON.parse(r.touched_files as string),
     moduleGlobs: JSON.parse(r.module_globs as string),
+    preliminary: Boolean(r.preliminary),
     runId: (r.run_id as string) ?? null,
     author: r.author as string,
     createdAt: r.created_at as string,
@@ -220,6 +221,7 @@ function toFinding(r: Row, events: FindingEvent[]): Finding {
 }
 
 export interface NewVerdict extends CellRef {
+  preliminary?: boolean;
   itemId: string;
   reqHash: string;
   status: VerdictStatus;
@@ -655,8 +657,8 @@ export class AuditStore {
     this.db
       .prepare(
         `INSERT INTO verdicts (id, module_id, requirement_id, item_id, req_hash, status, reason, evidence, commit_sha, touched_files,
-                               module_globs, run_id, author, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                               module_globs, preliminary, run_id, author, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -670,6 +672,7 @@ export class AuditStore {
         v.commitSha,
         JSON.stringify(v.touchedFiles),
         JSON.stringify(v.moduleGlobs),
+        v.preliminary ? 1 : 0,
         by.runId,
         by.author,
         now(),

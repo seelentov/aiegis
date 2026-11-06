@@ -50,6 +50,14 @@ The estimate shows sessions, cells and tokens (cells × tokens per cell). The pe
 
 The token limit counts input, cache creation and output tokens, not cache reads. A run over the limit is stopped with the status `token_limit`.
 
+### Merged sessions for large runs
+
+A verdict run estimated above `matrix.economy_above_tokens` (one million tokens) goes as a few merged sessions (task `matrix_economy`, role `matrix-economy`): the agent reads the code once and decides requirements in groups. A module's cells stay together, up to `matrix.economy_batch_size` per session, and modules with few cells share one. Cells with their own cascade level keep usual sessions.
+
+This is several times cheaper, but merged sessions miss more, including wrong `pass` verdicts. Their verdicts are preliminary: a star in the cell, a label in the details and a filter above the grid. **Preliminary** checks them again in usual sessions; any later verdict removes the mark.
+
+The estimate panel shows both totals and switches the mode, `--force` keeps usual sessions on the command line. A retry keeps the mode of the job. Schedules follow the threshold. Set the threshold to `0` to turn merged sessions off.
+
 ## Cell details
 
 - The requirement, its citation and the quote.

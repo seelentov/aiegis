@@ -410,6 +410,8 @@ export interface Verdict {
   commitSha: string;
   touchedFiles: string[];
   moduleGlobs: string[];
+  /** Given in a merged session: cheaper and less reliable. */
+  preliminary: boolean;
   runId: string | null;
   author: string;
   createdAt: string;
@@ -437,6 +439,8 @@ export interface Cell {
   /** Triage said the requirement applies (no verdict yet). */
   triaged: boolean;
   verdict: Verdict | null;
+  /** The current verdict is preliminary. */
+  preliminary: boolean;
   findingCount: number;
   /** Queued or running job that covers this cell. */
   activeJob: { id: string; status: JobStatus } | null;
@@ -456,9 +460,13 @@ export interface MatrixSlice {
   modules?: string[];
   requirements?: string[];
   section?: string;
+  /** Only cells with a verdict of a merged session. */
+  preliminary?: boolean;
 }
 /** Which cells a run covers: never checked (not_checked) or stale ones. */
 export type MatrixScope = 'pending' | 'stale';
+
+export type MatrixRunMode = 'usual' | 'economy';
 
 export interface MatrixEstimate {
   stage: MatrixStage;
@@ -473,6 +481,10 @@ export interface MatrixEstimate {
   batches: { moduleId: string; moduleName: string; group: string; cells: number; tokens: number }[];
   /** Cells skipped because a queued or running job already covers them. */
   busy: number;
+  /** Absent where sessions are always the same. */
+  mode?: MatrixRunMode;
+  /** The other way to run these cells; set above `matrix.economy_above_tokens`. */
+  alternative?: { mode: MatrixRunMode; sessions: number; tokens: number };
 }
 
 export const FINDING_STATUSES = ['suspected', 'verified', 'false_positive', 'accepted_risk', 'fixed'] as const;

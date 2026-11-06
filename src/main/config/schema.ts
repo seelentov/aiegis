@@ -138,6 +138,9 @@ export const ConfigFileSchema = z.looseObject({
       estimate_tokens_per_cell: z
         .looseObject({ triage: z.number().int().min(1).optional(), verdicts: z.number().int().min(1).optional() })
         .optional(),
+      economy_above_tokens: z.number().int().min(0).optional(),
+      economy_batch_size: z.number().int().min(1).optional(),
+      estimate_tokens_per_economy_session: z.number().int().min(1).optional(),
     })
     .optional(),
   diff_check: z

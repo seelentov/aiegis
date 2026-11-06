@@ -690,6 +690,9 @@ const MIGRATIONS: string[] = [
   CREATE TRIGGER diff_verdicts_no_delete BEFORE DELETE ON diff_verdicts
   BEGIN SELECT RAISE(ABORT, 'diff verdicts are append-only'); END;
   `,
+  `
+  ALTER TABLE verdicts ADD COLUMN preliminary INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function migrate(db: DB): void {

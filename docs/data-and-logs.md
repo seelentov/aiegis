@@ -78,7 +78,7 @@ aiegis log-level queue trace
 | `claude` or a scanner is not found | Check it runs in a terminal, or use a full path in `claude.binary` or `scanners.<name>.binary`. Then use **Check scanner availability again** |
 | A second instance refuses to start | The app or the service already runs on this data directory. Use a different `AIEGIS_DATA`, or stop the other |
 | `aiegis` exits with code 2 | The service is not running |
-| A run ends with `token_limit` | Raise `limits.max_tokens_per_run`, or lower `matrix.batch_size`. **Retry** continues with what is left |
+| A run ends with `token_limit` | Raise `limits.max_tokens_per_run`, or lower `matrix.batch_size` (`matrix.economy_batch_size` for a merged session). **Retry** continues with what is left |
 | The queue is paused | A provider limit was hit. Wait, or click **Continue** |
 | A cell is `stale` after a commit | Expected: run **Stale**. The code or the requirement changed |
 | A new role setting did not appear after an upgrade | Values of existing roles are not updated. Compare with [`defaults/config.yaml`](../defaults/config.yaml) |

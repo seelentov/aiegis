@@ -6,6 +6,7 @@ import {
   matchesGlobs,
   parseCellId,
   planBatches,
+  planEconomyBatches,
   quoteFound,
   rankSimilar,
   reqHash,
@@ -191,6 +192,17 @@ describe('matrix helpers', () => {
       ['m1', 'Access', 'e'],
     ]);
     expect(planBatches(cells.map((c) => ({ ...c, alone: false })), 40, false).map((x) => x.cells.length)).toEqual([5, 1]);
+  });
+
+  it('merged sessions: a module stays whole, small modules share a session, large ones split', () => {
+    const of = (moduleId: string, n: number) => Array.from({ length: n }, (_, i) => ({ moduleId, requirementId: `${moduleId}-${i}`, group: i % 2 ? 'A' : 'B', alone: false }));
+    const shape = (cells: ReturnType<typeof of>, size: number) => planEconomyBatches(cells, size).map((b) => [...new Set(b.cells.map((c) => c.moduleId))].join() + ':' + b.cells.length);
+    expect(shape([...of('m1', 3), ...of('m2', 3)], 4)).toEqual(['m1:3', 'm2:3']);
+    expect(shape([...of('m1', 1), ...of('m2', 1), ...of('m3', 1)], 4)).toEqual(['m1,m2,m3:3']);
+    expect(shape(of('m1', 5), 2)).toEqual(['m1:2', 'm1:2', 'm1:1']);
+    expect(planEconomyBatches(of('m1', 4), 4)[0].cells.map((c) => c.requirementId)).toEqual(['m1-1', 'm1-3', 'm1-0', 'm1-2']);
+    const mixed = planEconomyBatches([...of('m1', 2), { moduleId: 'm1', requirementId: 'own', group: 'A', alone: true }], 4);
+    expect(mixed.map((b) => [Boolean(b.economy), b.cells.length])).toEqual([[false, 1], [true, 2]]);
   });
 
   it('find_similar ranking: same entry point, CWE, shared files', () => {

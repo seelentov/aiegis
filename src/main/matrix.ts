@@ -80,6 +80,8 @@ export interface Batch {
   moduleId: string;
   group: string;
   cells: CellRef[];
+  /** A merged session: rendered from `tasks.matrix_economy`. */
+  economy?: boolean;
 }
 
 /**
@@ -104,6 +106,31 @@ export function planBatches(cells: BatchCell[], size: number, byGroup = true): B
       out.push(b);
     }
     b.cells.push(ref);
+  }
+  return out;
+}
+
+/**
+ * Merged sessions for a large run: a module's cells stay together, sections in a row, at most `size` cells each.
+ * Modules with few cells share a session, otherwise a run over one requirement would still cost a session per module.
+ * Cells with their own cascade level stay alone, as in `planBatches`.
+ */
+export function planEconomyBatches(cells: BatchCell[], size: number): Batch[] {
+  const out = planBatches(cells.filter((c) => c.alone), size);
+  const byModule = new Map<string, BatchCell[]>();
+  for (const c of [...cells].sort((a, b) => a.group.localeCompare(b.group))) {
+    if (!c.alone) byModule.set(c.moduleId, [...(byModule.get(c.moduleId) ?? []), c]);
+  }
+  let cur: Batch | null = null;
+  for (const [moduleId, list] of byModule) {
+    if (cur && cur.cells.length + list.length > size) cur = null;
+    for (const c of list) {
+      if (!cur || cur.cells.length >= size) {
+        cur = { moduleId, group: '', cells: [], economy: true };
+        out.push(cur);
+      }
+      cur.cells.push({ moduleId: c.moduleId, requirementId: c.requirementId });
+    }
   }
   return out;
 }

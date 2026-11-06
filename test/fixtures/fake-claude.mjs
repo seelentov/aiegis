@@ -274,6 +274,18 @@ if (!args.includes('-p')) {
       }
       return done(out.join('\n') || 'checked');
     }
+    if (prompt.includes('Check the modules of project')) {
+      // Merged sessions list cells as "- requirement_id `<id>` [M1,M2] <key> (<section>): <text>".
+      const ids = Object.fromEntries([...prompt.matchAll(/^- (M\d+): "[^"]*", module_id `([^`]+)`/gm)].map((m) => [m[1], m[2]]));
+      const rows = [...prompt.matchAll(/^- requirement_id `([^`]+)` \[([^\]]+)\] [^:]+: (.*)$/gm)];
+      const entries = [];
+      for (const [, id, mods, text] of rows) {
+        if (text.includes('SKIP_ONCE') && rows.length > 1) continue;
+        for (const m of mods.split(',')) entries.push({ module_id: ids[m], requirement_ids: [id], status: 'pass', reason: 'checked in code', evidence: [{ file: 'svc/Api.java', line: 1 }] });
+      }
+      const res = JSON.parse((await mcp('set_verdicts', { verdicts: [...entries, { module_id: ids.M1, requirement_ids: ['not-mine'], status: 'n/a', reason: 'x' }] })).content[0].text);
+      return done(`saved=${res.saved} rejected=${res.rejected.length}`);
+    }
     if (prompt.includes('Check module')) {
       const module_id = moduleOf();
       let signals = '';

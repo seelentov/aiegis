@@ -154,6 +154,9 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 | `matrix.estimate_history_runs` | `20` | Runs averaged for an estimate |
 | `matrix.estimate_tokens_per_cell.triage` | `4500` | Estimate with no history |
 | `matrix.estimate_tokens_per_cell.verdicts` | `17000` | Estimate with no history |
+| `matrix.economy_above_tokens` | `1000000` | Above this usual estimate verdicts go as [merged sessions](matrix.md#merged-sessions-for-large-runs); `0` turns them off |
+| `matrix.economy_batch_size` | `100` | Cells per merged session |
+| `matrix.estimate_tokens_per_economy_session` | `165000` | Estimate of a merged session with no history |
 | `diff_check.batch_size` | `600` | Requirements per session |
 | `diff_check.max_diff_kb_in_prompt` | `200` | A larger diff stays out of the prompt |
 | `diff_check.estimate_tokens_per_requirement` | `300` | Used for the estimate |
@@ -256,6 +259,7 @@ See [PoC tester](poc.md).
 | `doc_write` | `doc-author` | `project`, `title`, `slug`, `key_prefix`, `scope`, `modules`, `sections`, `other_documents`, `previous`, `hint` |
 | `matrix_triage` | `matrix-triage` | `project`, `matrix`, `module_id`, `module_name`, `module_globs`, `module_description`, `requirements` |
 | `matrix_verdicts` | `matrix` | As `matrix_triage`, and `group`, `suppressions` |
+| `matrix_economy` | `matrix-economy` | `project`, `matrix`, `modules`, `requirements`, `suppressions`, `cells` |
 | `diff_check` | `diff-check` | `project`, `target`, `check_id`, `base_ref`, `head_ref`, `base_sha`, `head_sha`, `changed_files`, `diff`, `requirements` |
 | `sca_inventory` | `sca-inventory` | `project`, `module_id`, `module_name`, `module_globs`, `module_description`, `out_dir`, `inputs`, `scanner_hints` |
 | `sca_reachability` | `sca` | `project`, `module_id`, `module_name`, `module_globs`, `module_description`, `package_key`, `package`, `direct`, `manifest`, `import_names`, `import_hits`, `vulnerabilities` |
@@ -279,6 +283,7 @@ See [PoC tester](poc.md).
 | `entry-points` | sonnet, low | `git log/show/diff` |
 | `matrix-triage` | haiku, low | `git ls-files` |
 | `matrix` | sonnet, low | `git log/show/diff` |
+| `matrix-economy` | sonnet, medium | `git log/show/diff` |
 | `diff-check` | sonnet, medium | `git log/show/diff`, without `--output` |
 | `sca-inventory` | haiku, low | Writes in `.aiegis-sca/`, and an allowlist of build and audit tools |
 | `sca` | haiku, low | `git log/show/diff` |

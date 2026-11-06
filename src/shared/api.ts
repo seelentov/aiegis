@@ -137,12 +137,12 @@ export interface AiegisApi {
   saveMatrix(projectId: string, m: { id?: string; name: string; documentIds: string[]; moduleIds: string[] }): Matrix;
   matrixView(projectId: string, matrixId: string): MatrixView;
   cellDetails(projectId: string, cellId: string, matrixId?: string): CellDetails;
-  estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): MatrixEstimate;
-  runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Job[];
+  estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force?: boolean): MatrixEstimate;
+  runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force?: boolean): Job[];
   /** Cells a verdict run of a slice covers: its unchecked and stale ones, or all of them when none is left. */
   matrixSlice(projectId: string, matrixId: string, slice: MatrixSlice): string[];
-  estimateRecheck(projectId: string, cells: string[], matrixId?: string): MatrixEstimate;
-  recheckCells(projectId: string, cells: string[], matrixId?: string): Job[];
+  estimateRecheck(projectId: string, cells: string[], matrixId?: string, force?: boolean): MatrixEstimate;
+  recheckCells(projectId: string, cells: string[], matrixId?: string, force?: boolean): Job[];
   setVerdict(projectId: string, cellId: string, v: { status: VerdictStatus; reason: string; evidence: Evidence[] }): Verdict;
 
   listFindings(projectId: string): Finding[];
