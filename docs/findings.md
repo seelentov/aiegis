@@ -10,7 +10,7 @@ A finding is one security problem, separate from the checks that found it. One f
 suspected → verified | false_positive | accepted_risk | fixed
 ```
 
-Agents create findings as `suspected` and never change a status. Only people do, and `false_positive` and `accepted_risk` require a reason. A successful [PoC](poc.md) suggests `verified`, but you set it.
+Agents create findings as `suspected` and never change a status. Only people do, and `false_positive` and `accepted_risk` require a reason. A successful [PoC](poc.md) suggests `verified`, and an [independent verification](#independent-verification) gives a second opinion, but you set the status.
 
 A finding itself cannot change; its state comes from an append-only list of events (`created`, `status`, `link`, `merged`).
 
@@ -32,7 +32,7 @@ You can also merge by hand. The **Similar (manual merge)** section offers **Into
 
 ## The table
 
-Columns: finding, severity, status, CWE, module, document, links (the number of cells) and created. The filters work like all [table filters](interface.md#tables). The document filter goes through the requirements of the linked cells.
+Columns: picker, finding, severity, status, verification, CWE, module, document, links (the number of cells) and created. The filters work like all [table filters](interface.md#tables). The document filter goes through the requirements of the linked cells.
 
 ## Details
 
@@ -43,10 +43,24 @@ Columns: finding, severity, status, CWE, module, document, links (the number of 
 - **Cells**, which rechecks the linked matrix cells after an estimate.
 - **Matrix cells** and **Vulnerable dependencies (SCA)** linked to the finding.
 - **Similar (manual merge)**.
+- **[Independent verification](#independent-verification)** with **Verify**.
 - **[PoC tester](poc.md)** with **Environment**.
 - **Sessions**: the agent sessions behind the finding; any of them can be reopened.
 - **History**: its events.
 - **Fix**, which opens a [fix session](#fix-sessions).
+
+## Independent verification
+
+An agent that refutes its own finding in the same session tends to defend it. **Verify** runs a separate background session of the role `finding-verify` whose only goal is to refute a `suspected` finding. It needs no running environment, unlike the [PoC tester](poc.md).
+
+- **Clean session.** It gets what the finding states and its code locations, as JSON that it must treat as data. It does not get the recommendation, the notes on the code references, the author or the run. Its MCP token reaches only `whoami` and `set_finding_verification`, so verdict reasons, runs and other findings are out of reach. It reads only its checkout, which keeps the transcript of the original session out of reach too.
+- **Code.** A read-only worktree at the commit of the session that made the finding. A manual finding has no such commit, so it uses HEAD at the time of the run.
+- **Result.** `refuted`, `confirmed` (it tried and could not refute it) or `undetermined`, with a reason. The first two need code references. Results are only added, never changed. The latest one is shown in the **Verification** column.
+- **Status.** The result never changes the status: you decide.
+
+To verify several findings, tick them in the table (**Pick suspected** takes the ones the filters show), press **Verify** in the toolbar and confirm the estimate. Each finding takes its own session. The estimate uses the average of recent runs of the role (`findings.verify_estimate_history_runs`), or `findings.verify_estimate_tokens`.
+
+Model, effort, prompts and permissions come from the role and the task `finding_verify`, like any [role](configuration.md). A safety filter of the model provider can stop a run; the job then fails, and its log shows why. Nothing is retried automatically. See [security](security.md).
 
 ## Fix sessions
 
@@ -58,6 +72,8 @@ Columns: finding, severity, status, CWE, module, document, links (the number of 
 aiegis finding list
 aiegis finding show <finding>
 aiegis finding status <finding> false_positive 'Only reachable by administrators'
+aiegis finding verify-estimate <finding...>
+aiegis finding verify <finding...>
 aiegis finding merge <source> <target>
 aiegis finding create <cell> --title '...' --description '...' --severity high --cwe CWE-639 --evidence api/orders.js:12
 aiegis finding link <finding> <cell>

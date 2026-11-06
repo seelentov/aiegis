@@ -156,6 +156,10 @@ export interface AiegisApi {
   openFixSession(projectId: string, findingId: string): string;
   /** Queues the PoC tester on a suspected finding. */
   enqueuePoc(projectId: string, findingId: string): Job;
+  /** Dry-run estimate of an independent verification of findings (live suspected ones are taken). */
+  estimateFindingVerify(projectId: string, findingIds: string[]): MatrixEstimate;
+  /** Queues one clean session per finding that tries to refute it. */
+  runFindingVerify(projectId: string, findingIds: string[]): Job[];
   /** Queues env-setup: an agent works out how to start the project and writes its test environment (one per project). */
   enqueuePocSetup(projectId: string): Job;
 

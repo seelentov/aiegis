@@ -5,6 +5,7 @@ import type {
   InventoryStatus,
   JobStatus,
   PocOutcome,
+  FindingVerifyOutcome,
   ReviewState,
   RunStatus,
   ScaItemStatus,
@@ -92,6 +93,12 @@ export const FINDING_STATUS: Record<FindingStatus, string> = {
   false_positive: tr('false positive'),
   accepted_risk: tr('accepted risk'),
   fixed: tr('fixed'),
+};
+
+export const FINDING_VERIFY_OUTCOME: Record<FindingVerifyOutcome, string> = {
+  refuted: tr('refuted'),
+  confirmed: tr('confirmed|verification'),
+  undetermined: tr('undetermined'),
 };
 
 export const POC_OUTCOME: Record<PocOutcome, string> = {

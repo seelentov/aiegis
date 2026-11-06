@@ -129,6 +129,10 @@ diff_check:
 findings:
   # Max candidates returned by find_similar.
   similar_limit: 5
+  # Dry-run estimate of an independent verification: average billable tokens per session over this many recent runs of the role...
+  verify_estimate_history_runs: 20
+  # ...or this value when there is no history yet (measured on a large repository: 12 sessions, 12k to 25k, 18k on average).
+  verify_estimate_tokens: 20000
 
 # Scanners the app runs itself, once per commit in the worktree (results are cached by commit and scanned paths).
 # Binaries come from the system (PATH); availability is checked at startup with `version_args`.
@@ -401,6 +405,12 @@ tasks:
     role: env-setup
     title: { en: "PoC environment setup", ru: "Настройка PoC-окружения" }
     prompt: instructions/tasks/poc-setup.md
+  # Independent verification of a suspected finding: a clean session tries to refute it, on the finding's commit.
+  # Placeholders: project, finding_id, title, commit_sha, claim (what the finding states, as JSON).
+  finding_verify:
+    role: finding-verify
+    title: { en: "Verification: {{title}}", ru: "Проверка находки: {{title}}" }
+    prompt: instructions/tasks/finding-verify.md
   # "Open fix session" (interactive, user's working directory).
   # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, cells.
   fix:
@@ -551,6 +561,25 @@ roles:
     permissions:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash(git log *--ou*)", "Bash(git show *--ou*)", "Bash(git diff *--ou*)"]
+
+  # Independent verification: tries to refute one finding by reading the code; no environment, no writing.
+  # Its token reaches only whoami and set_finding_verification (SPEC §28). Read stays inside the checkout and there is no
+  # `git diff` (given paths outside the repository it reads them): the transcript of the original session must stay out
+  # of reach. `--output` (git takes abbreviations) would let these commands write files.
+  # The method is adapted from capitalone/VulnHunter (Apache-2.0), see instructions/methodology/README.md.
+  finding-verify:
+    title: { en: "Finding verification", ru: "Проверка находки" }
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: medium
+    instructions:
+      file:
+        - instructions/roles/finding-verify.md
+        - instructions/methodology/refutation.md
+    permissions:
+      allow: ["Read(./**)", "Grep(./**)", "Glob(./**)", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash(git log *--ou*)", "Bash(git show *--ou*)"]
 
   # SCA reachability: is a vulnerable package version used by the module in a way the vulnerability needs.
   sca:

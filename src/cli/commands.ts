@@ -347,6 +347,17 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   createFinding: { name: 'finding create', usage: `<cell> ${FINDING_FLAGS}`, help: 'Create a finding on a cell', run: (a, c) => c.call('createFinding', c.pid(), a.pos[0], findingInput(a)) },
   linkFinding: { name: 'finding link', usage: '<finding> <cell>', help: 'Link a finding to a cell', run: (a, c) => c.call('linkFinding', c.pid(), a.pos[0], a.pos[1]) },
   enqueuePoc: { name: 'finding poc', usage: '<finding>', help: 'Queue the PoC tester on a finding', run: (a, c) => c.call('enqueuePoc', c.pid(), a.pos[0]) },
+  estimateFindingVerify: { name: 'finding verify-estimate', usage: '<finding...>', help: 'Estimate an independent verification of findings', run: (a, c) => c.call('estimateFindingVerify', c.pid(), a.pos) },
+  runFindingVerify: {
+    name: 'finding verify',
+    usage: '<finding...>',
+    help: 'Queue a clean session per suspected finding that tries to refute it',
+    columns: ['id', 'status', 'title'],
+    run: async (a, c) => {
+      await c.confirm(await c.call('estimateFindingVerify', c.pid(), a.pos));
+      return c.call('runFindingVerify', c.pid(), a.pos);
+    },
+  },
   enqueuePocSetup: { name: 'poc setup', usage: '', help: 'Queue the setup of the test environment', run: (_a, c) => c.call('enqueuePocSetup', c.pid()) },
 
   scannerStatus: { name: 'scanner status', usage: '[--refresh]', help: 'Show scanners', columns: ['name', 'enabled', 'available', 'version', 'error'], run: (a, c) => c.call('scannerStatus', c.pid(), a.has('refresh')) },

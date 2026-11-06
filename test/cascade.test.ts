@@ -106,7 +106,7 @@ describe('config files', () => {
     const g = tmpDir();
     ensureGlobalDefaults(DEFAULTS_DIR, g);
     const roles = listRoles({ globalDir: g });
-    expect(roles.map((r) => r.name)).toEqual(expect.arrayContaining(['assistant', 'task', 'modules', 'matrix', 'sca', 'entry-points', 'tester']));
+    expect(roles.map((r) => r.name)).toEqual(expect.arrayContaining(['assistant', 'task', 'modules', 'matrix', 'sca', 'entry-points', 'tester', 'finding-verify']));
     for (const r of roles) {
       const cfg = resolveConfig({ globalDir: g }, { role: r.name });
       expect(cfg.level.model).toBeDefined();

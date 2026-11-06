@@ -697,6 +697,25 @@ const MIGRATIONS: string[] = [
   ALTER TABLE requirements ADD COLUMN retired_at TEXT;
   ALTER TABLE requirements ADD COLUMN retired_reason TEXT;
   `,
+  `
+  -- Independent verification of findings: append-only, latest = current; the status stays a human decision.
+  CREATE TABLE finding_verifications (
+    id TEXT PRIMARY KEY,
+    finding_id TEXT NOT NULL REFERENCES findings(id),
+    outcome TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    run_id TEXT,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX finding_verifications_finding ON finding_verifications(finding_id);
+  CREATE TRIGGER finding_verifications_no_update BEFORE UPDATE ON finding_verifications
+  BEGIN SELECT RAISE(ABORT, 'finding verifications are append-only'); END;
+  CREATE TRIGGER finding_verifications_no_delete BEFORE DELETE ON finding_verifications
+  BEGIN SELECT RAISE(ABORT, 'finding verifications are append-only'); END;
+  `,
 ];
 
 export function migrate(db: DB): void {

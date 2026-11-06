@@ -20,6 +20,7 @@ import type {
   ItemChange,
   Matrix,
   PocResult,
+  FindingVerification,
   CitedRequirement,
   DocInfo,
   JudgedEntry,
@@ -188,6 +189,8 @@ function toEvent(r: Row): FindingEvent {
 }
 
 /** Finding row + its events in order -> current state. */
+const LATEST_VERIFICATION = '(SELECT outcome FROM finding_verifications v WHERE v.finding_id = findings.id ORDER BY v.created_at DESC, v.rowid DESC LIMIT 1) AS verification';
+
 function toFinding(r: Row, events: FindingEvent[]): Finding {
   let status: FindingStatus = 'suspected';
   let mergedInto: string | null = null;
@@ -215,6 +218,7 @@ function toFinding(r: Row, events: FindingEvent[]): Finding {
     mergedInto,
     cells: [...cells.values()],
     scaItems: [...sca.values()],
+    verification: (r.verification as Finding['verification']) ?? null,
     runId: (r.run_id as string) ?? null,
     author: r.author as string,
     createdAt: r.created_at as string,
@@ -787,7 +791,7 @@ export class AuditStore {
   }
 
   getFinding(id: string): Finding | undefined {
-    const r = this.db.prepare('SELECT * FROM findings WHERE id = ?').get(id) as Row | undefined;
+    const r = this.db.prepare(`SELECT *, ${LATEST_VERIFICATION} FROM findings WHERE id = ?`).get(id) as Row | undefined;
     return r && toFinding(r, this.findingEvents(id));
   }
 
@@ -797,7 +801,7 @@ export class AuditStore {
       const e = toEvent(r);
       events.set(e.findingId, [...(events.get(e.findingId) ?? []), e]);
     }
-    return (this.db.prepare('SELECT * FROM findings ORDER BY created_at DESC').all() as Row[]).map((r) => toFinding(r, events.get(r.id as string) ?? []));
+    return (this.db.prepare(`SELECT *, ${LATEST_VERIFICATION} FROM findings ORDER BY created_at DESC`).all() as Row[]).map((r) => toFinding(r, events.get(r.id as string) ?? []));
   }
 
   /** Live (not merged) findings linked to a cell. */
@@ -906,6 +910,35 @@ export class AuditStore {
       summary: r.summary as string,
       steps: JSON.parse(r.steps as string),
       baseUrl: r.base_url as string,
+      commitSha: r.commit_sha as string,
+      runId: (r.run_id as string) ?? null,
+      author: r.author as string,
+      createdAt: r.created_at as string,
+    }));
+  }
+
+  // --- independent verification of findings ---
+
+  addFindingVerification(r: Omit<FindingVerification, 'id' | 'runId' | 'author' | 'createdAt'>, by: Authorship): FindingVerification {
+    const id = crypto.randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO finding_verifications (id, finding_id, outcome, reason, evidence, commit_sha, run_id, author, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, r.findingId, r.outcome, r.reason, JSON.stringify(r.evidence), r.commitSha, by.runId, by.author, now());
+    return this.findingVerifications({ id })[0];
+  }
+
+  /** Newest first. */
+  findingVerifications(q: { id?: string; findingId?: string; runId?: string }): FindingVerification[] {
+    const where = q.id ? 'id = ?' : q.findingId ? 'finding_id = ?' : 'run_id = ?';
+    return (this.db.prepare(`SELECT * FROM finding_verifications WHERE ${where} ORDER BY created_at DESC, rowid DESC`).all(q.id ?? q.findingId ?? q.runId ?? null) as Row[]).map((r) => ({
+      id: r.id as string,
+      findingId: r.finding_id as string,
+      outcome: r.outcome as FindingVerification['outcome'],
+      reason: r.reason as string,
+      evidence: JSON.parse(r.evidence as string),
       commitSha: r.commit_sha as string,
       runId: (r.run_id as string) ?? null,
       author: r.author as string,

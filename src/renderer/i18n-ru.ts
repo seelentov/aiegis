@@ -1,5 +1,21 @@
 // Russian UI texts by their English source (see `tr` in i18n.ts).
 export const RU: Record<string, string> = {
+  // independent verification of findings
+  'refuted': 'опровергнута',
+  'confirmed|verification': 'подтверждена',
+  'undetermined': 'не определено',
+  'Independent verification': 'Независимая проверка',
+  'independent verification': 'независимая проверка',
+  'Verify': 'Проверить',
+  'Verify {n}': 'Проверить: {n}',
+  'Verification': 'Проверка',
+  'Run a clean session that tries to refute the finding': 'Запустить чистую сессию, которая попробует опровергнуть находку',
+  'The status stays yours to set: this result does not change it.': 'Статус ставите вы: этот результат его не меняет.',
+  'Pick the suspected findings shown below': 'Выбрать находки в статусе «подозрение» из показанных ниже',
+  'Pick suspected': 'Выбрать подозрения',
+  'Estimate, then run a clean session per picked finding that tries to refute it': 'Оценить, затем запустить по чистой сессии на выбранную находку: она попробует её опровергнуть',
+  'Pick for verification': 'Выбрать для проверки',
+  'Findings: {sessions}, one session each · ≈{tokens} tokens ({perCell} per finding, {source})': 'Находок: {sessions}, по сессии на каждую · ≈{tokens} токенов ({perCell} на находку, {source})',
   // format
   'queued': 'в очереди',
   'running': 'выполняется',

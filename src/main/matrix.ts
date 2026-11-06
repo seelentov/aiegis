@@ -9,6 +9,28 @@ export const CELL_ENTITY = 'cell';
 export const MATRIX_BATCH_ENTITY = 'matrix_batch';
 /** Entity of a fix session (id = finding id). */
 export const FINDING_ENTITY = 'finding';
+/** Independent verification of a finding (SPEC §28). */
+export const FINDING_VERIFY_ENTITY = 'finding_verify';
+
+/**
+ * The claim an independent verification gets: what the finding states and where, without notes on its code references,
+ * its recommendation or its author and run. JSON keeps its text a string value, so it cannot pose as the task around it.
+ */
+export function findingClaim(f: Finding, moduleName: string | null): string {
+  return JSON.stringify(
+    {
+      title: f.title,
+      severity: f.severity,
+      cwe: f.cwe,
+      module: moduleName,
+      entry_point: f.entryPoint,
+      description: f.description,
+      code_locations: f.files.map((e) => (e.line ? `${e.file}:${e.line}` : e.file)),
+    },
+    null,
+    2,
+  );
+}
 /** Validity entity types (SPEC §5). */
 export const VERDICT_VALIDITY = 'verdict';
 export const SNAPSHOT_VALIDITY = 'ep_snapshot';

@@ -515,6 +515,8 @@ export interface Finding extends FindingInput {
   cells: { moduleId: string; requirementId: string }[];
   /** SCA items (reachable vulnerabilities) the finding is linked to. */
   scaItems: ScaItemRef[];
+  /** Outcome of the latest independent verification, if any. */
+  verification: FindingVerifyOutcome | null;
   runId: string | null;
   author: string;
   createdAt: string;
@@ -560,6 +562,22 @@ export interface PocResult {
   createdAt: string;
 }
 
+export const FINDING_VERIFY_OUTCOMES = ['refuted', 'confirmed', 'undetermined'] as const;
+export type FindingVerifyOutcome = (typeof FINDING_VERIFY_OUTCOMES)[number];
+
+export interface FindingVerification {
+  id: string;
+  findingId: string;
+  outcome: FindingVerifyOutcome;
+  reason: string;
+  evidence: Evidence[];
+  /** The commit that was checked. */
+  commitSha: string;
+  runId: string | null;
+  author: string;
+  createdAt: string;
+}
+
 export interface SimilarFinding {
   finding: Finding;
   score: number;
@@ -585,6 +603,8 @@ export interface FindingDetails {
   runs: Run[];
   /** PoC tester: results (newest first), whether it can run and why not, its queued or running job, the latest env-setup job of the project. */
   poc: { results: PocResult[]; available: boolean; reason: string | null; baseUrl: string | null; job: Job | null; setup: Job | null };
+  /** Independent verification: results (newest first) and its queued or running job. */
+  verify: { results: FindingVerification[]; job: Job | null };
 }
 
 export interface CellDetails {
