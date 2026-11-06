@@ -313,7 +313,7 @@ export const COMMANDS: Record<CoreMethod, Command> = {
     name: 'matrix estimate',
     usage: '<matrix> [--stage <triage|verdicts>] [--scope <pending|stale>] [--force]',
     help: 'Estimate a stage of a matrix; --force estimates the usual sessions of a large run',
-    run: async (a, c) => c.call('estimateMatrix', c.pid(), await matrixId(c, a.pos[0]), oneOf<MatrixStage>(a.one('stage') ?? 'verdicts', ['triage', 'verdicts'], '--stage'), oneOf<MatrixScope>(a.one('scope') ?? 'pending', ['pending', 'stale'], '--scope')),
+    run: async (a, c) => c.call('estimateMatrix', c.pid(), await matrixId(c, a.pos[0]), oneOf<MatrixStage>(a.one('stage') ?? 'verdicts', ['triage', 'verdicts'], '--stage'), oneOf<MatrixScope>(a.one('scope') ?? 'pending', ['pending', 'stale'], '--scope'), a.has('force')),
   },
   runMatrix: {
     name: 'matrix run',
