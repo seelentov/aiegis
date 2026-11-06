@@ -71,7 +71,7 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
 const STAGE_TITLE: Record<MatrixStage, string> = { triage: tr('n/a triage'), verdicts: tr('Verdicts') };
 
 /** Dry-run estimate shown before queuing a matrix stage (SPEC §7). */
-export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', onSwitch, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; onSwitch?: () => void; onRun: () => void; onCancel: () => void }) {
+export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', perFinding, onSwitch, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; perFinding?: boolean; onSwitch?: () => void; onRun: () => void; onCancel: () => void }) {
   const over = estimate.batches.filter((b) => b.tokens > estimate.maxTokensPerRun);
   return (
     <div className="card estimate">
@@ -79,13 +79,15 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
         {tr('Estimate: {title} (role {role})', { title: title ?? STAGE_TITLE[estimate.stage], role: estimate.role })}
       </strong>
       <div>
-        {tr('Sessions: {sessions} · cells: {cells} · ≈{tokens} tokens ({perCell} per cell, {source})', {
-          sessions: estimate.sessions,
-          cells: estimate.cells,
-          tokens: kTokens(estimate.tokens),
-          perCell: kTokens(estimate.tokensPerCell),
-          source: estimate.tokensPerCellSource === 'history' ? tr('from run history') : tr('from config'),
-        })}
+        {perFinding
+          ? tr('Findings: {sessions}, one session each · ≈{tokens} tokens ({perCell} per finding, {source})', { sessions: estimate.sessions, tokens: kTokens(estimate.tokens), perCell: kTokens(estimate.tokensPerCell), source: estimate.tokensPerCellSource === 'history' ? tr('from run history') : tr('from config') })
+          : tr('Sessions: {sessions} · cells: {cells} · ≈{tokens} tokens ({perCell} per cell, {source})', {
+              sessions: estimate.sessions,
+              cells: estimate.cells,
+              tokens: kTokens(estimate.tokens),
+              perCell: kTokens(estimate.tokensPerCell),
+              source: estimate.tokensPerCellSource === 'history' ? tr('from run history') : tr('from config'),
+            })}
         {estimate.busy > 0 && <span className="muted"> · {tr('already queued: {n}', { n: estimate.busy })}</span>}
       </div>
       {over.length > 0 && (

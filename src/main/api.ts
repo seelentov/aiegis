@@ -71,6 +71,8 @@ export function coreApi(core: Core): CoreApi {
     linkFinding: (pid, id, cell) => core.linkFinding(pid, id, cell),
     enqueuePoc: (pid, id) => core.enqueuePoc(pid, id),
     enqueuePocSetup: (pid) => core.enqueuePocSetup(pid),
+    estimateFindingVerify: (pid, ids) => core.estimateFindingVerify(pid, ids),
+    runFindingVerify: (pid, ids) => core.runFindingVerify(pid, ids),
 
     scannerStatus: (pid, refresh) => core.scannerStatus(pid, refresh),
     runScanners: (pid, o) => core.runScanners(pid, o),

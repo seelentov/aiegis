@@ -26,6 +26,7 @@ Repository code, diffs and web pages can contain text aimed at the agent. Prompt
 |---|---|---|
 | `matrix`, `sca`, `entry-points`, `modules`, `diff-check` | Code | No writes. `git` commands only, and `--output` is denied for `diff-check` |
 | `doc-refresh` | Web pages | No shell or writes; its own directory only; downloads through `fetch_url` |
+| `finding-verify` | Code and the text of the finding | Read-only checkout, no `git diff`, MCP token limited to its own result |
 | `tester` | Code and instance responses | OS sandbox. See [Isolation](poc.md#isolation) |
 
 ## What is not isolated

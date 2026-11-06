@@ -3,7 +3,7 @@ import type { CellDetails, Evidence, Finding, FindingDetails, FindingStatus, Pro
 import { FINDING_STATUSES, SEVERITIES, VERDICT_STATUSES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
-import { CELL_STATUS, FINDING_STATUS, JOB_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
+import { CELL_STATUS, FINDING_STATUS, FINDING_VERIFY_OUTCOME, JOB_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
 import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { IconButton } from './Icon';
@@ -424,6 +424,39 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
           </div>
         </>
       )}
+
+      <Section title={tr('Independent verification')}>
+      {!f.mergedInto && (
+        <div className="actions">
+          <IconButton
+            icon="check"
+            label={tr('Verify')}
+            disabled={f.status !== 'suspected' || Boolean(d.verify.job)}
+            title={f.status !== 'suspected' ? tr('only for findings in the “suspected” status') : tr('Run a clean session that tries to refute the finding')}
+            onClick={() => void run(api.runFindingVerify(project.id, [f.id]))}
+          />
+          {d.verify.job && <span className="muted small">{tr('job queued: {status}', { status: d.verify.job.status })}</span>}
+        </div>
+      )}
+      {d.verify.results.map((r) => (
+        <div key={r.id} className="result">
+          <div className="muted small">
+            {time(r.createdAt)} · {r.author} · {r.commitSha.slice(0, 8)}
+            {r.runId && (
+              <>
+                {' '}
+                · <a onClick={() => onSelect({ kind: 'run', id: r.runId! })}>{tr('run')}</a>
+              </>
+            )}
+          </div>
+          <div className="prewrap">
+            <span className={`status fv-${r.outcome}`}>{FINDING_VERIFY_OUTCOME[r.outcome]}</span> {r.reason}
+          </div>
+          <EvidenceList project={project} run={run} items={r.evidence} />
+        </div>
+      ))}
+      {d.verify.results[0] && f.status === 'suspected' && <div className="muted small">{tr('The status stays yours to set: this result does not change it.')}</div>}
+      </Section>
 
       <Section title={tr('PoC tester')}>
       {!f.mergedInto && (

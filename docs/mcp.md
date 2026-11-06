@@ -95,6 +95,14 @@ Writes that check files need a live run, so a token stops writing once its run e
 | `create_sca_finding` | Creates a `suspected` finding for reachable vulnerabilities |
 | `link_sca_finding` | Links an existing finding to vulnerabilities of the package |
 
+## Independent verification
+
+The token of the role `finding-verify` has only `whoami` and this tool.
+
+| Tool | What it does |
+|---|---|
+| `set_finding_verification` | Result of a check: `refuted`, `confirmed` (both with code references) or `undetermined`. It does not change the finding's status, and every call is stored |
+
 ## PoC
 
 | Tool | What it does |

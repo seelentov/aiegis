@@ -175,6 +175,8 @@ Findings. See [Findings](findings.md).
 | `finding merge <source> <target>` | Merge a finding into another |
 | `finding create <cell> --title <text> --description <text> --severity <level> [--cwe <id>] [--entry-point <text>] [--recommendation <text>] [--evidence <file[:line]>...]` | Create a finding on a cell |
 | `finding link <finding> <cell>` | Link a finding to a cell |
+| `finding verify-estimate <finding...>` | Estimate an independent verification of findings |
+| `finding verify <finding...>` | Queue a clean session per suspected finding that tries to refute it |
 | `finding poc <finding>` | Queue the PoC tester on a finding |
 
 ## poc

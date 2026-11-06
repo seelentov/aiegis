@@ -149,6 +149,8 @@ import {
   cellId,
   DOC_VERSION_ENTITY,
   FINDING_ENTITY,
+  findingClaim,
+  FINDING_VERIFY_ENTITY,
   MATRIX_BATCH_ENTITY,
   matchesGlobs,
   parseCellId,
@@ -592,7 +594,12 @@ export class Core extends EventEmitter {
       const item = cells.length === 1 ? s.audit.currentItem(cells[0].requirementId) : undefined;
       return this.resolve(job.projectId, job.role, mod.name, { matrix: matrix?.name, item: item?.key });
     }
-    const moduleId = job.entityType === MODULE_ENTITY || job.entityType === SCA_MODULE_ENTITY ? job.entityId : scaPayload(job)?.module_id;
+    const moduleId =
+      job.entityType === MODULE_ENTITY || job.entityType === SCA_MODULE_ENTITY
+        ? job.entityId
+        : job.entityType === FINDING_VERIFY_ENTITY
+          ? (job.payload.module_id as string | undefined)
+          : scaPayload(job)?.module_id;
     if (!moduleId) return this.resolve(job.projectId, job.role);
     const mod = this.store(job.projectId).getModule(moduleId);
     if (!mod) throw new Error(`module ${moduleId} deleted`);
@@ -2440,7 +2447,7 @@ export class Core extends EventEmitter {
       cells: finding.cells.map((c) => this.cellLabel(s, c)),
       scaItems: finding.scaItems.map((x) => ({ ...x, moduleName: s.getModule(x.moduleId)?.name ?? null })),
       similar: rankSimilar(finding, a.listFindings().filter((f) => f.id !== id), limit),
-      runs: uniq([...runs.map((r) => r.id), ...s.entityRuns(POC_ENTITY, id).map((r) => r.id)])
+      runs: uniq([...runs.map((r) => r.id), ...s.entityRuns(POC_ENTITY, id).map((r) => r.id), ...s.entityRuns(FINDING_VERIFY_ENTITY, id).map((r) => r.id)])
         .map((r) => s.getRun(r)!)
         .sort((x, y) => y.startedAt.localeCompare(x.startedAt)),
       poc: {
@@ -2449,7 +2456,72 @@ export class Core extends EventEmitter {
         job: s.activeJobFor(POC_ENTITY, id) ?? null,
         setup: s.latestJobFor(POC_ENV_ENTITY, POC_ENV_ID) ?? null,
       },
+      verify: { results: a.findingVerifications({ findingId: id }), job: s.activeJobFor(FINDING_VERIFY_ENTITY, id) ?? null },
     };
+  }
+
+  // --- independent verification of findings (SPEC §28) ---
+
+  /** Live suspected findings among `ids` that have no queued or running verification. */
+  private verifyTargets(projectId: string, ids: string[]): { free: Finding[]; busy: number } {
+    const s = this.store(projectId);
+    const live = uniq(ids).map((id) => {
+      const f = s.audit.getFinding(id);
+      if (!f) throw new Error(`finding ${id} not found`);
+      return f;
+    }).filter((f) => !f.mergedInto && f.status === 'suspected');
+    const free = live.filter((f) => !s.activeJobFor(FINDING_VERIFY_ENTITY, f.id));
+    return { free, busy: live.length - free.length };
+  }
+
+  estimateFindingVerify(projectId: string, ids: string[]): MatrixEstimate {
+    const s = this.store(projectId);
+    const settings = this.projectSettings(projectId);
+    const role = this.taskRole(projectId, 'finding_verify');
+    const { free, busy } = this.verifyTargets(projectId, ids);
+    const runs = s.recentRuns(role, settings.findings.verify_estimate_history_runs);
+    const hist = runs.length ? Math.round(runs.reduce((n, r) => n + billableTokens(r.usage), 0) / runs.length) : null;
+    const tokens = hist ?? settings.findings.verify_estimate_tokens;
+    return {
+      stage: 'verdicts',
+      role,
+      sessions: free.length,
+      cells: free.length,
+      tokensPerCell: tokens,
+      tokensPerCellSource: hist === null ? 'config' : 'history',
+      tokens: free.length * tokens,
+      maxTokensPerRun: settings.limits.max_tokens_per_run,
+      batches: free.map((f) => ({ moduleId: f.moduleId ?? '', moduleName: (f.moduleId && s.getModule(f.moduleId)?.name) || '—', group: f.title, cells: 1, tokens })),
+      busy,
+    };
+  }
+
+  /** Queues one clean session per finding, on the commit the finding was made on; a finding without a run (manual) has only HEAD. */
+  async runFindingVerify(projectId: string, ids: string[]): Promise<Job[]> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const { free, busy } = this.verifyTargets(projectId, ids);
+    if (!free.length) throw new NothingToDo(busy ? 'these findings are already queued for verification' : 'only live findings in the “suspected” status can be verified');
+    const spec = this.taskSpec(projectId, 'finding_verify');
+    const head = await headSha(p.root);
+    const jobs = free.map((f) => {
+      const commit = (f.runId && s.getRun(f.runId)?.commitSha) || head;
+      const mod = f.moduleId ? s.getModule(f.moduleId) : undefined;
+      const vars = { project: p.name, finding_id: f.id, title: f.title, commit_sha: commit, claim: findingClaim(f, mod?.name ?? null) };
+      return this.addAgentJob(
+        projectId,
+        {
+          role: spec.role,
+          title: renderTemplate(spec.title, vars),
+          prompt: renderTemplate(spec.template, vars, spec.file),
+          entity: { type: FINDING_VERIFY_ENTITY, id: f.id },
+          payload: mod ? { module_id: mod.id } : {},
+        },
+        commit,
+      );
+    });
+    this.auditChanged(projectId);
+    return jobs;
   }
 
   // --- PoC tester (SPEC §4, Q14) ---
@@ -4387,6 +4459,8 @@ export class Core extends EventEmitter {
       return 'the run finished, but no inventory was recorded: the agent did not call set_inventory_summary';
     if (job.entityType === POC_ENTITY && !s0.audit.pocResults({ runIds: [runId] }).length)
       return 'the run finished, but no PoC result was recorded: the agent did not call set_poc_result';
+    if (job.entityType === FINDING_VERIFY_ENTITY && !s0.audit.findingVerifications({ runId }).length)
+      return 'the run finished, but no result was recorded: the agent did not call set_finding_verification; its log shows why, a safety refusal also ends a run this way';
     const sp = scaPayload(job);
     if (sp) {
       const left = this.openScaVulns(job, sp);
