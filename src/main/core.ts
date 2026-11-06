@@ -153,6 +153,7 @@ import {
   matchesGlobs,
   parseCellId,
   planBatches,
+  planEconomyBatches,
   quoteFound,
   rankSimilar,
   reqHash,
@@ -244,6 +245,8 @@ interface MatrixPayload {
   matrix_id: string;
   stage: MatrixStage;
   cells: string[];
+  /** A merged session; the mode is fixed when queued, so a retry keeps it. */
+  economy?: boolean;
 }
 
 const matrixPayload = (job: Job): MatrixPayload | null =>
@@ -2026,7 +2029,8 @@ export class Core extends EventEmitter {
 
   private cellContext(projectId: string, head: string) {
     const a = this.store(projectId).audit;
-    return { head, verdicts: a.latestVerdicts(), triage: a.latestTriage(), counts: a.findingCounts(), busy: this.busyCells(projectId) };
+    const economyAuthor = `ai:${this.taskRole(projectId, 'matrix_economy')}`;
+    return { head, economyAuthor, verdicts: a.latestVerdicts(), triage: a.latestTriage(), counts: a.findingCounts(), busy: this.busyCells(projectId) };
   }
 
   /** Current state of a cell: latest verdict, staleness by code (validity at HEAD) and by requirement text. */
@@ -2058,6 +2062,7 @@ export class Core extends EventEmitter {
         staleReasons: reasons,
         triaged: !v && Boolean(t?.applicable && t.reqHash === hash),
         verdict: v,
+        preliminary: v?.author === ctx.economyAuthor,
         findingCount: ctx.counts.get(id) ?? 0,
         activeJob: ctx.busy.get(id) ?? null,
       },
@@ -2068,7 +2073,7 @@ export class Core extends EventEmitter {
   async matrixSlice(projectId: string, matrixId: string, slice: MatrixSlice): Promise<string[]> {
     const cells = this.sliceCells(await this.matrixView(projectId, matrixId), slice);
     const todo = cells.filter((c) => c.status === 'not_checked' || c.stale);
-    return (todo.length ? todo : cells).map((c) => cellId(c));
+    return (todo.length && !slice.preliminary ? todo : cells).map((c) => cellId(c));
   }
 
   private sliceCells(view: MatrixView, slice: MatrixSlice) {
@@ -2080,7 +2085,7 @@ export class Core extends EventEmitter {
     );
     const moduleIds = new Set(modules.map((m) => m.id));
     const requirementIds = new Set(requirements.map((r) => r.requirementId));
-    return view.cells.filter((c) => moduleIds.has(c.moduleId) && requirementIds.has(c.requirementId) && !c.activeJob);
+    return view.cells.filter((c) => moduleIds.has(c.moduleId) && requirementIds.has(c.requirementId) && !c.activeJob && (!slice.preliminary || c.preliminary));
   }
 
   async matrixView(projectId: string, matrixId: string): Promise<MatrixView> {
@@ -2146,14 +2151,37 @@ export class Core extends EventEmitter {
 
   /** Sessions for cells: verdicts — one per module x group (cells with their own cascade level alone); triage — per module. */
   private planCells(projectId: string, stage: MatrixStage, cells: CellRef[]): Batch[] {
-    const s = this.store(projectId);
     const settings = this.projectSettings(projectId);
+    const bc = this.batchCells(projectId, stage, cells);
+    return stage === 'triage' ? planBatches(bc, settings.matrix.triage_batch_size, false) : planBatches(bc, settings.matrix.batch_size);
+  }
+
+  private batchCells(projectId: string, stage: MatrixStage, cells: CellRef[]): BatchCell[] {
+    const s = this.store(projectId);
     const itemLevels = new Set(Object.keys(loadConfigFile(projectConfigPath(this.project(projectId).root)).data.requirements ?? {}));
-    const bc: BatchCell[] = cells.map((c) => {
+    return cells.map((c) => {
       const item = s.audit.currentItem(c.requirementId);
       return { ...c, group: item?.section || '—', alone: stage === 'verdicts' && Boolean(item && itemLevels.has(item.key)) };
     });
-    return stage === 'triage' ? planBatches(bc, settings.matrix.triage_batch_size, false) : planBatches(bc, settings.matrix.batch_size);
+  }
+
+  private planEconomy(projectId: string, cells: CellRef[]): Batch[] {
+    return planEconomyBatches(this.batchCells(projectId, 'verdicts', cells), this.projectSettings(projectId).matrix.economy_batch_size);
+  }
+
+  /** Estimate of the sessions a run takes: above `matrix.economy_above_tokens` of the usual estimate they are merged, unless forced. */
+  private estimateRun(projectId: string, stage: MatrixStage, cells: CellRef[], busy: number, force = false): MatrixEstimate {
+    const usual = this.estimateOf(projectId, stage, this.planCells(projectId, stage, cells), busy);
+    const above = this.projectSettings(projectId).matrix.economy_above_tokens;
+    if (stage !== 'verdicts' || !above || usual.tokens <= above) return usual;
+    const economy = this.estimateOf(projectId, stage, this.planEconomy(projectId, cells), busy);
+    if (economy.mode === 'usual' || economy.tokens >= usual.tokens) return usual;
+    const brief = (e: MatrixEstimate) => ({ mode: e.mode!, sessions: e.sessions, tokens: e.tokens });
+    return force ? { ...usual, alternative: brief(economy) } : { ...economy, alternative: brief(usual) };
+  }
+
+  private runBatches(projectId: string, stage: MatrixStage, cells: CellRef[], force: boolean): Batch[] {
+    return this.estimateRun(projectId, stage, cells, 0, force).mode === 'economy' ? this.planEconomy(projectId, cells) : this.planCells(projectId, stage, cells);
   }
 
   /** Average billable tokens per cell over recent successful runs of the role, or null without history. */
@@ -2177,40 +2205,53 @@ export class Core extends EventEmitter {
     const role = this.taskRole(projectId, STAGE_TASK[stage]);
     const hist = this.historyTokensPerCell(projectId, role, stage, settings.matrix.estimate_history_runs);
     const tpc = hist ?? settings.matrix.estimate_tokens_per_cell[stage];
+    const economy = batches.some((b) => b.economy);
+    const perSession = economy ? this.tokensPerEconomySession(projectId) : null;
+    const batchTokens = (b: Batch) => (b.economy ? perSession!.tokens : b.cells.length * tpc);
     const cells = batches.reduce((n, b) => n + b.cells.length, 0);
+    const tokens = batches.reduce((n, b) => n + batchTokens(b), 0);
     return {
       stage,
-      role,
+      role: economy ? this.taskRole(projectId, 'matrix_economy') : role,
       sessions: batches.length,
       cells,
-      tokensPerCell: tpc,
-      tokensPerCellSource: hist === null ? 'config' : 'history',
-      tokens: cells * tpc,
+      tokensPerCell: economy ? Math.round(tokens / cells) : tpc,
+      tokensPerCellSource: (perSession ? perSession.fromHistory : hist !== null) ? 'history' : 'config',
+      tokens,
       maxTokensPerRun: settings.limits.max_tokens_per_run,
       batches: batches.map((b) => ({
         moduleId: b.moduleId,
-        moduleName: s.getModule(b.moduleId)?.name ?? b.moduleId,
+        moduleName: uniq(b.cells.map((c) => c.moduleId)).map((id) => s.getModule(id)?.name ?? id).join(', '),
         group: b.group,
         cells: b.cells.length,
-        tokens: b.cells.length * tpc,
+        tokens: batchTokens(b),
       })),
       busy,
+      mode: economy ? 'economy' : 'usual',
     };
   }
 
+  /** A merged session costs about the same whatever its size, so its estimate is per session, not per cell. */
+  private tokensPerEconomySession(projectId: string): { tokens: number; fromHistory: boolean } {
+    const settings = this.projectSettings(projectId);
+    const runs = this.store(projectId).recentRuns(this.taskRole(projectId, 'matrix_economy'), settings.matrix.estimate_history_runs);
+    if (!runs.length) return { tokens: settings.matrix.estimate_tokens_per_economy_session, fromHistory: false };
+    return { tokens: Math.round(runs.reduce((n, r) => n + billableTokens(r.usage), 0) / runs.length), fromHistory: true };
+  }
+
   /** Dry-run estimate of a matrix stage (SPEC §7): sessions, cells and tokens, nothing is queued. */
-  async estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Promise<MatrixEstimate> {
+  async estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force = false): Promise<MatrixEstimate> {
     const matrix = this.matrixOf(this.store(projectId), matrixId);
     const { free, busy } = await this.stageCells(projectId, matrix, stage, scope);
-    return this.estimateOf(projectId, stage, this.planCells(projectId, stage, free), busy);
+    return this.estimateRun(projectId, stage, free, busy, force);
   }
 
   /** Queues a matrix stage: one job per batch; cells already covered by queued/running jobs are skipped. */
-  async runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope): Promise<Job[]> {
+  async runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force = false): Promise<Job[]> {
     const matrix = this.matrixOf(this.store(projectId), matrixId);
     const { free } = await this.stageCells(projectId, matrix, stage, scope);
     if (!free.length) throw new NothingToDo('no cells to check');
-    return this.enqueueBatches(projectId, matrix, stage, this.planCells(projectId, stage, free));
+    return this.enqueueBatches(projectId, matrix, stage, this.runBatches(projectId, stage, free, force));
   }
 
   /** Groups cells by matrix (given, else the first matrix containing the cell); busy and orphan cells are reported. */
@@ -2235,17 +2276,18 @@ export class Core extends EventEmitter {
     return { groups: [...groups.values()], busy };
   }
 
-  async estimateRecheck(projectId: string, cells: string[], matrixId?: string): Promise<MatrixEstimate> {
+  async estimateRecheck(projectId: string, cells: string[], matrixId?: string, force = false): Promise<MatrixEstimate> {
     const { groups, busy } = this.recheckGroups(projectId, cells, matrixId);
-    return this.estimateOf(projectId, 'verdicts', groups.flatMap((g) => this.planCells(projectId, 'verdicts', g.cells)), busy);
+    return this.estimateRun(projectId, 'verdicts', groups.flatMap((g) => g.cells), busy, force);
   }
 
   /** Verdict re-check of cells; a single cell is its own session. */
-  async recheckCells(projectId: string, cells: string[], matrixId?: string): Promise<Job[]> {
+  async recheckCells(projectId: string, cells: string[], matrixId?: string, force = false): Promise<Job[]> {
     const { groups, busy } = this.recheckGroups(projectId, cells, matrixId);
     if (!groups.length) throw new NothingToDo(busy ? 'these cells are already queued' : 'no cells to check');
+    const economy = this.estimateRun(projectId, 'verdicts', groups.flatMap((g) => g.cells), busy, force).mode === 'economy';
     const jobs: Job[] = [];
-    for (const g of groups) jobs.push(...(await this.enqueueBatches(projectId, g.matrix, 'verdicts', this.planCells(projectId, 'verdicts', g.cells))));
+    for (const g of groups) jobs.push(...(await this.enqueueBatches(projectId, g.matrix, 'verdicts', economy ? this.planEconomy(projectId, g.cells) : this.planCells(projectId, 'verdicts', g.cells))));
     return jobs;
   }
 
@@ -2254,18 +2296,51 @@ export class Core extends EventEmitter {
     if (stage === 'verdicts' && batches.length && this.projectSettings(projectId).signals.auto_scan) {
       // Verdict sessions read scanner signals: missing scans of their modules are queued first (SPEC §4, Q10).
       const s = this.store(projectId);
-      const globs = uniq(batches.map((b) => b.moduleId)).flatMap((id) => s.getModule(id)?.globs ?? []);
+      const globs = uniq(batches.flatMap((b) => b.cells.map((c) => c.moduleId))).flatMap((id) => s.getModule(id)?.globs ?? []);
       if (globs.length) await this.ensureScans(projectId, sha, globTargets(globs));
     }
     const rendered: { role: string; title: string; prompt: string }[] = [];
-    for (const b of batches) rendered.push(await this.renderMatrixTask(projectId, matrix, stage, b.cells, sha));
+    for (const b of batches) rendered.push(b.economy ? await this.renderEconomyTask(projectId, matrix, b.cells, sha) : await this.renderMatrixTask(projectId, matrix, stage, b.cells, sha));
     const jobs = batches.map((b, i) => {
       const id = crypto.randomUUID();
-      const payload: MatrixPayload = { matrix_id: matrix.id, stage, cells: b.cells.map(cellId) };
+      const payload: MatrixPayload = { matrix_id: matrix.id, stage, cells: b.cells.map(cellId), ...(b.economy ? { economy: true } : {}) };
       return this.addAgentJob(projectId, { ...rendered[i], entity: { type: MATRIX_BATCH_ENTITY, id }, payload: { ...payload } }, sha, id);
     });
     this.auditChanged(projectId);
     return jobs;
+  }
+
+  /** Title and prompt of a merged session: every requirement once, with the modules it is asked for. */
+  private async renderEconomyTask(projectId: string, matrix: Matrix, cells: CellRef[], sha: string): Promise<{ role: string; title: string; prompt: string }> {
+    const s = this.store(projectId);
+    const spec = this.taskSpec(projectId, 'matrix_economy');
+    const modules = uniq(cells.map((c) => c.moduleId)).map((id) => {
+      const mod = s.getModule(id);
+      if (!mod) throw new Error(`module ${id} not found`);
+      return mod;
+    });
+    const byReq = new Map<string, string[]>();
+    for (const c of cells) byReq.set(c.requirementId, [...(byReq.get(c.requirementId) ?? []), c.moduleId]);
+    const itemOf = (id: string) => {
+      const it = s.audit.currentItem(id);
+      if (!it) throw new Error(`requirement ${id} not found`);
+      return it;
+    };
+    const suppressions = await Promise.all(modules.map((m) => this.fewShotSuppressions(projectId, m, cells.filter((c) => c.moduleId === m.id).map((c) => itemOf(c.requirementId)), sha)));
+    const vars = {
+      project: this.project(projectId).name,
+      matrix: matrix.name,
+      modules: modules.map((m, i) => `- M${i + 1}: "${m.name}", module_id \`${m.id}\`, globs ${m.globs.join(', ')}. ${m.description}`).join('\n'),
+      requirements: [...byReq]
+        .map(([id, mods]) => {
+          const it = itemOf(id);
+          return `- requirement_id \`${id}\` [${mods.map((m) => `M${modules.findIndex((x) => x.id === m) + 1}`).join(',')}] ${it.key}${it.section ? ` (${it.section})` : ''}: ${it.text}`;
+        })
+        .join('\n'),
+      suppressions: suppressions.filter(Boolean).join('\n'),
+      cells: String(cells.length),
+    };
+    return { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file) };
   }
 
   /** Title and prompt of a matrix job from `tasks.matrix_triage` / `tasks.matrix_verdicts`; all cells share a module. */
@@ -4225,7 +4300,9 @@ export class Core extends EventEmitter {
     if (remaining.length !== mp.cells.length) {
       const matrix = s.audit.getMatrix(mp.matrix_id);
       if (!matrix) throw new Error(`matrix ${mp.matrix_id} not found`);
-      const t = await this.renderMatrixTask(job.projectId, matrix, mp.stage, remaining.map(parseCellId), String(job.payload.commit_sha));
+      const refs = remaining.map(parseCellId);
+      const sha = String(job.payload.commit_sha);
+      const t = mp.economy ? await this.renderEconomyTask(job.projectId, matrix, refs, sha) : await this.renderMatrixTask(job.projectId, matrix, mp.stage, refs, sha);
       s.setJobPayload(job.id, { ...job.payload, cells: remaining, prompt: t.prompt });
       job = s.getJob(job.id)!;
     }

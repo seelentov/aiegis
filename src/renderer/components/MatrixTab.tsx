@@ -71,7 +71,7 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
 const STAGE_TITLE: Record<MatrixStage, string> = { triage: tr('n/a triage'), verdicts: tr('Verdicts') };
 
 /** Dry-run estimate shown before queuing a matrix stage (SPEC §7). */
-export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; onRun: () => void; onCancel: () => void }) {
+export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', onSwitch, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; onSwitch?: () => void; onRun: () => void; onCancel: () => void }) {
   const over = estimate.batches.filter((b) => b.tokens > estimate.maxTokensPerRun);
   return (
     <div className="card estimate">
@@ -108,6 +108,16 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
           </tbody>
         </table>
       </details>
+      {estimate.alternative && (
+        <div className="row">
+          <span className="muted">
+            {estimate.mode === 'economy'
+              ? tr('Merged sessions: cheaper, but they miss more and their verdicts are preliminary. As usual: {sessions} sessions, {tokens} tokens.', { sessions: estimate.alternative.sessions, tokens: kTokens(estimate.alternative.tokens) })
+              : tr('Usual sessions. Merged: {sessions} sessions, {tokens} tokens, with preliminary verdicts.', { sessions: estimate.alternative.sessions, tokens: kTokens(estimate.alternative.tokens) })}
+          </span>
+          <button onClick={onSwitch}>{estimate.mode === 'economy' ? tr('Run as usual') : tr('Use merged sessions')}</button>
+        </div>
+      )}
       <div className="row">
         <IconButton icon="play" className="primary" title={tr('Enqueue the sessions')} label={tr('Run')} disabled={!estimate.cells} onClick={onRun} />
         <button onClick={onCancel}>{tr('Cancel')}</button>
@@ -119,7 +129,10 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
 function CellBadge({ c }: { c: Cell }) {
   return (
     <span className="cell-badge">
-      <span className={`status cs-${c.status.replace('/', '')}`}>{cellLabel(c)}</span>
+      <span className={`status cs-${c.status.replace('/', '')}`} title={c.preliminary ? tr('Preliminary verdict of a merged session') : undefined}>
+        {cellLabel(c)}
+        {c.preliminary ? ' *' : ''}
+      </span>
       {c.stale && (
         <span className="status stale" title={c.staleReasons.map((r) => STALE_REASON[r]).join(', ')}>
           {tr('stale')}
@@ -136,10 +149,10 @@ function CellBadge({ c }: { c: Cell }) {
 }
 
 type Pending =
-  | { kind: 'stage'; stage: MatrixStage; scope: MatrixScope; estimate: MatrixEstimate }
-  | { kind: 'cells'; cells: string[]; title: string; estimate: MatrixEstimate };
+  | { kind: 'stage'; stage: MatrixStage; scope: MatrixScope; estimate: MatrixEstimate; force: boolean }
+  | { kind: 'cells'; cells: string[]; title: string; estimate: MatrixEstimate; force: boolean };
 
-type RowFilter = 'all' | 'stale' | 'finding' | 'not_checked';
+type RowFilter = 'all' | 'stale' | 'finding' | 'not_checked' | 'preliminary';
 type Req = MatrixView['requirements'][number];
 
 const cellLabel = (c: Cell) => (c.status === 'not_checked' && c.triaged ? tr('applicable') : CELL_STATUS[c.status]);
@@ -171,15 +184,24 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
     void run(api.matrixView(project.id, matrixId)).then((v) => setView(v ?? null));
   }, [project.id, matrixId, revision, run]);
 
-  const estimate = async (stage: MatrixStage, scope: MatrixScope) => {
+  const estimate = async (stage: MatrixStage, scope: MatrixScope, force = false) => {
     if (!matrixId) return;
-    const e = await run(api.estimateMatrix(project.id, matrixId, stage, scope));
-    if (e) setPending({ kind: 'stage', stage, scope, estimate: e });
+    const e = await run(api.estimateMatrix(project.id, matrixId, stage, scope, force));
+    if (e) setPending({ kind: 'stage', stage, scope, estimate: e, force });
+  };
+  const estimateCells = async (cells: string[], title: string, force: boolean) => {
+    const e = await run(api.estimateRecheck(project.id, cells, matrixId ?? undefined, force));
+    if (e) setPending({ kind: 'cells', cells, title, estimate: e, force });
+  };
+  const switchMode = () => {
+    if (!pending) return;
+    if (pending.kind === 'stage') void estimate(pending.stage, pending.scope, !pending.force);
+    else void estimateCells(pending.cells, pending.title, !pending.force);
   };
   const start = async () => {
     if (!pending || !matrixId) return;
     await run(
-      pending.kind === 'stage' ? api.runMatrix(project.id, matrixId, pending.stage, pending.scope) : api.recheckCells(project.id, pending.cells, matrixId),
+      pending.kind === 'stage' ? api.runMatrix(project.id, matrixId, pending.stage, pending.scope, pending.force) : api.recheckCells(project.id, pending.cells, matrixId, pending.force),
     );
     setPending(null);
   };
@@ -189,12 +211,11 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
   const cellOf = (moduleId: string, requirementId: string) => cellMap.get(`${moduleId}/${requirementId}`);
 
   /** Verdicts for a slice of the matrix. */
-  const runSlice = async (title: string, slice: MatrixSlice) => {
+  const runSlice = async (title: string, slice: MatrixSlice, force = false) => {
     if (!matrixId) return;
     const ids = await run(api.matrixSlice(project.id, matrixId, slice));
     if (!ids?.length) return;
-    const e = await run(api.estimateRecheck(project.id, ids, matrixId));
-    if (e) setPending({ kind: 'cells', cells: ids, title: tr('verdicts, {scope}', { scope: title }), estimate: e });
+    await estimateCells(ids, tr('verdicts, {scope}', { scope: title }), force);
   };
 
   const modules = view?.modules ?? [];
@@ -202,7 +223,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
     filter === 'all' ||
     modules.some((m) => {
       const c = cellOf(m.id, r.requirementId);
-      return c && (filter === 'stale' ? c.stale : filter === 'finding' ? c.findingCount > 0 || c.status === 'finding' : c.status === 'not_checked');
+      return c && (filter === 'stale' ? c.stale : filter === 'preliminary' ? c.preliminary : filter === 'finding' ? c.findingCount > 0 || c.status === 'finding' : c.status === 'not_checked');
     });
   const cols: Col<Req>[] = [
     { key: 'req', title: tr('Requirement'), text: (r) => `${r.key} ${r.text}`, sort: (r) => r.key, className: 'req-col' },
@@ -244,6 +265,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
   }
   const counts = view && {
     stale: view.cells.filter((c) => c.stale).length,
+    preliminary: view.cells.filter((c) => c.preliminary).length,
     byStatus: (Object.keys(CELL_STATUS) as Cell['status'][]).map((k) => [k, view.cells.filter((c) => c.status === k).length] as const),
   };
 
@@ -285,6 +307,14 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
               disabled={!counts?.stale}
               onClick={() => void estimate('verdicts', 'stale')}
             />
+            {counts?.preliminary ? (
+              <IconButton
+                icon="recheck"
+                title={tr('Check the preliminary cells again in usual sessions')}
+                label={`${tr('Preliminary')} ${counts.preliminary}`}
+                onClick={() => void runSlice(tr('preliminary'), { preliminary: true }, true)}
+              />
+            ) : null}
           </span>
         )}
       </div>
@@ -305,7 +335,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
         </div>
       )}
       {pending && (
-        <EstimatePanel estimate={pending.estimate} title={pending.kind === 'cells' ? pending.title : undefined} onRun={() => void start()} onCancel={() => setPending(null)} />
+        <EstimatePanel estimate={pending.estimate} title={pending.kind === 'cells' ? pending.title : undefined} onSwitch={switchMode} onRun={() => void start()} onCancel={() => setPending(null)} />
       )}
       {!matrix ? (
         <div className="empty">{tr('No matrices. Upload and approve a document on the “Documents” tab, then create a matrix.')}</div>
@@ -335,6 +365,11 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
             <button className="chip" aria-pressed={filter === 'stale'} title={tr('Show rows with stale cells')} onClick={() => setFilter(filter === 'stale' ? 'all' : 'stale')}>
               <span className="status stale">{tr('stale')}</span> {counts!.stale}
             </button>
+            {counts!.preliminary > 0 && (
+              <button className="chip" aria-pressed={filter === 'preliminary'} title={tr('Show rows with verdicts of merged sessions')} onClick={() => setFilter(filter === 'preliminary' ? 'all' : 'preliminary')}>
+                <span className="status stale">{tr('preliminary')}</span> {counts!.preliminary}
+              </button>
+            )}
             {g.count}
           </div>
           <div className="matrix-scroll">

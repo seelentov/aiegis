@@ -196,6 +196,7 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
             <dt>{tr('Verdict')}</dt>
             <dd>
               {v.author} · {time(v.createdAt)} · <span className="mono">{v.commitSha.slice(0, 8)}</span>
+              {d.cell.preliminary && <> · <span className="status stale" title={tr('Preliminary verdict of a merged session')}>{tr('preliminary')}</span></>}
               {v.runId && (
                 <>
                   {' '}

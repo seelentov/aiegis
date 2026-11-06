@@ -17,6 +17,8 @@ import {
   type CellDetails,
   type DocPlanEntry,
   type Evidence,
+  type Verdict,
+  type VerdictStatus,
   type Finding,
   type Job,
   type MatrixView,
@@ -677,6 +679,26 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       }),
   );
 
+  const saveVerdict = (c: CellRef, status: VerdictStatus, reason: string, evidence: Evidence[]): Verdict | string => {
+    const run = liveRun();
+    const { item, mod } = cellTarget(c);
+    const s = svc.store(pid);
+    if ((status === 'pass' || status === 'finding') && !evidence.length) return 'pass/finding requires code references (evidence)';
+    if (status === 'pass' && NO_SIGNALS_REASON.test(reason)) return 'pass cannot rest on the absence of scanner signals: describe what in the code satisfies the requirement';
+    checkFiles(run.cwd, evidence);
+    const findings = s.audit.findingsOfCell(c);
+    if (status === 'finding' && !findings.length) return 'record the finding first: find_similar, then create_finding or link_finding for this cell';
+    const touched = new Set([
+      ...evidence.map((e) => e.file),
+      ...(status === 'finding' ? findings.flatMap((f) => f.files.map((x) => x.file)) : []),
+      ...(s.latestSnapshot(mod.id)?.touchedFiles ?? []),
+    ]);
+    return s.audit.addVerdict(
+      { ...c, itemId: item.id, reqHash: reqHash(item.text), status, reason, evidence, commitSha: run.commitSha, touchedFiles: [...touched].sort(), moduleGlobs: mod.globs },
+      by,
+    );
+  };
+
   server.registerTool(
     'set_verdict',
     {
@@ -691,39 +713,56 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     },
     async (a) =>
       guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
-        const run = liveRun();
         const c = cellOf(a);
-        const { item, mod } = cellTarget(c);
-        const s = svc.store(pid);
-        const evidence = a.evidence ?? [];
-        if ((a.status === 'pass' || a.status === 'finding') && !evidence.length) return fail('pass/finding requires code references (evidence)');
-        if (a.status === 'pass' && NO_SIGNALS_REASON.test(a.reason))
-          return fail('pass cannot rest on the absence of scanner signals: describe what in the code satisfies the requirement');
-        checkFiles(run.cwd, evidence);
-        const findings = s.audit.findingsOfCell(c);
-        if (a.status === 'finding' && !findings.length)
-          return fail('record the finding first: find_similar, then create_finding or link_finding for this cell');
-        const touched = new Set([
-          ...evidence.map((e) => e.file),
-          ...(a.status === 'finding' ? findings.flatMap((f) => f.files.map((x) => x.file)) : []),
-          ...(s.latestSnapshot(mod.id)?.touchedFiles ?? []),
-        ]);
-        const v = s.audit.addVerdict(
-          {
-            ...c,
-            itemId: item.id,
-            reqHash: reqHash(item.text),
-            status: a.status,
-            reason: a.reason,
-            evidence,
-            commitSha: run.commitSha,
-            touchedFiles: [...touched].sort(),
-            moduleGlobs: mod.globs,
-          },
-          by,
-        );
+        const v = saveVerdict(c, a.status, a.reason, a.evidence ?? []);
+        if (typeof v === 'string') return fail(v);
         svc.onWrite(pid);
         return ok({ saved: v.id, cell: cellId(c), status: v.status });
+      }),
+  );
+
+  server.registerTool(
+    'set_verdicts',
+    {
+      description:
+        'Verdicts for many cells in one call: an entry covers the requirements of a module that share a verdict, reason and evidence. Same rules as set_verdict. Invalid cells are returned in `rejected`, the others are saved.',
+      inputSchema: {
+        verdicts: z
+          .array(
+            z.object({
+              module_id: z.string(),
+              requirement_ids: z.array(z.string().min(1)).min(1),
+              status: z.enum(VERDICT_STATUSES),
+              reason: z.string().min(1).describe('Justification'),
+              evidence: evidenceSchema.optional(),
+            }),
+          )
+          .min(1),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'read' }, () => {
+        let saved = 0;
+        const rejected: { cell: string; error: string }[] = [];
+        for (const e of a.verdicts) {
+          for (const requirementId of e.requirement_ids) {
+            const c = { moduleId: e.module_id, requirementId };
+            const d = authorize(grant, pid, { kind: 'write', entity: cellEntity(c) });
+            let error: string | null = d.ok ? null : d.reason;
+            if (!error) {
+              try {
+                const v = saveVerdict(c, e.status, e.reason, e.evidence ?? []);
+                if (typeof v === 'string') error = v;
+              } catch (err) {
+                error = err instanceof Error ? err.message : String(err);
+              }
+            }
+            if (error) rejected.push({ cell: cellId(c), error });
+            else saved++;
+          }
+        }
+        if (saved) svc.onWrite(pid);
+        return { ...ok({ saved, rejected }), ...(saved ? {} : { isError: true }) };
       }),
   );
 

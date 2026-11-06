@@ -101,17 +101,19 @@ async function runMatrix(a: Input, c: Ctx): Promise<unknown> {
     modules: a.has('module') ? a.all('module') : undefined,
     requirements: a.has('requirement') ? a.all('requirement') : undefined,
     section: a.one('section'),
+    preliminary: a.has('preliminary') || undefined,
   };
-  if (slice.modules || slice.requirements || slice.section !== undefined) {
+  const force = a.has('force');
+  if (slice.modules || slice.requirements || slice.section !== undefined || slice.preliminary) {
     if (stage === 'triage') throw new Error('triage runs on the whole matrix');
     const cells = await c.call('matrixSlice', pid, matrix, slice);
     if (!cells.length) throw new Error('no cells in this slice');
-    await c.confirm(await c.call('estimateRecheck', pid, cells, matrix));
-    return c.call('recheckCells', pid, cells, matrix);
+    await c.confirm(await c.call('estimateRecheck', pid, cells, matrix, force));
+    return c.call('recheckCells', pid, cells, matrix, force);
   }
   const scope = oneOf<MatrixScope>(a.one('scope') ?? 'pending', ['pending', 'stale'], '--scope');
-  await c.confirm(await c.call('estimateMatrix', pid, matrix, stage, scope));
-  return c.call('runMatrix', pid, matrix, stage, scope);
+  await c.confirm(await c.call('estimateMatrix', pid, matrix, stage, scope, force));
+  return c.call('runMatrix', pid, matrix, stage, scope, force);
 }
 
 const scaOptions = async (a: Input, c: Ctx) => ({
@@ -295,36 +297,37 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   matrixView: { name: 'matrix show', usage: '<matrix>', help: 'Show a matrix', run: async (a, c) => c.call('matrixView', c.pid(), await matrixId(c, a.pos[0])) },
   matrixSlice: {
     name: 'matrix slice',
-    usage: '<matrix> [--module <name>...] [--requirement <key>...] [--section <name>]',
+    usage: '<matrix> [--module <name>...] [--requirement <key>...] [--section <name>] [--preliminary]',
     help: 'List the cells a slice run would cover',
     run: async (a, c) =>
       c.call('matrixSlice', c.pid(), await matrixId(c, a.pos[0]), {
         modules: a.has('module') ? a.all('module') : undefined,
         requirements: a.has('requirement') ? a.all('requirement') : undefined,
         section: a.one('section'),
+        preliminary: a.has('preliminary') || undefined,
       }),
   },
   estimateMatrix: {
     name: 'matrix estimate',
-    usage: '<matrix> [--stage <triage|verdicts>] [--scope <pending|stale>]',
-    help: 'Estimate a stage of a matrix',
+    usage: '<matrix> [--stage <triage|verdicts>] [--scope <pending|stale>] [--force]',
+    help: 'Estimate a stage of a matrix; --force estimates the usual sessions of a large run',
     run: async (a, c) => c.call('estimateMatrix', c.pid(), await matrixId(c, a.pos[0]), oneOf<MatrixStage>(a.one('stage') ?? 'verdicts', ['triage', 'verdicts'], '--stage'), oneOf<MatrixScope>(a.one('scope') ?? 'pending', ['pending', 'stale'], '--scope')),
   },
   runMatrix: {
     name: 'matrix run',
-    usage: '<matrix> [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>]',
-    help: 'Run a stage of a whole matrix, or verdicts of a module, requirement or section',
+    usage: '<matrix> [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--preliminary] [--force]',
+    help: 'Run a stage of a whole matrix, or verdicts of a module, requirement, section or preliminary cells; --force keeps the usual sessions of a large run',
     run: runMatrix,
   },
-  estimateRecheck: { name: 'cell estimate', usage: '<cell...> [--matrix <matrix>]', help: 'Estimate a recheck of cells', run: async (a, c) => c.call('estimateRecheck', c.pid(), a.pos, a.has('matrix') ? await matrixId(c, a.one('matrix')!) : undefined) },
+  estimateRecheck: { name: 'cell estimate', usage: '<cell...> [--matrix <matrix>] [--force]', help: 'Estimate a recheck of cells', run: async (a, c) => c.call('estimateRecheck', c.pid(), a.pos, a.has('matrix') ? await matrixId(c, a.one('matrix')!) : undefined, a.has('force')) },
   recheckCells: {
     name: 'cell run',
-    usage: '<cell...> [--matrix <matrix>]',
+    usage: '<cell...> [--matrix <matrix>] [--force]',
     help: 'Run verdicts of cells (<module id>/<requirement id>)',
     run: async (a, c) => {
       const matrix = a.has('matrix') ? await matrixId(c, a.one('matrix')!) : undefined;
-      await c.confirm(await c.call('estimateRecheck', c.pid(), a.pos, matrix));
-      return c.call('recheckCells', c.pid(), a.pos, matrix);
+      await c.confirm(await c.call('estimateRecheck', c.pid(), a.pos, matrix, a.has('force')));
+      return c.call('recheckCells', c.pid(), a.pos, matrix, a.has('force'));
     },
   },
   cellDetails: { name: 'cell show', usage: '<cell> [--matrix <matrix>]', help: 'Show a cell', run: async (a, c) => c.call('cellDetails', c.pid(), a.pos[0], a.has('matrix') ? await matrixId(c, a.one('matrix')!) : undefined) },

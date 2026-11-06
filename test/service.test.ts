@@ -207,6 +207,8 @@ describe('service and CLI over the socket', () => {
     expect(await json<string[]>('matrix', 'slice', 'mini')).toHaveLength(4);
     expect(await json<string[]>('matrix', 'slice', 'mini', '--section', 'Output')).toHaveLength(2);
     expect(await json<string[]>('matrix', 'slice', 'mini', '--requirement', 'AUTH-1', '--module', 'svc')).toHaveLength(1);
+    expect(await json<string[]>('matrix', 'slice', 'mini', '--preliminary')).toEqual([]);
+    await expect(cli(['matrix', 'run', 'mini', '--preliminary', '--force', '--yes'])).rejects.toThrow(/no cells/);
 
     await expect(cli(['matrix', 'run', 'mini', '--stage', 'triage'])).rejects.toThrow(/confirmation needed/);
     await expect(cli(['matrix', 'run', 'mini', '--stage', 'triage', '--section', 'Output', '--yes'])).rejects.toThrow(/whole matrix/);

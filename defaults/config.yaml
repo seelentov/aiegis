@@ -109,6 +109,13 @@ matrix:
   estimate_tokens_per_cell:
     triage: 4500
     verdicts: 17000
+  # A verdict run estimated above this many tokens goes as merged sessions: much cheaper, verdicts are preliminary.
+  # 0 turns merged sessions off. "Run as usual" in the estimate panel and --force keep the usual sessions.
+  economy_above_tokens: 0
+  # Max cells in a merged session. Modules with few cells share one, a larger module takes its own.
+  economy_batch_size: 100
+  # Dry-run estimate without history: billable tokens of a merged session (measured: it depends little on its cells).
+  estimate_tokens_per_economy_session: 165000
 
 # Branch checks: the changes of one branch against the requirements of a document set or a document.
 diff_check:
@@ -351,6 +358,12 @@ tasks:
     role: matrix
     title: { en: "Verdicts: {{matrix}} × {{module_name}} / {{group}}", ru: "Вердикты: {{matrix}} × {{module_name}} / {{group}}" }
     prompt: instructions/tasks/matrix-verdicts.md
+  # Verdicts for a merged session of a large run (matrix.economy_above_tokens): the verdicts are preliminary.
+  # Placeholders: project, matrix, modules, requirements, suppressions, cells.
+  matrix_economy:
+    role: matrix-economy
+    title: { en: "Verdicts, merged: {{matrix}} ({{cells}} cells)", ru: "Вердикты, объединённые: {{matrix}} ({{cells}} ячеек)" }
+    prompt: instructions/tasks/matrix-economy.md
   # Requirements of a document set or a document against the changes of a branch; runs at the branch commit.
   # Placeholders: project, target, check_id, base_ref, head_ref, base_sha (fork point), head_sha,
   # changed_files, diff (a note instead of the text when it is too large), requirements.
@@ -502,6 +515,27 @@ roles:
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
 
   # Branch check: do the changes of a branch break the requirements of a document.
+
+  # The same check as `matrix`, for merged sessions (tasks.matrix_economy); low effort stops too early on many cells.
+  matrix-economy:
+    title: { en: "Matrix check, merged", ru: "Проверка матрицы, объединённая" }
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: medium
+    # Methodology fragments are adapted from cloudflare/security-audit-skill (MIT), see instructions/methodology/README.md.
+    instructions:
+      file:
+        - instructions/roles/matrix.md
+        - instructions/methodology/verdict-discipline.md
+        - instructions/methodology/attack-classes.md
+        # For modules with HTTP/auth, add in the project config: instructions/methodology/web-and-auth.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  # Branch check: do the changes of a branch break the requirements of a document.
+
   diff-check:
     title: { en: "Branch check", ru: "Проверка ветки" }
     kind: background

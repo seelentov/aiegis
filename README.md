@@ -122,6 +122,8 @@ aiegis                                # сервис: работает, пока
 aiegis project add /srv/repos/shop    # остальные команды обращаются к запущенному сервису
 aiegis doc import ./guide.md          # в папке проекта; иначе --project <имя или id>
 aiegis matrix run main --module auth  # покажет оценку токенов и спросит подтверждение; --yes пропускает его
+aiegis matrix run main --force        # большой запуск обычными сессиями, а не объединёнными
+aiegis matrix run main --preliminary --force  # заново проверить предварительные вердикты
 aiegis job list
 aiegis watch <job>                    # вывод задачи; Ctrl+C только отключает просмотр
 aiegis log-level queue debug          # до перезапуска сервиса
