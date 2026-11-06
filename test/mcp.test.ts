@@ -296,5 +296,9 @@ describe('NO_SIGNALS_REASON', () => {
       expect(NO_SIGNALS_REASON.test(r), r).toBe(true);
     for (const r of ['Every handler calls requireRole before reading the order.', 'Secrets come from Vault; no literal keys in the config files.', 'Input is validated by the Bean Validation filter.'])
       expect(NO_SIGNALS_REASON.test(r), r).toBe(false);
+    for (const r of ['Сигналов нет, код выглядит нормально.', 'Сканеры ничего не нашли.', 'Semgrep не выявил проблем в модуле', 'Нет сигналов от сканера.', 'Без замечаний сканера'])
+      expect(NO_SIGNALS_REASON.test(r), r).toBe(true);
+    for (const r of ['Каждый обработчик вызывает requireRole до чтения заказа.', 'Безопасность сканера портов обеспечена проверкой роли.', 'Секреты берутся из Vault, в конфигах нет ключей.'])
+      expect(NO_SIGNALS_REASON.test(r), r).toBe(false);
   });
 });
