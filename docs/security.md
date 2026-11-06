@@ -58,7 +58,7 @@ Know these before you audit a repository you do not trust:
 
 Anthropic runs real-time cyber safeguards on its models, and they can block security work. Its [Cyber Verification Program](https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude) reduces blocking. Its help page says generally available models can be used for secure code review, finding vulnerabilities in your own source code and triaging security alerts, while exploit validation may be interrupted.
 
-This is why `finding-verify` only reads source code. Test runs on a subscription outside the program were not blocked (Sonnet and Haiku, 19 sessions on a test repository and on a large real one). That is no guarantee: classifiers are probabilistic, a large run of many findings was not tested, and false blocks are reported.
+This is why `finding-verify` only reads source code. Test runs on a subscription outside the program were not blocked (Sonnet and Haiku, about 55 sessions on a test repository and on a large real one, 33 of them with Haiku in one series). That is no guarantee: classifiers are probabilistic, larger runs and such a series with Sonnet were not tested, and false blocks are reported.
 
 No block has been observed in aiegis, so its exact form is unknown. A run stopped this way ends its job as failed: either with the text of the error, or with "no result was recorded". The run's log shows why. aiegis does not retry such a run and does not switch the model. Whether to join the program is up to the owner of the account.
 
