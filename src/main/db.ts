@@ -656,6 +656,40 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (set_id, url)
   );
   `,
+  `
+  -- Branch checks (SPEC §26): the changes of a branch against the requirements of a document set or a document.
+  CREATE TABLE diff_checks (
+    id TEXT PRIMARY KEY,
+    base_ref TEXT NOT NULL,
+    head_ref TEXT NOT NULL,
+    base_sha TEXT NOT NULL,
+    head_sha TEXT NOT NULL,
+    target TEXT NOT NULL,
+    title TEXT NOT NULL,
+    version_ids TEXT NOT NULL,
+    files TEXT NOT NULL,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX diff_checks_commits ON diff_checks(head_sha, base_sha);
+  CREATE TABLE diff_verdicts (
+    id TEXT PRIMARY KEY,
+    check_id TEXT NOT NULL REFERENCES diff_checks(id),
+    item_id TEXT NOT NULL REFERENCES req_items(id),
+    status TEXT NOT NULL,
+    severity TEXT,
+    reason TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    run_id TEXT,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX diff_verdicts_check ON diff_verdicts(check_id);
+  CREATE TRIGGER diff_verdicts_no_update BEFORE UPDATE ON diff_verdicts
+  BEGIN SELECT RAISE(ABORT, 'diff verdicts are append-only'); END;
+  CREATE TRIGGER diff_verdicts_no_delete BEFORE DELETE ON diff_verdicts
+  BEGIN SELECT RAISE(ABORT, 'diff verdicts are append-only'); END;
+  `,
 ];
 
 export function migrate(db: DB): void {

@@ -963,6 +963,55 @@ export interface EffectiveConfigView {
 export const LOG_LEVELS = ['error', 'warn', 'info', 'debug', 'trace'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
+/** What a branch check compares (SPEC §26): the changes `headRef` brings into `baseRef` against a set or a document. */
+export type DiffCheckTarget = { setId: string } | { documentId: string };
+
+export interface DiffCheckInput {
+  baseRef: string;
+  headRef: string;
+  target: DiffCheckTarget;
+}
+
+export interface DiffCheck extends DiffCheckInput {
+  id: string;
+  /** Name of the set or document at the time of the check. */
+  title: string;
+  /** Fork point of the two branches, not the tip of `baseRef`: the diff is what a pull request shows. */
+  baseSha: string;
+  headSha: string;
+  /** Approved versions whose accepted requirements are checked, sorted. */
+  versionIds: string[];
+  /** Files the branch changes. */
+  files: string[];
+  author: string;
+  createdAt: string;
+}
+
+/** Verdict on one requirement of a check; append-only, the latest one counts. `finding` = the branch breaks it. */
+export interface DiffVerdict {
+  id: string;
+  checkId: string;
+  itemId: string;
+  status: VerdictStatus;
+  severity: Severity | null;
+  reason: string;
+  evidence: Evidence[];
+  runId: string | null;
+  author: string;
+  createdAt: string;
+}
+
+export interface DiffCheckSummary extends DiffCheck {
+  counts: Record<CellStatus, number>;
+  /** Queued and running sessions. */
+  activeJobs: number;
+}
+
+export interface DiffCheckView {
+  check: DiffCheckSummary;
+  rows: { item: RequirementItem; documentTitle: string; verdict: DiffVerdict | null }[];
+}
+
 /** What a schedule starts (SPEC §25). */
 export type ScheduleAction =
   | { kind: 'task'; prompt: string; role: string; title?: string }
@@ -975,9 +1024,11 @@ export type ScheduleAction =
   /** Without a module: all modules. */
   | { kind: 'entry_points'; moduleId?: string }
   /** Compares the sources first: an agent runs only when they changed. */
-  | { kind: 'doc_refresh'; target: DocRefreshTarget };
+  | { kind: 'doc_refresh'; target: DocRefreshTarget }
+  /** Starts only when the branches moved since the last check of these document versions. */
+  | ({ kind: 'diff_check' } & DiffCheckInput);
 
-export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points', 'doc_refresh'] as const satisfies readonly ScheduleAction['kind'][];
+export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points', 'doc_refresh', 'diff_check'] as const satisfies readonly ScheduleAction['kind'][];
 
 export interface ScheduleInput {
   name: string;

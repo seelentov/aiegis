@@ -49,6 +49,7 @@ export const SCHEDULE_ACTION: Record<ScheduleAction['kind'], string> = {
   sca: tr('SCA run'),
   entry_points: tr('Entry point map'),
   doc_refresh: tr('Document check'),
+  diff_check: tr('Branch check'),
 };
 
 export const SCHEDULE_OUTCOME: Record<ScheduleOutcome, string> = {

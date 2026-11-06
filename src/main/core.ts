@@ -22,6 +22,11 @@ import type {
   CellLabel,
   ConfigFileInfo,
   CronPreview,
+  DiffCheck,
+  DiffCheckInput,
+  DiffCheckSummary,
+  DiffCheckTarget,
+  DiffCheckView,
   DocPlanEntry,
   DocumentSummary,
   DocVersionView,
@@ -137,7 +142,7 @@ import {
   TEXT_FILE,
 } from './documents';
 import { CARRIED_AUTHOR } from './audit-store';
-import { changedFiles, headSha } from './git';
+import { changedFiles, commitOf, diffText, headSha, listBranches, mergeBase } from './git';
 import {
   affectingChanges,
   CELL_ENTITY,
@@ -216,6 +221,7 @@ import {
   SUPPRESSION_VALIDITY,
   type SignalQuery,
 } from './signals';
+import { DIFF_BATCH_ENTITY, DIFF_ITEM_ENTITY, diffItemId } from './diff-check';
 import { NothingToDo, nextFire, nextFires, parseAction, parseCron, shortestGapMinutes, type Cron } from './schedules';
 import { ProjectStore, type Authorship } from './store';
 import { Terminals, type PtySpawn } from './terminals';
@@ -242,6 +248,13 @@ interface MatrixPayload {
 
 const matrixPayload = (job: Job): MatrixPayload | null =>
   job.entityType === MATRIX_BATCH_ENTITY ? (job.payload as unknown as MatrixPayload) : null;
+
+/** Payload of a branch check job: which check and requirement items it covers. */
+interface DiffPayload {
+  check_id: string;
+  items: string[];
+}
+const diffPayload = (job: Job): DiffPayload | null => (job.entityType === DIFF_BATCH_ENTITY ? (job.payload as unknown as DiffPayload) : null);
 
 /** Payload of a scan job. */
 interface ScanPayload {
@@ -3601,6 +3614,138 @@ export class Core extends EventEmitter {
     return f;
   }
 
+  // --- branch checks (SPEC §26) ---
+
+  listBranches(projectId: string): Promise<string[]> {
+    return listBranches(this.project(projectId).root);
+  }
+
+  /** Name of a check target and the approved versions of its documents; retired documents have none. */
+  private diffTarget(s: ProjectStore, t: DiffCheckTarget): { title: string; versionIds: string[] } {
+    const docs = s.audit.listDocuments().filter((d) => ('setId' in t ? d.setId === t.setId : d.id === t.documentId));
+    const title = 'setId' in t ? s.audit.getDocSet(t.setId)?.name : docs[0]?.title;
+    if (title === undefined) throw new Error(`${'setId' in t ? `set ${t.setId}` : `document ${t.documentId}`} not found`);
+    const versionIds = docs.flatMap((d) => s.audit.currentVersion(d.id)?.id ?? []).sort();
+    if (!versionIds.length) throw new Error(`${title} has no approved requirements`);
+    return { title, versionIds };
+  }
+
+  /** Accepted requirements of document versions: approved versions do not change, so a check keeps its list. */
+  private diffItems(s: ProjectStore, versionIds: string[]): (RequirementItem & { documentTitle: string })[] {
+    return versionIds.flatMap((id) => {
+      const documentTitle = s.audit.getDocumentTitle(s.audit.getVersion(id)!.documentId) ?? '';
+      return s.audit.listItems(id).filter((i) => i.review === 'accepted').map((i) => ({ ...i, documentTitle }));
+    });
+  }
+
+  /** What a check of these branches and this target covers; throws when the branch brings no changes. */
+  private async diffPlan(projectId: string, o: DiffCheckInput) {
+    const s = this.store(projectId);
+    const root = this.project(projectId).root;
+    const { title, versionIds } = this.diffTarget(s, o.target);
+    const head = await commitOf(root, o.headRef);
+    const baseSha = await mergeBase(root, await commitOf(root, o.baseRef), head);
+    const files = await changedFiles(root, baseSha, head);
+    if (!files) throw new Error(`cannot diff ${o.baseRef} and ${o.headRef}`);
+    if (!files.length) throw new NothingToDo(`${o.headRef} brings no changes into ${o.baseRef}`);
+    const items = this.diffItems(s, versionIds);
+    // Nothing narrows what a session reads, as modules do in the matrix: every session reads the same diff, so one is enough.
+    const cells = items.map((i) => ({ moduleId: '', requirementId: i.id, group: '', alone: false }));
+    const batches = planBatches(cells, this.projectSettings(projectId).diff_check.batch_size, false).map((b) => b.cells.map((c) => items.find((i) => i.id === c.requirementId)!));
+    return { title, versionIds, baseSha, headSha: head, files, items, batches };
+  }
+
+  /** Dry-run estimate (SPEC §7) in the form of the matrix panel: requirements stand for cells. */
+  async estimateDiffCheck(projectId: string, o: DiffCheckInput): Promise<MatrixEstimate> {
+    const plan = await this.diffPlan(projectId, o);
+    const tpc = this.projectSettings(projectId).diff_check.estimate_tokens_per_requirement;
+    return {
+      stage: 'verdicts',
+      role: this.taskRole(projectId, 'diff_check'),
+      sessions: plan.batches.length,
+      cells: plan.items.length,
+      tokensPerCell: tpc,
+      tokensPerCellSource: 'config',
+      tokens: plan.items.length * tpc,
+      maxTokensPerRun: this.projectSettings(projectId).limits.max_tokens_per_run,
+      batches: plan.batches.map((b) => ({ moduleId: '', moduleName: plan.title, group: '', cells: b.length, tokens: b.length * tpc })),
+      busy: 0,
+    };
+  }
+
+  private async renderDiffTask(projectId: string, check: DiffCheck, items: (RequirementItem & { documentTitle: string })[]): Promise<{ role: string; title: string; prompt: string }> {
+    const spec = this.taskSpec(projectId, 'diff_check');
+    const diff = await diffText(this.project(projectId).root, check.baseSha, check.headSha);
+    const fits = diff !== null && Buffer.byteLength(diff) <= this.projectSettings(projectId).diff_check.max_diff_kb_in_prompt * 1024;
+    const documents = [...new Set(items.map((i) => i.documentTitle))];
+    const vars = {
+      project: this.project(projectId).name,
+      target: check.title,
+      check_id: check.id,
+      base_ref: check.baseRef,
+      head_ref: check.headRef,
+      base_sha: check.baseSha,
+      head_sha: check.headSha,
+      changed_files: check.files.map((f) => `- ${f}`).join('\n'),
+      diff: fits ? diff : `(too large for this prompt: read it with \`git diff ${check.baseSha}..${check.headSha} -- <path>\`)`,
+      requirements: documents
+        .map((d) => [`### ${d}`, ...items.filter((i) => i.documentTitle === d).map((i) => `- item_id \`${i.id}\` — ${i.key}${i.section ? ` (${i.section})` : ''}: ${i.text}`)].join('\n'))
+        .join('\n\n'),
+    };
+    return { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file) };
+  }
+
+  async runDiffCheck(projectId: string, o: DiffCheckInput): Promise<{ check: DiffCheck; jobs: Job[] }> {
+    const plan = await this.diffPlan(projectId, o);
+    const check: DiffCheck = {
+      id: crypto.randomUUID(),
+      baseRef: o.baseRef,
+      headRef: o.headRef,
+      target: o.target,
+      title: plan.title,
+      baseSha: plan.baseSha,
+      headSha: plan.headSha,
+      versionIds: plan.versionIds,
+      files: plan.files,
+      author: await this.authorName(projectId),
+      createdAt: new Date().toISOString(),
+    };
+    // Rendered first: a broken template must not leave a check without sessions.
+    const rendered = await Promise.all(plan.batches.map((b) => this.renderDiffTask(projectId, check, b)));
+    this.store(projectId).diff.add(check);
+    const jobs = plan.batches.map((b, i) => {
+      const id = crypto.randomUUID();
+      const payload: DiffPayload = { check_id: check.id, items: b.map((x) => x.id) };
+      return this.addAgentJob(projectId, { ...rendered[i], entity: { type: DIFF_BATCH_ENTITY, id }, payload: { ...payload } }, check.headSha, id);
+    });
+    this.auditChanged(projectId);
+    return { check, jobs };
+  }
+
+  private diffSummary(s: ProjectStore, c: DiffCheck, active: Job[]): DiffCheckSummary {
+    const verdicts = s.diff.verdicts(c.id);
+    const counts: DiffCheckSummary['counts'] = { not_checked: 0, 'n/a': 0, pass: 0, finding: 0, needs_human: 0 };
+    for (const i of this.diffItems(s, c.versionIds)) counts[verdicts.get(i.id)?.status ?? 'not_checked']++;
+    return { ...c, counts, activeJobs: active.filter((j) => diffPayload(j)?.check_id === c.id).length };
+  }
+
+  listDiffChecks(projectId: string): DiffCheckSummary[] {
+    const s = this.store(projectId);
+    const active = s.activeJobs();
+    return s.diff.list().map((c) => this.diffSummary(s, c, active));
+  }
+
+  diffCheckView(projectId: string, id: string): DiffCheckView {
+    const s = this.store(projectId);
+    const c = s.diff.get(id);
+    if (!c) throw new Error(`check ${id} not found`);
+    const verdicts = s.diff.verdicts(id);
+    return {
+      check: this.diffSummary(s, c, s.activeJobs()),
+      rows: this.diffItems(s, c.versionIds).map(({ documentTitle, ...item }) => ({ item, documentTitle, verdict: verdicts.get(item.id) ?? null })),
+    };
+  }
+
   // --- schedules (SPEC §25) ---
 
   private scheduleOf(s: ProjectStore, id: string): Schedule {
@@ -3676,6 +3821,11 @@ export class Core extends EventEmitter {
       case 'doc_refresh':
         this.refreshScope(projectId, a.target);
         break;
+      case 'diff_check':
+        this.diffTarget(s, a.target);
+        await commitOf(this.project(projectId).root, a.baseRef);
+        await commitOf(this.project(projectId).root, a.headRef);
+        break;
     }
   }
 
@@ -3687,7 +3837,7 @@ export class Core extends EventEmitter {
     const maxTokens = input.maxTokens ?? null;
     if (maxTokens !== null) {
       if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('the token limit must be a positive integer');
-      if (action.kind !== 'matrix' && action.kind !== 'sca' && action.kind !== 'doc_refresh') throw new Error('a token limit applies to matrix, SCA and document check actions only; other runs stop at limits.max_tokens_per_run');
+      if (action.kind !== 'matrix' && action.kind !== 'sca' && action.kind !== 'doc_refresh' && action.kind !== 'diff_check') throw new Error('a token limit applies to matrix, SCA, document check and branch check actions');
     }
     this.checkedCron(projectId, input.cron);
     await this.checkScheduleAction(projectId, action);
@@ -3811,6 +3961,12 @@ export class Core extends EventEmitter {
   private async estimateScheduleAction(projectId: string, a: ScheduleAction): Promise<number | null> {
     if (a.kind === 'doc_refresh') return this.estimateDocRefresh(projectId, a.target).tokens;
     if (a.kind === 'sca') return (await this.estimateSca(projectId, { scope: a.scope, moduleIds: a.moduleIds })).tokens;
+    if (a.kind === 'diff_check') {
+      // A branch that did not move must not cost tokens at every firing.
+      const plan = await this.diffPlan(projectId, a);
+      if (this.store(projectId).diff.find(plan.baseSha, plan.headSha, plan.versionIds)) throw new NothingToDo('these changes are already checked against these document versions');
+      return (await this.estimateDiffCheck(projectId, a)).tokens;
+    }
     if (a.kind !== 'matrix') return null;
     if (!a.slice) return (await this.estimateMatrix(projectId, a.matrixId, a.stage, a.scope)).tokens;
     const cells = await this.scheduleCells(projectId, a.matrixId, a.slice);
@@ -3853,6 +4009,8 @@ export class Core extends EventEmitter {
         if (r.failed.length) throw new Error(`could not fetch: ${r.failed.map((f) => `${f.url} (${f.error})`).join(', ')}`);
         throw new NothingToDo('the sources did not change');
       }
+      case 'diff_check':
+        return (await this.runDiffCheck(projectId, { baseRef: a.baseRef, headRef: a.headRef, target: a.target })).jobs.map((j) => j.id);
     }
   }
 
@@ -4056,6 +4214,8 @@ export class Core extends EventEmitter {
   private async prepareJob(job: Job): Promise<{ job: Job; scope: EntityRef[]; prompt: string } | null> {
     const sp = scaPayload(job);
     if (sp) return this.prepareScaJob(job, sp);
+    const dp = diffPayload(job);
+    if (dp) return this.prepareDiffJob(job, dp);
     const mp = matrixPayload(job);
     if (!mp) return { job, scope: [{ type: job.entityType, id: job.entityId }], prompt: String(job.payload.prompt) };
     const s = this.store(job.projectId);
@@ -4070,6 +4230,26 @@ export class Core extends EventEmitter {
       job = s.getJob(job.id)!;
     }
     return { job, scope: remaining.map((id) => ({ type: CELL_ENTITY, id })), prompt: String(job.payload.prompt) };
+  }
+
+  /** Branch check jobs are atomic per requirement, like matrix cells: a re-run covers what earlier runs left open. */
+  private async prepareDiffJob(job: Job, dp: DiffPayload): Promise<{ job: Job; scope: EntityRef[]; prompt: string } | null> {
+    const s = this.store(job.projectId);
+    const remaining = this.openDiffItems(job, dp);
+    if (!remaining.length) return null;
+    if (remaining.length !== dp.items.length) {
+      const check = s.diff.get(dp.check_id);
+      if (!check) throw new Error(`check ${dp.check_id} not found`);
+      const items = this.diffItems(s, check.versionIds).filter((i) => remaining.includes(i.id));
+      s.setJobPayload(job.id, { ...job.payload, items: remaining, prompt: (await this.renderDiffTask(job.projectId, check, items)).prompt });
+      job = s.getJob(job.id)!;
+    }
+    return { job, scope: remaining.map((id) => ({ type: DIFF_ITEM_ENTITY, id: diffItemId(dp.check_id, id) })), prompt: String(job.payload.prompt) };
+  }
+
+  private openDiffItems(job: Job, dp: DiffPayload): string[] {
+    const done = this.store(job.projectId).diff.verdicts(dp.check_id);
+    return dp.items.filter((i) => !done.has(i));
   }
 
   /** Reachability jobs are atomic per vulnerability, like matrix cells: a re-run covers what earlier runs left open. */
@@ -4135,6 +4315,11 @@ export class Core extends EventEmitter {
     if (sp) {
       const left = this.openScaVulns(job, sp);
       return left.length ? `the run finished, but vulnerabilities left without a verdict: ${left.length}; “Retry” reruns only them` : null;
+    }
+    const dp = diffPayload(job);
+    if (dp) {
+      const left = this.openDiffItems(job, dp);
+      return left.length ? `the run finished, but requirements left without a verdict: ${left.length}; “Retry” reruns only them` : null;
     }
     const mp = matrixPayload(job);
     if (!mp) return null;

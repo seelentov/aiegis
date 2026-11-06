@@ -95,7 +95,7 @@ schedules:
   min_interval_minutes: 15
   # A firing missed while the app was not running starts once if it is at most this late; an older one is only recorded.
   catch_up_window_hours: 12
-  # Estimated tokens above which a matrix or SCA firing does not start, unless the schedule sets its own limit.
+  # Estimated tokens above which a matrix, SCA, document check or branch check firing does not start, unless the schedule sets its own limit.
   max_tokens_per_firing: 1000000
 
 matrix:
@@ -109,6 +109,15 @@ matrix:
   estimate_tokens_per_cell:
     triage: 4500
     verdicts: 17000
+
+# Branch checks: the changes of one branch against the requirements of a document set or a document.
+diff_check:
+  # Max requirements in one session; every session reads the same diff, so a usual set of documents takes one session.
+  batch_size: 600
+  # A larger diff stays out of the prompt: the agent reads the files it needs with `git diff`.
+  max_diff_kb_in_prompt: 200
+  # Dry-run estimate: billable tokens per requirement (measured on 563 requirements and a 23 KB diff; it grows with the diff).
+  estimate_tokens_per_requirement: 300
 
 findings:
   # Max candidates returned by find_similar.
@@ -342,6 +351,13 @@ tasks:
     role: matrix
     title: { en: "Verdicts: {{matrix}} × {{module_name}} / {{group}}", ru: "Вердикты: {{matrix}} × {{module_name}} / {{group}}" }
     prompt: instructions/tasks/matrix-verdicts.md
+  # Requirements of a document set or a document against the changes of a branch; runs at the branch commit.
+  # Placeholders: project, target, check_id, base_ref, head_ref, base_sha (fork point), head_sha,
+  # changed_files, diff (a note instead of the text when it is too large), requirements.
+  diff_check:
+    role: diff-check
+    title: { en: "Branch check: {{head_ref}} → {{base_ref}} / {{target}}", ru: "Проверка ветки: {{head_ref}} → {{base_ref}} / {{target}}" }
+    prompt: instructions/tasks/diff-check.md
   # Dependency inventory of one module: the agent picks the tools to resolve dependencies and look up vulnerabilities.
   # Runs in a separate worktree of the commit (build tools write there). Placeholders: project, module_id, module_name,
   # module_globs, module_description, out_dir (the run's directory inside the checkout), inputs (files uploaded by
@@ -484,6 +500,23 @@ roles:
     permissions:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]
+
+  # Branch check: do the changes of a branch break the requirements of a document.
+  diff-check:
+    title: { en: "Branch check", ru: "Проверка ветки" }
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: medium
+    instructions:
+      file:
+        - instructions/roles/diff-check.md
+        - instructions/methodology/verdict-discipline.md
+        - instructions/methodology/attack-classes.md
+    # The reviewed changes are untrusted: `--output` (git takes abbreviations) would let these commands write files.
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash(git log *--ou*)", "Bash(git show *--ou*)", "Bash(git diff *--ou*)"]
 
   # SCA reachability: is a vulnerable package version used by the module in a way the vulnerability needs.
   sca:

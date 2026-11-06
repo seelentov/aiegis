@@ -71,7 +71,7 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
 const STAGE_TITLE: Record<MatrixStage, string> = { triage: tr('n/a triage'), verdicts: tr('Verdicts') };
 
 /** Dry-run estimate shown before queuing a matrix stage (SPEC §7). */
-export function EstimatePanel({ estimate, title, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; onRun: () => void; onCancel: () => void }) {
+export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; onRun: () => void; onCancel: () => void }) {
   const over = estimate.batches.filter((b) => b.tokens > estimate.maxTokensPerRun);
   return (
     <div className="card estimate">
@@ -90,7 +90,7 @@ export function EstimatePanel({ estimate, title, onRun, onCancel }: { estimate: 
       </div>
       {over.length > 0 && (
         <div className="warn">
-          {tr('{n} sessions may exceed the limit of {limit} tokens per run: lower matrix.batch_size or raise limits.max_tokens_per_run.', { n: over.length, limit: kTokens(estimate.maxTokensPerRun) })}
+          {tr('{n} sessions may exceed the limit of {limit} tokens per run: lower {setting} or raise limits.max_tokens_per_run.', { n: over.length, limit: kTokens(estimate.maxTokensPerRun), setting: batchSetting })}
         </div>
       )}
       <details>

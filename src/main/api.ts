@@ -96,6 +96,12 @@ export function coreApi(core: Core): CoreApi {
     linkScaFinding: (pid, fid, id) => core.linkScaFinding(pid, fid, id),
     scaReportPath: (pid, id) => core.scaReportPath(pid, id),
 
+    listBranches: (pid) => core.listBranches(pid),
+    estimateDiffCheck: (pid, input) => core.estimateDiffCheck(pid, input),
+    runDiffCheck: (pid, input) => core.runDiffCheck(pid, input),
+    listDiffChecks: (pid) => core.listDiffChecks(pid),
+    diffCheckView: (pid, id) => core.diffCheckView(pid, id),
+
     listSchedules: (pid) => core.listSchedules(pid),
     scheduleDetails: (pid, id) => core.scheduleDetails(pid, id),
     scheduleHistory: (pid, id, limit) => core.scheduleHistory(pid, id, limit),

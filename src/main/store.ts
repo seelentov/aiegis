@@ -17,6 +17,7 @@ import type {
 } from '../shared/types';
 import { AuditStore } from './audit-store';
 import { entryPointKey, touchedFiles } from './modules';
+import { DiffStore } from './diff-store';
 import { ScaStore } from './sca-store';
 import { ScheduleStore } from './schedule-store';
 import { SignalStore } from './signal-store';
@@ -177,6 +178,8 @@ export class ProjectStore {
   readonly signals: SignalStore;
   /** SCA inputs, dependency inventories and reachability verdicts. */
   readonly sca: ScaStore;
+  /** Branch checks and their verdicts. */
+  readonly diff: DiffStore;
   /** Schedules and their firings. */
   readonly schedules: ScheduleStore;
 
@@ -187,6 +190,7 @@ export class ProjectStore {
     this.audit = new AuditStore(db);
     this.signals = new SignalStore(db);
     this.sca = new ScaStore(db);
+    this.diff = new DiffStore(db);
     this.schedules = new ScheduleStore(db);
   }
 

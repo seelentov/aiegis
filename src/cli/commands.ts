@@ -1,5 +1,5 @@
 import type { AiegisApi, CoreMethod } from '../shared/api';
-import { FINDING_STATUSES, SCA_STATUSES, SEVERITIES, SUPPRESSION_SCOPES, VERDICT_STATUSES, type DocRefreshTarget, type Evidence, type FindingInput, type MatrixScope, type MatrixSlice, type MatrixStage, type ReviewState, type SuppressionInput, SCHEDULE_ACTIONS, type ScheduleAction, type ScheduleInput } from '../shared/types';
+import { FINDING_STATUSES, SCA_STATUSES, SEVERITIES, SUPPRESSION_SCOPES, VERDICT_STATUSES, type DiffCheckInput, type DocRefreshTarget, type Evidence, type FindingInput, type MatrixScope, type MatrixSlice, type MatrixStage, type ReviewState, type SuppressionInput, SCHEDULE_ACTIONS, type ScheduleAction, type ScheduleInput } from '../shared/types';
 
 /** Parsed command line of one command. */
 export interface Input {
@@ -51,6 +51,10 @@ function required(a: Input, flag: string): string {
   const v = a.one(flag);
   if (v === undefined) throw new Error(`--${flag} is required`);
   return v;
+}
+
+function diffInput(a: Input): DiffCheckInput {
+  return { baseRef: required(a, 'base'), headRef: required(a, 'head'), target: refreshTarget(a) };
 }
 
 async function matrixId(c: Ctx, ref: string): Promise<string> {
@@ -123,7 +127,7 @@ async function scheduleId(c: Ctx, ref: string): Promise<string> {
 }
 
 const SCHEDULE_FLAGS =
-  '[--max-tokens <n|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--set <id>] [--document <id>]';
+  '[--max-tokens <n|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]';
 
 /** Action of `--action` and its flags; the core validates the result. */
 async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
@@ -147,6 +151,8 @@ async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
         slice: Object.values(slice).some((v) => v !== undefined) ? slice : undefined,
       };
     }
+    case 'diff_check':
+      return { kind, ...diffInput(a) };
     case 'scanners':
       return { kind, moduleIds: a.has('repository') ? null : (mods ?? []) };
     case 'sca_inventory':
@@ -400,6 +406,26 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   createScaFinding: { name: 'sca finding', usage: `<item> ${FINDING_FLAGS}`, help: 'Create a finding on an SCA item', run: (a, c) => c.call('createScaFinding', c.pid(), a.pos[0], findingInput(a)) },
   linkScaFinding: { name: 'sca link', usage: '<finding> <item>', help: 'Link a finding to an SCA item', run: (a, c) => c.call('linkScaFinding', c.pid(), a.pos[0], a.pos[1]) },
   scaReportPath: { name: 'sca report', usage: '<report>', help: 'Print the path of a stored report', run: (a, c) => c.call('scaReportPath', c.pid(), a.pos[0]) },
+
+  listBranches: { name: 'diff branches', usage: '', help: 'List branches', run: (_a, c) => c.call('listBranches', c.pid()) },
+  estimateDiffCheck: {
+    name: 'diff estimate',
+    usage: '--base <branch> --head <branch> (--set <id> | --document <id>)',
+    help: 'Estimate a branch check',
+    run: (a, c) => c.call('estimateDiffCheck', c.pid(), diffInput(a)),
+  },
+  runDiffCheck: {
+    name: 'diff run',
+    usage: '--base <branch> --head <branch> (--set <id> | --document <id>)',
+    help: 'Check the changes of a branch against a document set or a document',
+    run: async (a, c) => {
+      const input = diffInput(a);
+      await c.confirm(await c.call('estimateDiffCheck', c.pid(), input));
+      return c.call('runDiffCheck', c.pid(), input);
+    },
+  },
+  listDiffChecks: { name: 'diff list', usage: '', help: 'List branch checks', columns: ['id', 'headRef', 'baseRef', 'title', 'counts.finding', 'activeJobs'], run: (_a, c) => c.call('listDiffChecks', c.pid()) },
+  diffCheckView: { name: 'diff show', usage: '<check>', help: 'Show a branch check', run: (a, c) => c.call('diffCheckView', c.pid(), a.pos[0]) },
 
   listSchedules: { name: 'schedule list', usage: '', help: 'List schedules', columns: ['id', 'name', 'cron', 'action.kind', 'enabled', 'nextAt', 'lastFiring.outcome'], run: (_a, c) => c.call('listSchedules', c.pid()) },
   scheduleDetails: { name: 'schedule show', usage: '<schedule>', help: 'Show a schedule', run: async (a, c) => c.call('scheduleDetails', c.pid(), await scheduleId(c, a.pos[0])) },

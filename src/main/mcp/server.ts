@@ -29,6 +29,7 @@ import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, DOC_REFRESH_ENTITY, DOC_TEXT_ENTITY, s
 import type { RefreshProposalInput } from '../core';
 import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { CARRIED_AUTHOR } from '../audit-store';
+import { DIFF_ITEM_ENTITY, diffItemId, diffVerdictError } from '../diff-check';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
 import { fileInside, missingInReport, SCA_MODULE_ENTITY, SCA_PACKAGE_ENTITY, scaItemId, scaPackageEntityId, scaTouched } from '../sca';
 import { hookDecision, POC_ENTITY, POC_ENV_ENTITY, POC_ENV_ID, splitInlinedArg, type PocEnvironment } from '../poc';
@@ -723,6 +724,56 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         );
         svc.onWrite(pid);
         return ok({ saved: v.id, cell: cellId(c), status: v.status });
+      }),
+  );
+
+  server.registerTool(
+    'set_diff_verdicts',
+    {
+      description:
+        'Verdicts of a branch check for requirements in your scope, many in one call: an entry covers the items that share a verdict and reason. pass, finding and needs_human need evidence (code references); finding also needs a severity and evidence citing a changed file; n/a needs a reason. Invalid entries are returned in `rejected`, the others are saved.',
+      inputSchema: {
+        check_id: z.string().min(1),
+        verdicts: z
+          .array(
+            z.object({
+              item_ids: z.array(z.string().min(1)).min(1),
+              status: z.enum(VERDICT_STATUSES),
+              severity: z.enum(SEVERITIES).optional().describe('Required for finding'),
+              reason: z.string().min(1).describe('Justification'),
+              evidence: evidenceSchema.optional(),
+            }),
+          )
+          .min(1),
+      },
+    },
+    async (a) =>
+      guard({ kind: 'read' }, () => {
+        const run = liveRun();
+        const s = svc.store(pid);
+        const check = s.diff.get(a.check_id);
+        if (!check) return fail(`check ${a.check_id} not found`);
+        let saved = 0;
+        const rejected: { item_id: string; error: string }[] = [];
+        for (const v of a.verdicts) {
+          const evidence = v.evidence ?? [];
+          // Files the branch deletes are not in the checkout.
+          const error =
+            diffVerdictError(check.files, v.status, v.severity, evidence) ??
+            evidence.filter((e) => !check.files.includes(e.file)).map((e) => repoFileError(run.cwd, e.file)).find(Boolean);
+          for (const id of v.item_ids) {
+            const d = authorize(grant, pid, { kind: 'write', entity: { type: DIFF_ITEM_ENTITY, id: diffItemId(check.id, id) } });
+            const problem = error ?? (d.ok ? null : d.reason);
+            if (problem) {
+              rejected.push({ item_id: id, error: problem });
+              continue;
+            }
+            s.diff.addVerdict({ checkId: check.id, itemId: id, status: v.status, severity: v.status === 'finding' ? v.severity! : null, reason: v.reason, evidence }, by);
+            saved++;
+          }
+        }
+        if (saved) svc.onWrite(pid);
+        return { ...ok({ saved, rejected }), ...(saved ? {} : { isError: true }) };
       }),
   );
 

@@ -6,6 +6,7 @@ import type { RunFn } from '../App';
 import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
 import { CellDetailsView, FindingDetailsView } from './AuditDetails';
 import { ConfigView } from './ConfigView';
+import { DiffDetailsView } from './DiffTab';
 import { IconButton } from './Icon';
 import { ModuleForm } from './ModulesTab';
 import { ScaItemDetailsView } from './ScaDetails';
@@ -15,7 +16,7 @@ import { SignalDetailsView, SuppressionDetailsView } from './SignalDetails';
 import { tr } from '../i18n';
 
 export interface Selection {
-  kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression' | 'sca' | 'doc-proposal' | 'schedule';
+  kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression' | 'sca' | 'doc-proposal' | 'schedule' | 'diff';
   id: string;
   /** Matrix the cell was opened from (its cascade level). */
   matrixId?: string;
@@ -176,6 +177,13 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
     return (
       <aside className="details">
         <ScheduleDetailsView project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} />
+      </aside>
+    );
+
+  if (selection.kind === 'diff')
+    return (
+      <aside className="details">
+        <DiffDetailsView project={project} id={selection.id} revision={revision} run={run} onTerminal={onTerminal} />
       </aside>
     );
 

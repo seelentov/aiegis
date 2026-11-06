@@ -140,6 +140,9 @@ export const ConfigFileSchema = z.looseObject({
         .optional(),
     })
     .optional(),
+  diff_check: z
+    .looseObject({ batch_size: z.number().int().min(1).optional(), max_diff_kb_in_prompt: z.number().int().min(1).optional(), estimate_tokens_per_requirement: z.number().int().min(1).optional() })
+    .optional(),
   findings: z.looseObject({ similar_limit: z.number().int().min(1).optional() }).optional(),
   scanners: z.record(z.string(), ScannerSchema).optional(),
   signals: z
@@ -228,6 +231,7 @@ export const SETTINGS_KEYS = [
   'sessions',
   'schedules',
   'matrix',
+  'diff_check',
   'findings',
   'tasks',
   'scanners',

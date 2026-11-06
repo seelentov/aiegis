@@ -5,6 +5,7 @@ import type { RunFn } from '../App';
 import { SCHEDULE_ACTION, SCHEDULE_OUTCOME, time } from '../format';
 import { tr } from '../i18n';
 import type { Selection } from './DetailsPanel';
+import { DiffFields, diffFieldsOf, diffInputOf, diffReady, EMPTY_DIFF } from './DiffTab';
 import { EmptyRow, useGrid } from './Grid';
 import { IconButton } from './Icon';
 import { Section } from './Section';
@@ -44,6 +45,7 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
   const [preview, setPreview] = useState<{ next: string[]; timezone: string } | null>(null);
   const [cronError, setCronError] = useState('');
   const [kind, setKind] = useState<Kind>(a?.kind ?? 'matrix');
+  const [diff, setDiff] = useState(a?.kind === 'diff_check' ? diffFieldsOf(a) : EMPTY_DIFF);
   const [maxTokens, setMaxTokens] = useState(schedule?.maxTokens?.toString() ?? '');
   const [prompt, setPrompt] = useState(a?.kind === 'task' ? a.prompt : '');
   const [role, setRole] = useState(a?.kind === 'task' ? a.role : '');
@@ -129,18 +131,20 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
         return { kind, scope: scope as ScaScope, moduleIds };
       case 'entry_points':
         return { kind, moduleId: mods[0] };
+      case 'diff_check':
+        return { kind, ...diffInputOf(diff) };
       case 'doc_refresh':
         return { kind, target: refresh.startsWith('set:') ? { setId: refresh.slice(4) } : { documentId: refresh.slice(4) } };
     }
   };
 
-  const limited = kind === 'matrix' || kind === 'sca' || kind === 'doc_refresh';
+  const limited = kind === 'matrix' || kind === 'sca' || kind === 'doc_refresh' || kind === 'diff_check';
   const save = async () => {
     const input: ScheduleInput = { name, cron, action: action(), maxTokens: limited && maxTokens.trim() ? Number(maxTokens) : null };
     const s = await run(schedule ? api.updateSchedule(project.id, schedule.id, input) : api.createSchedule(project.id, input));
     if (s) onDone(s);
   };
-  const ready = name.trim() && !cronError && (kind === 'task' ? prompt.trim() && role : kind === 'matrix' ? matrixId : kind === 'doc_refresh' ? refresh : true);
+  const ready = name.trim() && !cronError && (kind === 'task' ? prompt.trim() && role : kind === 'matrix' ? matrixId : kind === 'doc_refresh' ? refresh : kind === 'diff_check' ? diffReady(diff) : true);
   const sections = [...new Set((view?.requirements ?? []).map((r) => r.section || '—'))];
 
   return (
@@ -291,6 +295,7 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
         </label>
       )}
 
+      {kind === 'diff_check' && <DiffFields project={project} run={run} value={diff} onChange={setDiff} />}
       {kind === 'doc_refresh' && (
         <label>
           {tr('Set or document')}
@@ -380,7 +385,7 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
             <dd>{SCHEDULE_ACTION[schedule.action.kind]}</dd>
             <dt>{tr('Parameters')}</dt>
             <dd className="mono small">{JSON.stringify(schedule.action, (k, v: unknown) => (k === 'kind' ? undefined : typeof v === 'string' ? (names.get(v) ?? v) : v))}</dd>
-            {(schedule.action.kind === 'matrix' || schedule.action.kind === 'sca' || schedule.action.kind === 'doc_refresh') && (
+            {(schedule.action.kind === 'matrix' || schedule.action.kind === 'sca' || schedule.action.kind === 'doc_refresh' || schedule.action.kind === 'diff_check') && (
               <>
                 <dt>{tr('Token limit')}</dt>
                 <dd>{schedule.maxTokens ?? tr('from the settings')}</dd>

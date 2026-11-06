@@ -3,6 +3,7 @@ import type { AppEvent, ProjectInfo, QueueState, RecheckOffer, TerminalInfo } fr
 import { api, bridge, errorText } from './api';
 import { confirmRecheck } from './components/AuditDetails';
 import { DetailsPanel, type Selection } from './components/DetailsPanel';
+import { DiffTab } from './components/DiffTab';
 import { DocumentsTab } from './components/DocumentsTab';
 import { EntryPointsTab } from './components/EntryPointsTab';
 import { FindingsTab } from './components/FindingsTab';
@@ -25,6 +26,7 @@ const TABS = [
   { id: 'sca', title: 'SCA', icon: 'package', stage: 5, group: 'audit' },
   { id: 'signals', title: tr('Signals'), icon: 'scan', stage: 4, group: 'audit' },
   { id: 'entry-points', title: tr('Entry points'), icon: 'route', stage: 2, group: 'audit' },
+  { id: 'diff', title: tr('Branch check'), icon: 'branch', stage: 3, group: 'audit' },
   { id: 'modules', title: tr('Modules'), icon: 'layers', stage: 2, group: 'sources' },
   { id: 'documents', title: tr('Documents'), icon: 'file', stage: 3, group: 'sources' },
   { id: 'queue', title: tr('Queue'), icon: 'list', stage: 1, group: 'system' },
@@ -43,6 +45,7 @@ const SELECTION_KIND: Record<Selection['kind'], string> = {
   signal: tr('signal'),
   suppression: tr('suppression'),
   sca: tr('vulnerability'),
+  diff: tr('requirement'),
   'doc-proposal': tr('proposal'),
   schedule: tr('schedule'),
 };
@@ -189,7 +192,7 @@ export function App() {
     <button
       key={t.id}
       className={`activity-item ${t.id === tab ? 'active' : ''} ${i > 0 && TABS[i - 1].group !== t.group && t.group !== 'system' ? 'group-start' : ''}`}
-      title={`${t.title} (${MOD}${(i + 1) % 10})`}
+      title={i < 10 ? `${t.title} (${MOD}${(i + 1) % 10})` : t.title}
       aria-label={t.title}
       aria-current={t.id === tab ? 'page' : undefined}
       onClick={() => setTab(t.id)}
@@ -298,6 +301,8 @@ export function App() {
                 <DocumentsTab project={project} revision={revision} run={run} onTerminal={showTerminal} selection={selection} onSelect={setSelection} notify={notify} onCreateMatrix={createMatrix} />
               ) : tab === 'matrix' ? (
                 <MatrixTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} draftDocument={matrixDraft} onDraftTaken={() => setMatrixDraft(null)} />
+              ) : tab === 'diff' ? (
+                <DiffTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
               ) : tab === 'findings' ? (
                 <FindingsTab project={project} revision={revision} run={run} selection={selection} onSelect={setSelection} />
               ) : tab === 'sca' ? (

@@ -1,6 +1,10 @@
 import type {
   AppEvent,
   CellDetails,
+  DiffCheck,
+  DiffCheckInput,
+  DiffCheckSummary,
+  DiffCheckView,
   ConfigFileInfo,
   DocLink,
   DocProposal,
@@ -185,6 +189,14 @@ export interface AiegisApi {
   linkScaFinding(projectId: string, findingId: string, itemId: string): Finding;
   /** Absolute path of a stored inventory report. */
   scaReportPath(projectId: string, reportId: string): string;
+
+  /** Local and remote-tracking branches of the project. */
+  listBranches(projectId: string): string[];
+  estimateDiffCheck(projectId: string, input: DiffCheckInput): MatrixEstimate;
+  /** Checks the changes `headRef` brings into `baseRef` against the current requirements of a set or a document. */
+  runDiffCheck(projectId: string, input: DiffCheckInput): { check: DiffCheck; jobs: Job[] };
+  listDiffChecks(projectId: string): DiffCheckSummary[];
+  diffCheckView(projectId: string, checkId: string): DiffCheckView;
 
   listSchedules(projectId: string): Schedule[];
   scheduleDetails(projectId: string, id: string): Schedule;

@@ -253,6 +253,27 @@ if (!args.includes('-p')) {
       }
       return done(out.join('\n'));
     }
+    if (prompt.includes('Check the changes of branch')) {
+      const check_id = /Check id: `([^`]+)`/.exec(prompt)[1];
+      const items = [...prompt.matchAll(/^- item_id `([^`]+)` — (.*)$/gm)].map((m) => ({ item_id: m[1], text: m[2] }));
+      const out = [];
+      const set = (item_ids, v) => mcp('set_diff_verdicts', { check_id, verdicts: [{ item_ids, ...v }] });
+      const open = items.filter((i) => !(i.text.includes('SKIP_ONCE') && items.length > 1));
+      const idor = open.filter((i) => i.text.includes('IDOR')).map((i) => i.item_id);
+      if (idor.length) {
+        const evidence = [{ file: 'svc/Gone.java', note: 'the branch deletes the owner check' }];
+        const outside = await set(idor, { status: 'finding', severity: 'high', reason: 'x', evidence: [{ file: 'lib/Util.java' }] });
+        const noSeverity = await set(idor, { status: 'finding', reason: 'x', evidence });
+        out.push(`outside=${Boolean(outside.isError)} no_severity=${Boolean(noSeverity.isError)}`);
+        await set(idor, { status: 'finding', severity: 'high', reason: 'owner check removed', evidence });
+      }
+      const rest = open.filter((i) => !idor.includes(i.item_id)).map((i) => i.item_id);
+      if (rest.length) {
+        const r = JSON.parse((await set([...rest, 'not-mine'], { status: 'n/a', reason: 'not touched by the changes' })).content[0].text);
+        out.push(`saved=${r.saved} foreign_rejected=${r.rejected.map((x) => x.item_id).join()}`);
+      }
+      return done(out.join('\n') || 'checked');
+    }
     if (prompt.includes('Check module')) {
       const module_id = moduleOf();
       let signals = '';

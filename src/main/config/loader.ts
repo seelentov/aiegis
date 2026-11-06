@@ -108,6 +108,7 @@ export interface Settings {
     estimate_history_runs: number;
     estimate_tokens_per_cell: { triage: number; verdicts: number };
   };
+  diff_check: { batch_size: number; max_diff_kb_in_prompt: number; estimate_tokens_per_requirement: number };
   findings: { similar_limit: number };
   tasks: Record<string, TaskSettings>;
   /** Scanners by name; entries are validated when used (`scannerSettings`). */
@@ -234,6 +235,9 @@ const REQUIRED_SETTINGS: string[] = [
   'matrix.estimate_history_runs',
   'matrix.estimate_tokens_per_cell.triage',
   'matrix.estimate_tokens_per_cell.verdicts',
+  'diff_check.batch_size',
+  'diff_check.max_diff_kb_in_prompt',
+  'diff_check.estimate_tokens_per_requirement',
   'findings.similar_limit',
   'scanners',
   'signals.auto_scan',
