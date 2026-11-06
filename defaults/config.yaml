@@ -121,10 +121,16 @@ matrix:
 diff_check:
   # Max requirements in one session; every session reads the same diff, so a usual set of documents takes one session.
   batch_size: 600
-  # A larger diff stays out of the prompt: the agent reads the files it needs with `git diff`.
-  max_diff_kb_in_prompt: 200
-  # Dry-run estimate: billable tokens per requirement (measured on 563 requirements and a 23 KB diff; it grows with the diff).
-  estimate_tokens_per_requirement: 300
+  # A larger diff stays out of the prompt: the agent reads the files it needs with `git diff`. Measured on a 289 KB diff:
+  # an agent reading it by itself found 1 of 5 planted flaws, the diff in the prompt 5 of 5. 1000 KB is ~450k tokens.
+  max_diff_kb_in_prompt: 1000
+  # Pathspec globs left out of the diff in the prompt (still listed as changed, the agent reads them if they matter):
+  # tests, styles, lock and generated files took ~20% of a large diff and gave no findings.
+  prompt_exclude: ["**/package-lock.json", "**/yarn.lock", "**/*.lock", "**/*.svg", "**/*.css", "**/*.scss", "**/*.snap", "**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/*Test.java", "**/*Test.kt"]
+  # Dry-run estimate: billable tokens per requirement plus per KB of the diff in the prompt (each session reads it);
+  # measured: 563 requirements with a 23 KB diff, 73 requirements with a 244 KB diff.
+  estimate_tokens_per_requirement: 250
+  estimate_tokens_per_diff_kb: 450
 
 findings:
   # Max candidates returned by find_similar.
