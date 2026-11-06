@@ -5,7 +5,7 @@
 <h1 align="center">aiegis</h1>
 
 <p align="center">
-  Десктопное приложение для AppSec-аудита кода поверх <a href="https://docs.claude.com/en/docs/claude-code/overview">Claude Code</a> или <a href="https://pi.dev">pi</a>
+  A desktop app for AppSec code audits on top of <a href="https://docs.claude.com/en/docs/claude-code/overview">Claude Code</a> or <a href="https://pi.dev">pi</a>
 </p>
 
 <p align="center">
@@ -14,166 +14,115 @@
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms" />
 </p>
 
-![Матрица требований](docs/screenshots/matrix.png)
+<p align="center">
+  <a href="docs/getting-started.md"><b>Getting started</b></a> ·
+  <a href="docs/README.md"><b>Documentation</b></a> ·
+  <a href="docs/cli.md"><b>CLI reference</b></a> ·
+  <a href="https://github.com/seelentov/aiegis/releases/latest"><b>Download</b></a>
+</p>
 
-aiegis превращает аудит безопасности репозитория в управляемый процесс: требования из стандартов и внутренних
-гайдлайнов раскладываются в матрицу «требование × модуль», а фоновые сессии ИИ-агента выносят по каждой ячейке
-вердикт со ссылками на код. Приложение не содержит своего чата — оно запускает локальный кодинг-агент, хранит данные,
-промпты и конфигурацию, а агент общается с приложением через встроенный MCP-сервер. По умолчанию это `claude`
-(Claude Code); вместо него можно включить [pi](https://pi.dev) — как в [JetBrains ThinkRail](https://github.com/JetBrains/thinkrail) —
-и работать с моделями любого провайдера.
+![The requirements matrix](docs/screenshots/matrix.png)
 
-> Статус: **0.x, ранняя версия.** Интерфейс на английском и русском (`ui.language`). Основная платформа — macOS; сборки для Windows и Linux
-> собираются автоматически, но проверены меньше.
+aiegis turns a repository security audit into a managed process. Requirements from standards and internal guidelines are laid out in a matrix of requirement × module, and background sessions of an AI agent deliver a verdict for each cell, with references to the code.
 
-## Возможности
+The app has no chat of its own. It starts your local coding agent, stores the data, prompts and configuration, and the agent reports through a built-in MCP server. By default the agent is `claude` (Claude Code). You can use [pi](https://pi.dev) instead, as in [JetBrains ThinkRail](https://github.com/JetBrains/thinkrail), with models from any provider.
 
-- **Модули** — репозиторий делится на модули (имя + globs), разметку может сделать ИИ; изменения хранят историю.
-- **Карта точек входа** — HTTP/gRPC/GraphQL/очереди/cron/CLI/WebSocket/плагины: хэндлер, middleware, авторизация,
-  параметры и цепочка вызовов до sink'ов. Версионируется по коммитам.
-- **Документы → требования** — загрузка MD/PDF/DOCX, ИИ извлекает пункты с цитатами, обязательное ревью человеком,
-  повторный импорт показывает diff и переносит неизменённые пункты. Документы безопасности может составить и ИИ.
-- **Актуализатор документов** — документы группируются в наборы со ссылками на источники; ИИ сверяет их с источниками
-  и создаёт предложения (новая редакция, новый документ, замена, вывод из действия), применяет их человек. Если
-  источники не менялись, проверка обходится без ИИ.
-- **Матрица** — дешёвый отсев `n/a`, затем вердикты `pass | finding | needs_human` с обоснованием и ссылками на код;
-  запуск по столбцу, строке, разделу, всегда с dry-run оценкой токенов.
-- **Находки** — жизненный цикл `suspected → verified | false_positive | accepted_risk | fixed`, дедупликация
-  (`find_similar` перед созданием), связь M:N с ячейками матрицы.
-- **Сигналы SAST** — Semgrep, Gitleaks и Trivy запускаются раз на коммит; результаты нормализуются и выдаются агенту
-  как подсказки. Подавления с причиной, автором и сроком.
-- **SCA** — ИИ-инвентаризация зависимостей модуля, префильтр без ИИ по именам импорта, проверка достижимости
-  уязвимости по пакету; достижимая уязвимость порождает находку.
-- **PoC-тестировщик** — поднимает тестовый инстанс из worktree и проверяет находку запросами только к `base_url`
-  (песочница ОС + хук на сетевые команды). Как поднять проект, может разобраться агент env-setup: он описывает
-  тестовое окружение и сам проверяет, что оно стартует.
-- **Актуальность** — каждый вердикт привязан к коммиту и файлам-доказательствам; изменения кода помечают его `stale`.
-- **Проверка ветки** — изменения ветки, как в PR (от точки расхождения), сверяются с требованиями набора документов
-  или одного документа до слияния. Результаты живут внутри проверки и не попадают в находки и матрицу.
-- **Расписания** — матрица, SCA, сканеры, карта точек входа, проверка документов или ветки и произвольная задача по
-  cron, с лимитом токенов на срабатывание и историей. Работают, пока запущено приложение или сервис.
-- **Сервис без UI** — один исполняемый файл под Linux и CLI с теми же действиями, что в приложении.
-- **Выбор агента** — Claude Code или pi для всего приложения, проекта, роли или модуля (поле каскада `agent`).
-- **История** — append-only прогоны: коммит, снимок конфигурации, сессия, токены и стоимость; любую сессию можно
-  открыть во встроенном терминале и продолжить интерактивно.
+> **Status: 0.x, an early version.** The data and configuration formats may change. macOS is the main platform; Windows and Linux builds are produced automatically and get less testing.
 
-## Как это устроено
+## Features
 
-- Фоновые прогоны — `claude -p --output-format stream-json` или `pi --mode json` в `git worktree` на зафиксированном
-  коммите: рабочее дерево пользователя не трогается.
-- Каждый прогон получает свой токен MCP-сервера (у `claude` — `--mcp-config`, у `pi` — через расширение aiegis):
-  сервер знает роль и scope, записи вне scope отклоняются.
-- Права ролей пишутся один раз в синтаксисе Claude Code; для pi их проверяет расширение aiegis на каждом вызове
-  инструмента (у pi своей системы прав нет).
-- Ничего не захардкожено: агент, промпты ролей, права, модели, effort, сканеры и лимиты лежат в редактируемых файлах
-  с каскадом `глобальный → проект → роль → модуль → матрица → пункт`.
-- Данные: `~/.aiegis/` (глобальные настройки), `<repo>/.aiegis/` (настройки проекта, коммитятся),
-  каталог данных приложения (`db.sqlite`, документы, worktree).
+| Feature | What it does | Docs |
+|---|---|---|
+| **Modules** | Splits the repository into named sets of globs, by hand or by AI, and keeps their history | [Modules](docs/modules.md) |
+| **Entry point maps** | HTTP, gRPC, GraphQL, queues, cron, CLI, WebSocket and plugins, with handler, middleware, authorization, parameters and call chains to sinks. Versioned by commit | [Entry points](docs/entry-points.md) |
+| **Documents to requirements** | Uploads MD, PDF or DOCX, or lets AI write security documents from your code. AI extracts items with quotes, a person reviews them, and new versions show a diff | [Documents](docs/documents.md) |
+| **Document refresher** | Checks document sets against their sources and proposes new editions, new documents, replacements and retirements. A person applies them, and unchanged sources cost no AI | [Document refresher](docs/document-refresher.md) |
+| **Matrix** | An inexpensive `n/a` triage, then `pass`, `finding` or `needs_human` verdicts with reasons and code references. Runs by column, row or section, always after a token estimate | [Matrix](docs/matrix.md) |
+| **Findings** | A `suspected → verified, false_positive, accepted_risk, fixed` lifecycle, mandatory deduplication, merging, and fix sessions | [Findings](docs/findings.md) |
+| **SAST signals** | Semgrep, Gitleaks and Trivy run once per commit. Results are normalized and given to the agent as hints. Suppressions record a reason, author and expiry | [Signals](docs/signals.md) |
+| **SCA** | An AI dependency inventory backed by tool reports, a prefilter without AI, and reachability per package. A reachable vulnerability becomes a finding | [SCA](docs/sca.md) |
+| **PoC tester** | Starts a test instance from a worktree and checks a finding with requests only to `base_url`, in an OS sandbox. An agent can work out how to start your project | [PoC tester](docs/poc.md) |
+| **Branch checks** | Checks a branch's changes, as a pull request shows them, against a document set before merging. Results stay separate from the audit | [Branch checks](docs/branch-check.md) |
+| **Schedules** | Runs matrices, SCA, scanners, entry point maps, document and branch checks and free-form tasks on cron, with token limits and history | [Schedules](docs/schedules.md) |
+| **Freshness** | Each verdict is tied to a commit and its evidence files. Code changes mark it `stale`, so you recheck only that | [Concepts](docs/concepts.md#freshness-stale) |
+| **Service and CLI** | One Linux executable runs without a window, and a CLI offers the same actions as the app | [Service and CLI](docs/service.md) |
+| **Choice of agent** | Claude Code or pi, for the whole app, a project, a role or a module | [Agents](docs/agents.md) |
+| **History** | Append-only runs with commit, configuration snapshot, session, tokens and cost. Any session can be reopened in the built-in terminal | [Queue and sessions](docs/queue-and-sessions.md) |
 
-Подробнее — в [документации](docs/README.md).
+## How it works
 
-## Скриншоты
+- Background runs use `claude -p --output-format stream-json` or `pi --mode json` in a `git worktree` on a pinned commit, so your working tree is not touched.
+- Each run gets its own token for the MCP server. The server knows the role and scope, and refuses writes outside the scope.
+- Role permissions are written once, in Claude Code syntax. For pi, the aiegis extension enforces them on each tool call.
+- Nothing is hardcoded: the agent, role prompts, permissions, models, effort, scanners and limits are in editable files, with a cascade of `global → project → role → module → matrix → item`.
+- Data lives in `~/.aiegis/` (global settings), `<repo>/.aiegis/` (project settings, committed) and the app's data directory (`db.sqlite`, documents, worktrees).
+
+See [Concepts](docs/concepts.md), [Configuration](docs/configuration.md) and [Security](docs/security.md).
+
+## Screenshots
 
 | | |
 |---|---|
-| ![Находка](docs/screenshots/finding.png) | ![Точки входа](docs/screenshots/entry-points.png) |
-| ![Сигналы](docs/screenshots/signals.png) | ![SCA](docs/screenshots/sca.png) |
+| ![Finding details with a PoC result](docs/screenshots/finding.png) | ![Dependency reachability](docs/screenshots/sca.png) |
+| Findings and the PoC tester | SCA |
+| ![Scanner signals](docs/screenshots/signals.png) | ![Entry point map](docs/screenshots/entry-points.png) |
+| Signals | Entry points |
+| ![A branch check](docs/screenshots/branch-check.png) | ![Schedules](docs/screenshots/schedules.png) |
+| Branch checks | Schedules |
+| ![Documents](docs/screenshots/documents.png) | ![A proposed new edition](docs/screenshots/document-proposal.png) |
+| Documents | Document refresher |
+| ![The queue](docs/screenshots/queue.png) | ![Settings](docs/screenshots/settings.png) |
+| Queue | Settings |
 
-Все скриншоты с описанием разделов — в [docs/README.md](docs/README.md).
+## Install
 
-## Установка
+You need:
 
-Требования:
+- [Claude Code](https://docs.claude.com/en/docs/claude-code/setup), installed and logged in (`claude` on `PATH`), which is the default agent. Or [pi](https://pi.dev) (`npm install -g @earendil-works/pi-coding-agent`, `pi` on `PATH`, a provider configured in pi) with `agent: pi` in `~/.aiegis/config.yaml`. See [Agents](docs/agents.md).
+- `git`.
+- Optionally, `semgrep`, `gitleaks` and `trivy` on `PATH`. Without them, those scanners are skipped.
 
-- установленный и залогиненный [Claude Code](https://docs.claude.com/en/docs/claude-code/setup) (`claude` в `PATH`) —
-  агент по умолчанию; или [pi](https://pi.dev) (`npm install -g @earendil-works/pi-coding-agent`, `pi` в `PATH`,
-  провайдер настроен в самом pi) и `agent: pi` в `~/.aiegis/config.yaml`
-  (подробнее — [ИИ-агент](docs/README.md#ии-агент-claude-code-или-pi));
-- `git`;
-- по желанию — `semgrep`, `gitleaks`, `trivy` в `PATH` (без них соответствующие сканеры отключаются).
+Builds are on the [releases page](https://github.com/seelentov/aiegis/releases/latest):
 
-Готовые сборки — на странице [релизов](https://github.com/seelentov/aiegis/releases/latest):
-
-| Платформа | Файл |
+| Platform | File |
 |---|---|
-| macOS (Apple Silicon) | `aiegis-<версия>-mac-arm64.dmg` |
-| Windows x64 | `aiegis-<версия>-win-x64.exe` |
-| Linux x64 | `aiegis-<версия>-linux-x86_64.AppImage`, `.deb` |
-| Linux x64, arm64: [сервис без UI](#сервис-без-ui) | `aiegis-<версия>-linux-x64`, `aiegis-<версия>-linux-arm64` |
+| macOS (Apple Silicon) | `aiegis-<version>-mac-arm64.dmg` |
+| Windows x64 | `aiegis-<version>-win-x64.exe` |
+| Linux x64 | `aiegis-<version>-linux-x86_64.AppImage`, `.deb` |
+| Linux x64, arm64: [service without a window](docs/service.md) | `aiegis-<version>-linux-x64`, `aiegis-<version>-linux-arm64` |
 
-Сборки не подписаны. На macOS при первом запуске: правый клик по приложению → «Открыть»
-(или `xattr -dr com.apple.quarantine /Applications/aiegis.app`).
+Builds are not signed. On macOS, right-click the app and choose **Open** the first time, or run `xattr -dr com.apple.quarantine /Applications/aiegis.app`.
 
-### Из исходников
+### From source
 
 ```bash
 git clone https://github.com/seelentov/aiegis.git
 cd aiegis
-npm install        # пересобирает node-pty под Electron
+npm install        # rebuilds node-pty for Electron
 npm start
 ```
 
-## Сервис без UI
+Then continue with [Getting started](docs/getting-started.md).
 
-Бинарник `aiegis` под Linux (x64, arm64, из релизов или `npm run dist:service` на Node 24) работает без окна и управляется им же. `claude` (или `pi`) и сканеры ставятся на сервер отдельно.
+## Documentation
 
-```bash
-aiegis                                # сервис: работает, пока не остановят (SIGTERM, Ctrl+C)
-aiegis project add /srv/repos/shop    # остальные команды обращаются к запущенному сервису
-aiegis doc import ./guide.md          # в папке проекта; иначе --project <имя или id>
-aiegis matrix run main --module auth  # покажет оценку токенов и спросит подтверждение; --yes пропускает его
-aiegis job list
-aiegis watch <job>                    # вывод задачи; Ctrl+C только отключает просмотр
-aiegis log-level queue debug          # до перезапуска сервиса
-aiegis help                           # все команды
-```
+- **Start:** [Getting started](docs/getting-started.md) · [Concepts](docs/concepts.md) · [Interface](docs/interface.md)
+- **Audit:** [Matrix](docs/matrix.md) · [Findings](docs/findings.md) · [SCA](docs/sca.md) · [Signals](docs/signals.md) · [Entry points](docs/entry-points.md) · [PoC tester](docs/poc.md) · [Branch checks](docs/branch-check.md)
+- **Sources:** [Modules](docs/modules.md) · [Documents](docs/documents.md) · [Document refresher](docs/document-refresher.md)
+- **Automation:** [Schedules](docs/schedules.md) · [Queue and sessions](docs/queue-and-sessions.md) · [Service and CLI](docs/service.md) · [CLI reference](docs/cli.md)
+- **Reference:** [Configuration](docs/configuration.md) · [Agents](docs/agents.md) · [MCP tools](docs/mcp.md) · [Security](docs/security.md) · [Data and logs](docs/data-and-logs.md)
 
-Проверка веток сверяет изменения ветки, как в PR, с требованиями набора документов или одного документа: вкладка «Проверка ветки» или `aiegis diff run --base main --head task-123 --set <id>` (`--document <id>`). Ветки берутся из локального репозитория, `git fetch` выполняете вы.
-
-Расписания запускают действия по cron, пока работает окно приложения или сервис: `aiegis schedule add --name nightly --cron '0 3 * * *' --action matrix --matrix main --stage verdicts --scope stale`; то же — на вкладке «Расписания». Список команд — `aiegis help`.
-
-Команда `--json` печатает ответ как есть. Коды выхода: `0` успех, `1` ошибка, `2` сервис не запущен. Управлять сервисом может только его пользователь ОС: сокет доступен лишь ему, с другой машины — через `ssh`. Сервис и окно приложения не работают одновременно на одном каталоге данных. Интерактивных сессий в сервисе нет. При остановке задачи возвращаются в очередь и продолжаются после запуска.
-
-Пример unit-файла systemd (`User` — пользователь, у которого залогинен `claude`):
-
-```ini
-[Unit]
-Description=aiegis
-After=network.target
-
-[Service]
-User=appsec
-ExecStart=/usr/local/bin/aiegis
-Restart=on-failure
-TimeoutStopSec=120
-
-[Install]
-WantedBy=multi-user.target
-```
-
-PoC-тестировщику на Linux нужна песочница: `socat` и `bubblewrap`, а на Ubuntu 24.04 ещё и профиль AppArmor, иначе `bwrap` падает с `Failed RTM_NEWADDR: Operation not permitted`:
+## Development
 
 ```bash
-sudo apt install bubblewrap socat
-printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n' | sudo tee /etc/apparmor.d/bwrap
-sudo apparmor_parser -r /etc/apparmor.d/bwrap
+npm run typecheck     # TypeScript
+npm test              # unit tests, no AI calls
+npm run dist          # installer for the current OS, in release/
+npm run dist:service  # the Linux service executable, on Node 24
 ```
 
-Секреты тестовых аккаунтов на Linux задаются только через `env` (в unit-файле — `Environment=` или `EnvironmentFile=`): Keychain есть лишь на macOS. Оболочкой пользователя сервиса должен быть bash. Если `claude` не находится, укажите полный путь в `claude.binary`.
+[GitHub Actions](.github/workflows/release.yml) builds the release for all platforms when a release is published.
 
-Логи: stderr (`journalctl -u aiegis`) и `<каталог данных>/logs/aiegis.log`, настройка — секция `logging` в `~/.aiegis/config.yaml`.
+## License
 
-## Разработка
-
-```bash
-npm run typecheck  # TypeScript
-npm test           # unit-тесты (без вызовов ИИ)
-npm run dist       # сборка установщика для текущей ОС в release/
-```
-
-Релизные сборки для всех платформ собирает [GitHub Actions](.github/workflows/release.yml) при публикации релиза.
-
-## Лицензия
-
-[MIT](LICENSE). Методические фрагменты в `defaults/instructions/methodology/` адаптированы из
-[cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) (MIT, © Cloudflare, Inc.).
+[MIT](LICENSE). Methodology fragments in `defaults/instructions/methodology/` are adapted from [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) (MIT, © Cloudflare, Inc.).
