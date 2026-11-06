@@ -144,9 +144,9 @@ export const ConfigFileSchema = z.looseObject({
     })
     .optional(),
   diff_check: z
-    .looseObject({ batch_size: z.number().int().min(1).optional(), max_diff_kb_in_prompt: z.number().int().min(1).optional(), estimate_tokens_per_requirement: z.number().int().min(1).optional() })
+    .looseObject({ batch_size: z.number().int().min(1).optional(), max_diff_kb_in_prompt: z.number().int().min(1).optional(), prompt_exclude: z.array(z.string()).optional(), estimate_tokens_per_requirement: z.number().int().min(1).optional(), estimate_tokens_per_diff_kb: z.number().int().min(0).optional() })
     .optional(),
-  findings: z.looseObject({ similar_limit: z.number().int().min(1).optional() }).optional(),
+  findings: z.looseObject({ similar_limit: z.number().int().min(1).optional(), verify_estimate_history_runs: z.number().int().min(1).optional(), verify_estimate_tokens: z.number().int().min(1).optional() }).optional(),
   scanners: z.record(z.string(), ScannerSchema).optional(),
   signals: z
     .looseObject({

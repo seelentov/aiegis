@@ -26,6 +26,7 @@ Repository code, diffs and web pages can contain text aimed at the agent. Prompt
 |---|---|---|
 | `matrix`, `sca`, `entry-points`, `modules`, `diff-check` | Code | No writes. `git` commands only, and `--output` is denied for `diff-check` |
 | `doc-refresh` | Web pages | No shell or writes; its own directory only; downloads through `fetch_url` |
+| `finding-verify` | Code and the text of the finding | Read-only checkout, no `git diff`, MCP token limited to its own result |
 | `matrix` and others reading `get_signals` | Imported SARIF reports | Texts are cleaned and marked `imported`. See [Importing SARIF](signals.md#importing-sarif) |
 | `tester` | Code and instance responses | OS sandbox. See [Isolation](poc.md#isolation) |
 
@@ -38,6 +39,7 @@ Know these before you audit a repository you do not trust:
 - **The test instance** runs the project's code outside the sandbox, with account secrets, when `start` executes.
 - **Most background roles inherit your whole environment** (only the tester, its instance and env-setup are limited to `poc.env_passthrough`). Roles without `Bash` cannot read it, but keep this in mind if you widen a role's permissions.
 - **Interactive sessions** (**New session**, **Fix**) run in your working directory and can change your code, under the agent's normal prompts.
+- **`git diff` can read outside the repository.** Given paths outside the working tree, it compares those files, so roles allowed `Bash(git diff:*)` can read any file your user can. Most roles also have an unrestricted `Read`. `finding-verify` has neither, to keep the transcript of the original session out of reach.
 - **The `manage` token** of the assistant can read all project data and start work.
 - **The tester under Claude Code on macOS** can reach any `localhost` port from scripts, because of `allowLocalBinding`. The internet stays closed, and the MCP server needs a token. See [Isolation](poc.md#isolation).
 - **A project's `.aiegis/config.yaml` is trusted.** It can change prompts, permissions, `env`, scanner binaries and the commands of the PoC environment. Before you add a repository you do not trust, read its `.aiegis/` directory, or delete it in a copy.
@@ -52,6 +54,14 @@ Know these before you audit a repository you do not trust:
 | The PoC tester | `base_url` only |
 | Scanners | Whatever the tool does: `semgrep --config p/default` fetches rules, and `trivy` fetches its database |
 | Agents | Their model provider. Your code is sent to it as part of a session |
+
+## Provider safety filters
+
+Anthropic runs real-time cyber safeguards on its models, and they can block security work. Its [Cyber Verification Program](https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude) reduces blocking. Its help page says generally available models can be used for secure code review, finding vulnerabilities in your own source code and triaging security alerts, while exploit validation may be interrupted.
+
+This is why `finding-verify` only reads source code. Test runs on a subscription outside the program were not blocked (Sonnet and Haiku, about 55 sessions on a test repository and on a large real one, 33 of them with Haiku in one series). That is no guarantee: classifiers are probabilistic, larger runs and such a series with Sonnet were not tested, and false blocks are reported.
+
+No block has been observed in aiegis, so its exact form is unknown. A run stopped this way ends its job as failed: either with the text of the error, or with "no result was recorded". The run's log shows why. aiegis does not retry such a run and does not switch the model. Whether to join the program is up to the owner of the account.
 
 ## Reporting a vulnerability
 

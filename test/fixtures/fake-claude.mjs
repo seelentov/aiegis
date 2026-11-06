@@ -377,6 +377,35 @@ if (!args.includes('-p')) {
       out.push((await mcp('set_poc_result', { finding_id: findingId, outcome: 'reproduced', summary: 'alice reads order 2 of bob', steps })).content[0].text);
       return done(out.join('\n'));
     }
+    const fixing = /Check whether the finding (\S+) of project/.exec(prompt);
+    if (fixing) {
+      const done = (text) => emit({ type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: 0.001, usage: { input_tokens: 5, output_tokens: 7 } });
+      if (prompt.includes('FIX_REFUSED')) return done('I cannot help with that.');
+      const id = fixing[1];
+      const out = [
+        `other tool=${(await mcp('set_finding_verification', { finding_id: id, outcome: 'refuted', reason: 'r' }))?.content?.[0]?.text ?? 'no such tool'}`,
+        `no evidence=${(await mcp('set_fix_verification', { finding_id: id, outcome: 'closed', reason: 'r' })).content[0].text}`,
+        `missing file=${(await mcp('set_fix_verification', { finding_id: id, outcome: 'closed', reason: 'r', evidence: [{ file: 'nope.js' }] })).content[0].text}`,
+        `other finding=${(await mcp('set_fix_verification', { finding_id: 'other', outcome: 'undetermined', reason: 'r' })).content[0].text}`,
+      ];
+      const outcome = prompt.includes('FIX_UNDETERMINED') ? 'undetermined' : 'closed';
+      await mcp('set_fix_verification', { finding_id: id, outcome, reason: `prompt:${prompt}\n${out.join('\n')}`, evidence: [{ file: 'deleted.js' }] });
+      return done('checked');
+    }
+    const verifying = /Try to refute the finding (\S+) /.exec(prompt);
+    if (verifying) {
+      const done = (text) => emit({ type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: 0.001, usage: { input_tokens: 5, output_tokens: 7 } });
+      if (prompt.includes('VERIFY_REFUSED')) return done('I cannot help with that.');
+      const id = verifying[1];
+      const out = [
+        `other tool=${(await mcp('list_findings', {}))?.content?.[0]?.text ?? 'no such tool'}`,
+        `no evidence=${(await mcp('set_finding_verification', { finding_id: id, outcome: 'refuted', reason: 'r' })).content[0].text}`,
+        `missing file=${(await mcp('set_finding_verification', { finding_id: id, outcome: 'refuted', reason: 'r', evidence: [{ file: 'nope.js' }] })).content[0].text}`,
+        `other finding=${(await mcp('set_finding_verification', { finding_id: 'other', outcome: 'undetermined', reason: 'r' })).content[0].text}`,
+      ];
+      await mcp('set_finding_verification', { finding_id: id, outcome: 'refuted', reason: `prompt:${prompt}\ncwd:${process.cwd()}\n${out.join('\n')}`, evidence: [{ file: 'srv.js', line: 1 }] });
+      return done('verified');
+    }
     const who = JSON.parse((await mcp('whoami', {})).content[0].text);
     const own = who.writable_entities[0];
     await mcp('submit_result', { entity_type: own.type, entity_id: own.id, summary: `cwd=${process.cwd()}` });

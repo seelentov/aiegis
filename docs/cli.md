@@ -102,6 +102,8 @@ Documents. See [Documents](documents.md).
 | `doc source <document> [url] [--insecure]` | Set the link of a document, or clear it; --insecure does not verify the certificate of its host |
 | `doc retire <document> <reason>` | Take a document out of force: it leaves matrices and checks, history stays |
 | `doc restore <document>` | Bring a document back into force |
+| `doc item-retire <reason> <requirement...>` | Take requirements out of force: they leave matrices and checks, their document and history stay |
+| `doc item-restore <requirement...>` | Bring requirements back into force |
 | `doc check-estimate (--set <id> \| --document <id>)` | Estimate a document check; nothing runs |
 | `doc check (--set <id> \| --document <id>) [--force]` | Check a set or one document against its links; without AI when the sources did not change, unless --force |
 | `doc plan [--hint <text>]` | Queue AI-written security documents |
@@ -175,6 +177,11 @@ Findings. See [Findings](findings.md).
 | `finding merge <source> <target>` | Merge a finding into another |
 | `finding create <cell> --title <text> --description <text> --severity <level> [--cwe <id>] [--entry-point <text>] [--recommendation <text>] [--evidence <file[:line]>...]` | Create a finding on a cell |
 | `finding link <finding> <cell>` | Link a finding to a cell |
+| `finding verify-estimate <finding...>` | Estimate an independent verification of findings |
+| `finding verify <finding...>` | Queue a clean session per suspected finding that tries to refute it |
+| `finding fix-state` | Show whether the files of live findings changed since their last fix check |
+| `finding fix-estimate <finding...>` | Estimate fix checks of findings |
+| `finding fix-check <finding...>` | Queue a clean session per finding that judges at HEAD whether it is closed |
 | `finding poc <finding>` | Queue the PoC tester on a finding |
 
 ## poc
@@ -255,8 +262,8 @@ Schedules. See [Schedules](schedules.md).
 | `schedule list` | List schedules |
 | `schedule show <schedule>` | Show a schedule |
 | `schedule history <schedule> [--limit <n>]` | List firings of a schedule, newest first |
-| `schedule add --name <text> --cron <expr> --action <task\|matrix\|scanners\|sca_inventory\|sca\|entry_points\|doc_refresh\|diff_check> [--max-tokens <n\|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]` | Create a schedule; it runs while the app or the service is running, in the time zone of the OS |
-| `schedule edit <schedule> [--name <text>] [--cron <expr>] [--action <task\|matrix\|scanners\|sca_inventory\|sca\|entry_points\|doc_refresh\|diff_check>] [--max-tokens <n\|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]` | Change a schedule; --action replaces the whole action |
+| `schedule add --name <text> --cron <expr> --action <task\|matrix\|scanners\|sca_inventory\|sca\|entry_points\|doc_refresh\|diff_check\|fix_verify> [--max-tokens <n\|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]` | Create a schedule; it runs while the app or the service is running, in the time zone of the OS |
+| `schedule edit <schedule> [--name <text>] [--cron <expr>] [--action <task\|matrix\|scanners\|sca_inventory\|sca\|entry_points\|doc_refresh\|diff_check\|fix_verify>] [--max-tokens <n\|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]` | Change a schedule; --action replaces the whole action |
 | `schedule enable <schedule>` | Enable a schedule |
 | `schedule disable <schedule>` | Disable a schedule |
 | `schedule remove <schedule>` | Remove a schedule; its firings stay in the history |

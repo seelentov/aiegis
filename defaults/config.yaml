@@ -121,14 +121,24 @@ matrix:
 diff_check:
   # Max requirements in one session; every session reads the same diff, so a usual set of documents takes one session.
   batch_size: 600
-  # A larger diff stays out of the prompt: the agent reads the files it needs with `git diff`.
-  max_diff_kb_in_prompt: 200
-  # Dry-run estimate: billable tokens per requirement (measured on 563 requirements and a 23 KB diff; it grows with the diff).
-  estimate_tokens_per_requirement: 300
+  # A larger diff stays out of the prompt: the agent reads the files it needs with `git diff`. Measured on a 289 KB diff:
+  # an agent reading it by itself found 1 of 5 planted flaws, the diff in the prompt 5 of 5. 1000 KB is ~450k tokens.
+  max_diff_kb_in_prompt: 1000
+  # Pathspec globs left out of the diff in the prompt (still listed as changed, the agent reads them if they matter):
+  # tests, styles, lock and generated files took ~20% of a large diff and gave no findings.
+  prompt_exclude: ["**/package-lock.json", "**/yarn.lock", "**/*.lock", "**/*.svg", "**/*.css", "**/*.scss", "**/*.snap", "**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/*Test.java", "**/*Test.kt"]
+  # Dry-run estimate: billable tokens per requirement plus per KB of the diff in the prompt (each session reads it);
+  # measured: 563 requirements with a 23 KB diff, 73 requirements with a 244 KB diff.
+  estimate_tokens_per_requirement: 250
+  estimate_tokens_per_diff_kb: 450
 
 findings:
   # Max candidates returned by find_similar.
   similar_limit: 5
+  # Dry-run estimate of an independent verification: average billable tokens per session over this many recent runs of the role...
+  verify_estimate_history_runs: 20
+  # ...or this value when there is no history yet (measured on a large repository: 12 sessions, 12k to 25k, 18k on average).
+  verify_estimate_tokens: 20000
 
 # Scanners the app runs itself, once per commit in the worktree (results are cached by commit and scanned paths).
 # Binaries come from the system (PATH); availability is checked at startup with `version_args`.
@@ -413,6 +423,19 @@ tasks:
     role: env-setup
     title: { en: "PoC environment setup", ru: "Настройка PoC-окружения" }
     prompt: instructions/tasks/poc-setup.md
+  # Independent verification of a suspected finding: a clean session tries to refute it, on the finding's commit.
+  # Placeholders: project, finding_id, title, commit_sha, claim (what the finding states, as JSON).
+  finding_verify:
+    role: finding-verify
+    title: { en: "Verification: {{title}}", ru: "Проверка находки: {{title}}" }
+    prompt: instructions/tasks/finding-verify.md
+  # Fix check of a finding (same role): a clean session at HEAD judges whether the flaw is closed.
+  # Placeholders: project, finding_id, title, commit_sha (HEAD), base_commit (the last judged commit or "unknown"),
+  # changed_files (files of the finding changed since then), claim (what the finding states, as JSON).
+  fix_verify:
+    role: finding-verify
+    title: { en: "Fix check: {{title}}", ru: "Проверка исправления: {{title}}" }
+    prompt: instructions/tasks/fix-verify.md
   # "Open fix session" (interactive, user's working directory).
   # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, cells.
   fix:
@@ -563,6 +586,25 @@ roles:
     permissions:
       allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash(git log *--ou*)", "Bash(git show *--ou*)", "Bash(git diff *--ou*)"]
+
+  # Independent verification: tries to refute one finding by reading the code; no environment, no writing.
+  # Its token reaches only whoami and the result tool of its task (SPEC §28, §33). Read stays inside the checkout and there is no
+  # `git diff` (given paths outside the repository it reads them): the transcript of the original session must stay out
+  # of reach. `--output` (git takes abbreviations) would let these commands write files.
+  # The method is adapted from capitalone/VulnHunter (Apache-2.0), see instructions/methodology/README.md.
+  finding-verify:
+    title: { en: "Finding verification", ru: "Проверка находки" }
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: medium
+    instructions:
+      file:
+        - instructions/roles/finding-verify.md
+        - instructions/methodology/refutation.md
+    permissions:
+      allow: ["Read(./**)", "Grep(./**)", "Glob(./**)", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash(git log *--ou*)", "Bash(git show *--ou*)"]
 
   # SCA reachability: is a vulnerable package version used by the module in a way the vulnerability needs.
   sca:

@@ -83,7 +83,7 @@ Settings edits the same files. On the left are the sections of `config.yaml` (Ge
 
 On every start:
 
-- missing top-level keys and missing entries of `roles`, `tasks`, `scanners`, `poc`, `terminal`, `limits` and `doc_refresh` are added to your global `config.yaml`. Existing values and comments are not changed, so the **values** of a role you already have, such as its permissions, are not updated;
+- missing top-level keys and missing entries of `roles`, `tasks`, `scanners`, `poc`, `terminal`, `limits`, `doc_refresh`, `matrix`, `findings` and `diff_check` are added to your global `config.yaml`. Existing values and comments are not changed, so the **values** of a role you already have, such as its permissions, are not updated;
 - `~/.aiegis/.defaults.json` holds the hash of each default file. A default file that changed replaces yours if you did not edit it, with a notification. If you edited it, your file stays, and one warning lists what to merge by hand.
 
 ## Settings reference
@@ -158,9 +158,13 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 | `matrix.economy_batch_size` | `100` | Cells per merged session |
 | `matrix.estimate_tokens_per_economy_session` | `165000` | Estimate of a merged session with no history |
 | `diff_check.batch_size` | `600` | Requirements per session |
-| `diff_check.max_diff_kb_in_prompt` | `200` | A larger diff stays out of the prompt |
-| `diff_check.estimate_tokens_per_requirement` | `300` | Used for the estimate |
+| `diff_check.max_diff_kb_in_prompt` | `1000` | A larger diff stays out of the prompt |
+| `diff_check.prompt_exclude` | tests, styles, lock and generated files | Pathspec globs left out of the diff in the prompt |
+| `diff_check.estimate_tokens_per_requirement` | `250` | Estimate per requirement |
+| `diff_check.estimate_tokens_per_diff_kb` | `450` | Estimate per KB of the diff in a session's prompt |
 | `findings.similar_limit` | `5` | Candidates from `find_similar` |
+| `findings.verify_estimate_history_runs` | `20` | Recent runs of `finding-verify` averaged for its estimate |
+| `findings.verify_estimate_tokens` | `20000` | Billable tokens per finding in that estimate when there is no history |
 
 ### `scanners`
 
@@ -275,6 +279,8 @@ See [PoC tester](poc.md).
 | `diff_check` | `diff-check` | `project`, `target`, `check_id`, `base_ref`, `head_ref`, `base_sha`, `head_sha`, `changed_files`, `diff`, `requirements` |
 | `sca_inventory` | `sca-inventory` | `project`, `module_id`, `module_name`, `module_globs`, `module_description`, `out_dir`, `inputs`, `scanner_hints` |
 | `sca_reachability` | `sca` | `project`, `module_id`, `module_name`, `module_globs`, `module_description`, `package_key`, `package`, `direct`, `manifest`, `import_names`, `import_hits`, `vulnerabilities` |
+| `finding_verify` | `finding-verify` | `project`, `finding_id`, `title`, `commit_sha`, `claim` |
+| `fix_verify` | `finding-verify` | `project`, `finding_id`, `title`, `commit_sha`, `base_commit`, `changed_files`, `claim` |
 | `poc` | `tester` | `project`, `finding_id`, `title`, `severity`, `cwe`, `description`, `files`, `recommendation`, `entry_point`, `module_name`, `base_url`, `accounts`, `out_dir` |
 | `poc_setup` | `env-setup` | `project`, `project_root`, `environment`, `accounts`, `scripts_dir`, `env_passthrough`, `last_failure` |
 | `fix` | `assistant` | `project`, `finding_id`, `title`, `severity`, `cwe`, `description`, `files`, `recommendation`, `cells` |
@@ -300,6 +306,7 @@ See [PoC tester](poc.md).
 | `sca-inventory` | haiku, low | Writes in `.aiegis-sca/`, and an allowlist of build and audit tools |
 | `sca` | haiku, low | `git log/show/diff` |
 | `env-setup` | sonnet, medium | All of `Bash`; no `Edit`, `Write` |
+| `finding-verify` | sonnet, medium | `Read`, `Grep`, `Glob` in its checkout, `git log/show`; its MCP token reaches only its own result |
 | `tester` | sonnet, low | Writes in `.aiegis-poc/`, and `git log/show`, `ls`, `mkdir`, `curl`, `jq`, `python3`, `node` |
 
 Background roles deny `WebFetch` and `WebSearch`. Except for `sca-inventory` and `tester`, they also deny `Edit` and `Write`.

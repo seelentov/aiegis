@@ -111,8 +111,8 @@ export interface Settings {
     economy_batch_size: number;
     estimate_tokens_per_economy_session: number;
   };
-  diff_check: { batch_size: number; max_diff_kb_in_prompt: number; estimate_tokens_per_requirement: number };
-  findings: { similar_limit: number };
+  diff_check: { batch_size: number; max_diff_kb_in_prompt: number; prompt_exclude: string[]; estimate_tokens_per_requirement: number; estimate_tokens_per_diff_kb: number };
+  findings: { similar_limit: number; verify_estimate_history_runs: number; verify_estimate_tokens: number };
   tasks: Record<string, TaskSettings>;
   /** Scanners by name; entries are validated when used (`scannerSettings`). */
   scanners: Record<string, Partial<ScannerSettings>>;
@@ -190,7 +190,7 @@ export function scannerSettings(settings: Settings, name: string): ScannerSettin
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'doc_review', 'doc_catalogue', 'doc_text', 'matrix_triage', 'matrix_verdicts', 'matrix_economy', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'doc_review', 'doc_catalogue', 'doc_text', 'matrix_triage', 'matrix_verdicts', 'matrix_economy', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup', 'finding_verify', 'fix_verify'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {
@@ -244,8 +244,12 @@ const REQUIRED_SETTINGS: string[] = [
   'matrix.estimate_tokens_per_economy_session',
   'diff_check.batch_size',
   'diff_check.max_diff_kb_in_prompt',
+  'diff_check.prompt_exclude',
   'diff_check.estimate_tokens_per_requirement',
+  'diff_check.estimate_tokens_per_diff_kb',
   'findings.similar_limit',
+  'findings.verify_estimate_history_runs',
+  'findings.verify_estimate_tokens',
   'scanners',
   'signals.auto_scan',
   'signals.max_per_call',
@@ -371,7 +375,7 @@ export function agentOf(cfg: EffectiveConfig): 'claude' | 'pi' {
 }
 
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh', 'matrix', 'findings', 'diff_check'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing

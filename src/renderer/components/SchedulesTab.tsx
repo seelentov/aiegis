@@ -133,12 +133,14 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
         return { kind, moduleId: mods[0] };
       case 'diff_check':
         return { kind, ...diffInputOf(diff) };
+      case 'fix_verify':
+        return { kind };
       case 'doc_refresh':
         return { kind, target: refresh.startsWith('set:') ? { setId: refresh.slice(4) } : { documentId: refresh.slice(4) } };
     }
   };
 
-  const limited = kind === 'matrix' || kind === 'sca' || kind === 'doc_refresh' || kind === 'diff_check';
+  const limited = kind === 'matrix' || kind === 'sca' || kind === 'doc_refresh' || kind === 'diff_check' || kind === 'fix_verify';
   const save = async () => {
     const input: ScheduleInput = { name, cron, action: action(), maxTokens: limited && maxTokens.trim() ? Number(maxTokens) : null };
     const s = await run(schedule ? api.updateSchedule(project.id, schedule.id, input) : api.createSchedule(project.id, input));
@@ -385,7 +387,7 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
             <dd>{SCHEDULE_ACTION[schedule.action.kind]}</dd>
             <dt>{tr('Parameters')}</dt>
             <dd className="mono small">{JSON.stringify(schedule.action, (k, v: unknown) => (k === 'kind' ? undefined : typeof v === 'string' ? (names.get(v) ?? v) : v))}</dd>
-            {(schedule.action.kind === 'matrix' || schedule.action.kind === 'sca' || schedule.action.kind === 'doc_refresh' || schedule.action.kind === 'diff_check') && (
+            {(schedule.action.kind === 'matrix' || schedule.action.kind === 'sca' || schedule.action.kind === 'doc_refresh' || schedule.action.kind === 'diff_check' || schedule.action.kind === 'fix_verify') && (
               <>
                 <dt>{tr('Token limit')}</dt>
                 <dd>{schedule.maxTokens ?? tr('from the settings')}</dd>

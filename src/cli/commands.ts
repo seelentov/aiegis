@@ -155,6 +155,8 @@ async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
     }
     case 'diff_check':
       return { kind, ...diffInput(a) };
+    case 'fix_verify':
+      return { kind };
     case 'scanners':
       return { kind, moduleIds: a.has('repository') ? null : (mods ?? []) };
     case 'sca_inventory':
@@ -243,6 +245,8 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   },
   retireDocument: { name: 'doc retire', usage: '<document> <reason>', help: 'Take a document out of force: it leaves matrices and checks, history stays', run: (a, c) => c.call('retireDocument', c.pid(), a.pos[0], a.pos[1]) },
   restoreDocument: { name: 'doc restore', usage: '<document>', help: 'Bring a document back into force', run: (a, c) => c.call('restoreDocument', c.pid(), a.pos[0]) },
+  retireRequirements: { name: 'doc item-retire', usage: '<reason> <requirement...>', help: 'Take requirements out of force: they leave matrices and checks, their document and history stay', run: (a, c) => c.call('retireRequirements', c.pid(), a.pos.slice(1), a.pos[0]) },
+  restoreRequirements: { name: 'doc item-restore', usage: '<requirement...>', help: 'Bring requirements back into force', run: (a, c) => c.call('restoreRequirements', c.pid(), a.pos) },
   estimateDocRefresh: { name: 'doc check-estimate', usage: '(--set <id> | --document <id>)', help: 'Estimate a document check; nothing runs', run: (a, c) => c.call('estimateDocRefresh', c.pid(), refreshTarget(a)) },
   refreshDocuments: {
     name: 'doc check',
@@ -311,7 +315,7 @@ export const COMMANDS: Record<CoreMethod, Command> = {
     name: 'matrix estimate',
     usage: '<matrix> [--stage <triage|verdicts>] [--scope <pending|stale>] [--force]',
     help: 'Estimate a stage of a matrix; --force estimates the usual sessions of a large run',
-    run: async (a, c) => c.call('estimateMatrix', c.pid(), await matrixId(c, a.pos[0]), oneOf<MatrixStage>(a.one('stage') ?? 'verdicts', ['triage', 'verdicts'], '--stage'), oneOf<MatrixScope>(a.one('scope') ?? 'pending', ['pending', 'stale'], '--scope')),
+    run: async (a, c) => c.call('estimateMatrix', c.pid(), await matrixId(c, a.pos[0]), oneOf<MatrixStage>(a.one('stage') ?? 'verdicts', ['triage', 'verdicts'], '--stage'), oneOf<MatrixScope>(a.one('scope') ?? 'pending', ['pending', 'stale'], '--scope'), a.has('force')),
   },
   runMatrix: {
     name: 'matrix run',
@@ -345,6 +349,29 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   createFinding: { name: 'finding create', usage: `<cell> ${FINDING_FLAGS}`, help: 'Create a finding on a cell', run: (a, c) => c.call('createFinding', c.pid(), a.pos[0], findingInput(a)) },
   linkFinding: { name: 'finding link', usage: '<finding> <cell>', help: 'Link a finding to a cell', run: (a, c) => c.call('linkFinding', c.pid(), a.pos[0], a.pos[1]) },
   enqueuePoc: { name: 'finding poc', usage: '<finding>', help: 'Queue the PoC tester on a finding', run: (a, c) => c.call('enqueuePoc', c.pid(), a.pos[0]) },
+  findingsFixState: { name: 'finding fix-state', usage: '', help: 'Show whether the files of live findings changed since their last fix check', run: (_a, c) => c.call('findingsFixState', c.pid()) },
+  estimateFixVerify: { name: 'finding fix-estimate', usage: '<finding...>', help: 'Estimate fix checks of findings', run: (a, c) => c.call('estimateFixVerify', c.pid(), a.pos) },
+  runFixVerify: {
+    name: 'finding fix-check',
+    usage: '<finding...>',
+    help: 'Queue a clean session per finding that judges at HEAD whether it is closed',
+    columns: ['id', 'status', 'title'],
+    run: async (a, c) => {
+      await c.confirm(await c.call('estimateFixVerify', c.pid(), a.pos));
+      return c.call('runFixVerify', c.pid(), a.pos);
+    },
+  },
+  estimateFindingVerify: { name: 'finding verify-estimate', usage: '<finding...>', help: 'Estimate an independent verification of findings', run: (a, c) => c.call('estimateFindingVerify', c.pid(), a.pos) },
+  runFindingVerify: {
+    name: 'finding verify',
+    usage: '<finding...>',
+    help: 'Queue a clean session per suspected finding that tries to refute it',
+    columns: ['id', 'status', 'title'],
+    run: async (a, c) => {
+      await c.confirm(await c.call('estimateFindingVerify', c.pid(), a.pos));
+      return c.call('runFindingVerify', c.pid(), a.pos);
+    },
+  },
   enqueuePocSetup: { name: 'poc setup', usage: '', help: 'Queue the setup of the test environment', run: (_a, c) => c.call('enqueuePocSetup', c.pid()) },
 
   scannerStatus: { name: 'scanner status', usage: '[--refresh]', help: 'Show scanners', columns: ['name', 'enabled', 'available', 'version', 'error'], run: (a, c) => c.call('scannerStatus', c.pid(), a.has('refresh')) },

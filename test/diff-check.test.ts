@@ -65,6 +65,8 @@ describe('branch checks', () => {
     git('commit', '-qm', 'init');
     git('checkout', '-qb', 'task');
     git('rm', '-q', 'svc/Gone.java');
+    write(path.join(repo, 'web', 'yarn.lock'), 'LOCKFILE_MARK');
+    git('add', '.');
     git('commit', '-qm', 'drop the check');
     git('checkout', '-q', 'main');
     git('checkout', '-qb', 'big');
@@ -107,12 +109,15 @@ describe('branch checks', () => {
     const input: DiffCheckInput = { baseRef: 'main', headRef: 'task', target: { documentId } };
     const est = await core.estimateDiffCheck(pid, input);
     expect(est).toMatchObject({ cells: 3, sessions: 1, role: 'diff-check' });
+    expect(est.tokens).toBeGreaterThan(3 * 250);
 
     const { check, jobs } = await core.runDiffCheck(pid, input);
-    expect(check.files).toEqual(['svc/Gone.java']);
+    expect(check.files).toEqual(['svc/Gone.java', 'web/yarn.lock']);
     expect(check.baseSha).toBe(git('rev-parse', 'main~1').trim());
     expect(check.headSha).toBe(git('rev-parse', 'task').trim());
     expect(String(jobs[0].payload.prompt)).toContain('-class Gone {}');
+    expect(String(jobs[0].payload.prompt)).not.toContain('LOCKFILE_MARK');
+    expect(String(jobs[0].payload.prompt)).toContain('- web/yarn.lock');
     await jobsDone(jobs);
 
     const job = core.store(pid).getJob(jobs[0].id)!;

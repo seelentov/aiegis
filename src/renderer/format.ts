@@ -5,6 +5,8 @@ import type {
   InventoryStatus,
   JobStatus,
   PocOutcome,
+  FindingVerifyOutcome,
+  FixOutcome,
   ReviewState,
   RunStatus,
   ScaItemStatus,
@@ -50,6 +52,7 @@ export const SCHEDULE_ACTION: Record<ScheduleAction['kind'], string> = {
   entry_points: tr('Entry point map'),
   doc_refresh: tr('Document check'),
   diff_check: tr('Branch check'),
+  fix_verify: tr('Fix checks of stale findings'),
 };
 
 export const SCHEDULE_OUTCOME: Record<ScheduleOutcome, string> = {
@@ -92,6 +95,18 @@ export const FINDING_STATUS: Record<FindingStatus, string> = {
   false_positive: tr('false positive'),
   accepted_risk: tr('accepted risk'),
   fixed: tr('fixed'),
+};
+
+export const FINDING_VERIFY_OUTCOME: Record<FindingVerifyOutcome, string> = {
+  refuted: tr('refuted'),
+  confirmed: tr('confirmed|verification'),
+  undetermined: tr('undetermined'),
+};
+
+export const FIX_OUTCOME: Record<FixOutcome, string> = {
+  closed: tr('closed|fix'),
+  not_closed: tr('not closed|fix'),
+  undetermined: tr('undetermined'),
 };
 
 export const POC_OUTCOME: Record<PocOutcome, string> = {

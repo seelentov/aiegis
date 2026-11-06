@@ -9,6 +9,8 @@ import { z } from 'zod';
 import crypto from 'node:crypto';
 import {
   ENTRY_POINT_KINDS,
+  FINDING_VERIFY_OUTCOMES,
+  FIX_OUTCOMES,
   POC_OUTCOMES,
   SCA_STATUSES,
   SEVERITIES,
@@ -29,7 +31,7 @@ import {
 import type { Settings } from '../config/loader';
 import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, DOC_REFRESH_ENTITY, DOC_TEXT_ENTITY, sha256File } from '../documents';
 import type { RefreshProposalInput } from '../core';
-import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
+import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, FINDING_VERIFY_ENTITY, FIX_VERIFY_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { CARRIED_AUTHOR } from '../audit-store';
 import { DIFF_ITEM_ENTITY, diffItemId, diffVerdictError } from '../diff-check';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
@@ -92,13 +94,17 @@ const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }],
 /** Builds an MCP server instance whose tools are bound to one grant. */
 /** "The scanners found nothing" is not evidence for a pass (role prompt); the agent must argue from the code. */
 export const NO_SIGNALS_REASON =
-  /\b(no|zero|without|absence of)\b[^.;]{0,30}\b(signals?|scanners?|semgrep|gitleaks|trivy)\b|\b(signals?|scanners?|semgrep|gitleaks|trivy)\b[^.;]{0,30}\b(returned|found|reported|showed?)\s+(no|nothing|none)\b/i;
+  /\b(no|zero|without|absence of)\b[^.;]{0,30}\b(signals?|scanners?|semgrep|gitleaks|trivy)\b|\b(signals?|scanners?|semgrep|gitleaks|trivy)\b[^.;]{0,30}\b(returned|found|reported|showed?)\s+(no|nothing|none)\b|(?<![а-яё])(нет|без|отсутств[а-яё]*)(?![а-яё])[^.;]{0,30}(сигнал|сканер|semgrep|gitleaks|trivy)|(сигнал|сканер|semgrep|gitleaks|trivy)[^.;]{0,30}(?<![а-яё])(нет|ничего|не\s+(наш|наход|обнаруж|выяв|показ|сообщ|вернул|дал))/i;
 
 const pocStep = z.object({
   action: z.string().min(1).describe('Request or command that was run (no secret values)'),
   result: z.string().min(1).describe('Excerpt of the response: status and the relevant part of the body'),
   note: z.string().optional(),
 });
+
+const evidenceSchema = z.array(
+  z.object({ file: z.string().min(1).describe('Path relative to the repository root'), line: z.number().int().min(1).optional(), note: z.string().optional() }),
+);
 
 export function buildServer(grant: Grant, svc: McpServices, checks: SimilarChecks = new Map()): McpServer {
   const server = new McpServer({ name: 'aiegis', version: '0.1.0' });
@@ -137,6 +143,75 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         writable_entities: grant.scope,
       }),
   );
+
+  // An independent check must not see how the finding was reached: verdict reasons, runs, other findings (SPEC §28).
+  const verifying = grant.scope.find((e) => e.type === FINDING_VERIFY_ENTITY);
+  if (verifying) {
+    server.registerTool(
+      'set_finding_verification',
+      {
+        description:
+          'Result of the independent check of the finding in your scope (finding_verify:<finding_id>): refuted / confirmed need evidence (code references); undetermined needs a reason naming the deciding fact. Does not change the finding status. Every call is stored and shown to humans.',
+        inputSchema: {
+          finding_id: z.string(),
+          outcome: z.enum(FINDING_VERIFY_OUTCOMES),
+          reason: z.string().min(1).describe('Your own argument'),
+          evidence: evidenceSchema.optional(),
+        },
+      },
+      async (a) =>
+        guard({ kind: 'write', entity: { type: FINDING_VERIFY_ENTITY, id: a.finding_id } }, () => {
+          const run = liveRun();
+          const evidence = a.evidence ?? [];
+          if (a.outcome !== 'undetermined' && !evidence.length) return fail(`${a.outcome} requires evidence (code references)`);
+          for (const e of evidence) {
+            const err = repoFileError(run.cwd, e.file);
+            if (err) return fail(err);
+          }
+          const s = svc.store(pid);
+          if (!s.audit.getFinding(a.finding_id)) return fail(`finding ${a.finding_id} not found`);
+          const r = s.audit.addFindingVerification({ findingId: a.finding_id, outcome: a.outcome, reason: a.reason, evidence, commitSha: run.commitSha }, by);
+          svc.onWrite(pid);
+          return ok({ saved: r.id, outcome: r.outcome });
+        }),
+    );
+    return server;
+  }
+
+  // A fix check is independent in the same way (SPEC §33).
+  if (grant.scope.some((e) => e.type === FIX_VERIFY_ENTITY)) {
+    server.registerTool(
+      'set_fix_verification',
+      {
+        description:
+          'Result of the fix check of the finding in your scope (fix_verify:<finding_id>) at the commit of your checkout: closed / not_closed need evidence (code references); undetermined needs a reason naming what is missing. Does not change the finding status. Every call is stored and shown to humans.',
+        inputSchema: {
+          finding_id: z.string(),
+          outcome: z.enum(FIX_OUTCOMES),
+          reason: z.string().min(1).describe('Your own argument'),
+          evidence: evidenceSchema.optional(),
+        },
+      },
+      async (a) =>
+        guard({ kind: 'write', entity: { type: FIX_VERIFY_ENTITY, id: a.finding_id } }, () => {
+          const run = liveRun();
+          const evidence = a.evidence ?? [];
+          if (a.outcome !== 'undetermined' && !evidence.length) return fail(`${a.outcome} requires evidence (code references)`);
+          const s = svc.store(pid);
+          const f = s.audit.getFinding(a.finding_id);
+          if (!f) return fail(`finding ${a.finding_id} not found`);
+          // The fix may have deleted a file of the finding.
+          for (const e of evidence.filter((x) => !f.files.some((y) => y.file === x.file))) {
+            const err = repoFileError(run.cwd, e.file);
+            if (err) return fail(err);
+          }
+          const r = s.audit.addFixVerification({ findingId: f.id, outcome: a.outcome, reason: a.reason, evidence, commitSha: run.commitSha }, by);
+          svc.onWrite(pid);
+          return ok({ saved: r.id, outcome: r.outcome });
+        }),
+    );
+    return server;
+  }
 
   // Reading a document into text writes that text and nothing else (SPEC §24).
   const reading = grant.scope.find((e) => e.type === DOC_TEXT_ENTITY);
@@ -593,9 +668,6 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   const cellArgs = { module_id: z.string(), requirement_id: z.string() };
   const cellOf = (a: { module_id: string; requirement_id: string }): CellRef => ({ moduleId: a.module_id, requirementId: a.requirement_id });
   const cellEntity = (c: CellRef) => ({ type: CELL_ENTITY, id: cellId(c) });
-  const evidenceSchema = z.array(
-    z.object({ file: z.string().min(1).describe('Path relative to the repository root'), line: z.number().int().min(1).optional(), note: z.string().optional() }),
-  );
   /** Current requirement item and module of a cell; throws if either is gone. */
   const cellTarget = (c: CellRef) => {
     const s = svc.store(pid);

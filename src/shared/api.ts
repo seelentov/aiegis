@@ -20,6 +20,7 @@ import type {
   Evidence,
   Finding,
   FindingDetails,
+  FindingFixState,
   FindingInput,
   FindingStatus,
   Job,
@@ -112,6 +113,8 @@ export interface AiegisApi {
   /** Out of force: requirements leave matrices, the refresher skips it, history stays. */
   retireDocument(projectId: string, documentId: string, reason: string): void;
   restoreDocument(projectId: string, documentId: string): void;
+  retireRequirements(projectId: string, requirementIds: string[], reason: string): void;
+  restoreRequirements(projectId: string, requirementIds: string[]): void;
   estimateDocRefresh(projectId: string, target: DocRefreshTarget): DocRefreshEstimate;
   /** Checks a set or one document against its links; without AI when the sources did not change. */
   refreshDocuments(projectId: string, target: DocRefreshTarget, o: { force?: boolean }): DocRefreshStart;
@@ -154,6 +157,16 @@ export interface AiegisApi {
   openFixSession(projectId: string, findingId: string): string;
   /** Queues the PoC tester on a suspected finding. */
   enqueuePoc(projectId: string, findingId: string): Job;
+  /** Dry-run estimate of an independent verification of findings (live suspected ones are taken). */
+  estimateFindingVerify(projectId: string, findingIds: string[]): MatrixEstimate;
+  /** Queues one clean session per finding that tries to refute it. */
+  runFindingVerify(projectId: string, findingIds: string[]): Job[];
+  /** Fix state of live suspected and verified findings at HEAD, by finding id; no AI. */
+  findingsFixState(projectId: string): Record<string, FindingFixState>;
+  /** Dry-run estimate of fix checks. */
+  estimateFixVerify(projectId: string, findingIds: string[]): MatrixEstimate;
+  /** Queues one session per finding at HEAD that judges whether it is closed. */
+  runFixVerify(projectId: string, findingIds: string[]): Job[];
   /** Queues env-setup: an agent works out how to start the project and writes its test environment (one per project). */
   enqueuePocSetup(projectId: string): Job;
 
