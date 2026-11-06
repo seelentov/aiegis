@@ -122,6 +122,8 @@ function toItem(r: Row): RequirementItem {
     author: r.author as string,
     runId: (r.run_id as string) ?? null,
     updatedAt: r.updated_at as string,
+    retiredAt: (r.retired_at as string) ?? null,
+    retiredReason: (r.retired_reason as string) ?? null,
   };
 }
 
@@ -275,6 +277,14 @@ export class AuditStore {
   }
 
   /** Out of force or back: requirements follow through `currentItem` and `currentVersion`. */
+  /** Lives on the requirement, not the item: approved versions are immutable and the decision outlasts a new version. */
+  setRequirementsRetired(ids: string[], reason: string | null): void {
+    const stmt = this.db.prepare('UPDATE requirements SET retired_at = ?, retired_reason = ? WHERE id = ?');
+    this.db.transaction(() => {
+      for (const id of ids) if (!stmt.run(reason === null ? null : now(), reason, id).changes) throw new Error(`requirement ${id} not found`);
+    })();
+  }
+
   setDocumentRetired(id: string, reason: string | null): void {
     this.db.prepare('UPDATE documents SET retired_at = ?, retired_reason = ? WHERE id = ?').run(reason === null ? null : now(), reason, id);
   }
@@ -458,7 +468,7 @@ export class AuditStore {
   // --- requirement items ---
 
   listItems(versionId: string): RequirementItem[] {
-    return (this.db.prepare('SELECT * FROM req_items WHERE version_id = ? ORDER BY rowid').all(versionId) as Row[]).map(toItem);
+    return (this.db.prepare('SELECT i.*, q.retired_at, q.retired_reason FROM req_items i JOIN requirements q ON q.id = i.requirement_id WHERE i.version_id = ? ORDER BY i.rowid').all(versionId) as Row[]).map(toItem);
   }
 
   getItem(id: string): RequirementItem | undefined {
@@ -552,6 +562,7 @@ export class AuditStore {
         `SELECT i.* FROM req_items i JOIN doc_versions v ON v.id = i.version_id
          WHERE i.requirement_id = ? AND i.review = 'accepted' AND v.status = 'approved'
            AND (SELECT retired_at FROM documents WHERE id = v.document_id) IS NULL
+           AND (SELECT retired_at FROM requirements WHERE id = i.requirement_id) IS NULL
            AND v.n = (SELECT MAX(n) FROM doc_versions WHERE document_id = v.document_id AND status = 'approved')`,
       )
       .get(requirementId) as Row | undefined;
@@ -600,7 +611,7 @@ export class AuditStore {
     for (const d of documentIds) {
       const v = this.currentVersion(d);
       if (!v) continue;
-      for (const i of this.listItems(v.id)) if (i.review === 'accepted') out.push(this.citedItem(i));
+      for (const i of this.listItems(v.id)) if (i.review === 'accepted' && !i.retiredAt) out.push(this.citedItem(i));
     }
     return out;
   }
