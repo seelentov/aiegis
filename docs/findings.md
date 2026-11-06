@@ -55,12 +55,25 @@ An agent that refutes its own finding in the same session tends to defend it. **
 
 - **Clean session.** It gets what the finding states and its code locations, as JSON that it must treat as data. It does not get the recommendation, the notes on the code references, the author or the run. Its MCP token reaches only `whoami` and `set_finding_verification`, so verdict reasons, runs and other findings are out of reach. It reads only its checkout, which keeps the transcript of the original session out of reach too.
 - **Code.** A read-only worktree at the commit of the session that made the finding. A manual finding has no such commit, so it uses HEAD at the time of the run.
-- **Result.** `refuted`, `confirmed` (it tried and could not refute it) or `undetermined`, with a reason. The first two need code references. Results are only added, never changed. The latest one is shown in the **Verification** column.
+- **Method.** It reads the source only: it writes no exploits, runs no code and probes no system.
+- **Result.** One of the outcomes below, with a reason. Results are only added, never changed. The latest one is shown in the **Verification** column.
 - **Status.** The result never changes the status: you decide.
 
-To verify several findings, tick them in the table (**Pick suspected** takes the ones the filters show), press **Verify** in the toolbar and confirm the estimate. Each finding takes its own session. The estimate uses the average of recent runs of the role (`findings.verify_estimate_history_runs`), or `findings.verify_estimate_tokens`.
+| Outcome | Meaning | Code references |
+|---|---|---|
+| `refuted` | The code shows that the claimed fact or the claimed effect is false | Required |
+| `confirmed` | It tried to refute the claim and could not. A true claim that matters less than it says is still `confirmed`, and the reason says why the impact is lower | Required |
+| `undetermined` | The repository does not decide it (deployment, proxy, identity provider), or the session could not finish. The reason names the deciding fact | Optional |
 
-Model, effort, prompts and permissions come from the role and the task `finding_verify`, like any [role](configuration.md). A safety filter of the model provider can stop a run; the job then fails, and its log shows why. Nothing is retried automatically. See [security](security.md).
+Read the reason before you set a status. For example, `confirmed` with a note on low impact may lead to `accepted_risk`, not `verified`.
+
+To verify several findings, tick them in the table (**Pick suspected** takes the ones the filters show), press **Verify** in the toolbar and confirm the estimate. Each finding takes its own session. The estimate uses the average of recent runs of the role (`findings.verify_estimate_history_runs`), or `findings.verify_estimate_tokens`. In a test on a large repository, sessions with the default model and effort took 12k to 25k billable tokens, about 18k on average.
+
+The **Verify** button of a single finding starts at once, without an estimate, like **PoC**.
+
+The check does not replace your judgement. In that test, on 11 claims written by hand, the outcome matched the expected one in 10 and the eleventh was arguable. That shows the role works, not how accurate it is on real findings: the sample is small and the cases were clear on purpose.
+
+Model, effort, prompts and permissions come from the role and the task `finding_verify`, like any [role](configuration.md). A safety filter of the model provider can stop a run. See [Provider safety filters](security.md#provider-safety-filters).
 
 ## Fix sessions
 

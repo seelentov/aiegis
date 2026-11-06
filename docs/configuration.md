@@ -161,6 +161,8 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 | `diff_check.max_diff_kb_in_prompt` | `200` | A larger diff stays out of the prompt |
 | `diff_check.estimate_tokens_per_requirement` | `300` | Used for the estimate |
 | `findings.similar_limit` | `5` | Candidates from `find_similar` |
+| `findings.verify_estimate_history_runs` | `20` | Recent runs of `finding-verify` averaged for its estimate |
+| `findings.verify_estimate_tokens` | `20000` | Billable tokens per finding in that estimate when there is no history |
 
 ### `scanners`
 

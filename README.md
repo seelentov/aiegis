@@ -38,7 +38,7 @@ The app has no chat of its own. It starts your local coding agent, stores the da
 | **Documents to requirements** | Uploads MD, PDF or DOCX, or lets AI write security documents from your code. AI extracts items with quotes, a person reviews them, and new versions show a diff | [Documents](docs/documents.md) |
 | **Document refresher** | Checks document sets against their sources and proposes new editions, new documents, replacements and retirements. A person applies them, and unchanged sources cost no AI | [Document refresher](docs/document-refresher.md) |
 | **Matrix** | An inexpensive `n/a` triage, then `pass`, `finding` or `needs_human` verdicts with reasons and code references. Runs by column, row or section, always after a token estimate | [Matrix](docs/matrix.md) |
-| **Findings** | A `suspected → verified, false_positive, accepted_risk, fixed` lifecycle, mandatory deduplication, merging, and fix sessions | [Findings](docs/findings.md) |
+| **Findings** | A `suspected → verified, false_positive, accepted_risk, fixed` lifecycle, mandatory deduplication, merging, independent verification, and fix sessions | [Findings](docs/findings.md) |
 | **SAST signals** | Semgrep, Gitleaks and Trivy run once per commit. Results are normalized and given to the agent as hints. Suppressions record a reason, author and expiry | [Signals](docs/signals.md) |
 | **SCA** | An AI dependency inventory backed by tool reports, a prefilter without AI, and reachability per package. A reachable vulnerability becomes a finding | [SCA](docs/sca.md) |
 | **PoC tester** | Starts a test instance from a worktree and checks a finding with requests only to `base_url`, in an OS sandbox. An agent can work out how to start your project | [PoC tester](docs/poc.md) |
