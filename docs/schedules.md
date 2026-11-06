@@ -33,6 +33,7 @@ A schedule has a name, a time, an action and optionally a token limit. It belong
 | Entry points | `entry_points` | The map of one module or all modules |
 | Document check | `doc_refresh` | A set or a document against its links |
 | Branch check | `diff_check` | A branch against a set or a document |
+| Fix checks | `fix_verify` | [Fix checks](findings.md#checking-a-fix) of the stale findings; with none, nothing runs and no tokens are spent |
 
 Part of a matrix takes only its unchecked and stale cells. It does not fall back to all cells, unlike the ▷ buttons. PoC runs, document plans, module markup and environment setup cannot be scheduled.
 
@@ -53,7 +54,7 @@ A scheduler in the app's core looks for due firings every 15 seconds, so it surv
 
 - **Catching up:** a firing missed by no more than the window runs once, however many were missed. Lateness counts from the newest missed time, so a nightly run still happens after a weekend with the computer off.
 - **Disabling:** enabling a schedule or changing its expression recalculates the next time, so a disabled period does not count as missed. The first firing is counted from creation.
-- **Token limit:** the schedule's own limit, or else `schedules.max_tokens_per_firing`. It applies to matrix, SCA, document check and branch check firings. Other actions cannot set one, and only `limits.max_tokens_per_run` constrains them.
+- **Token limit:** the schedule's own limit, or else `schedules.max_tokens_per_firing`. It applies to matrix, SCA, document check, branch check and fix check firings. Other actions cannot set one, and only `limits.max_tokens_per_run` constrains them.
 - **Fire now:** the same checks as a planned firing, marked `manual`. The planned time does not move.
 - **Removing:** the schedule is marked as removed and its firings stay in the history. There is no restore.
 

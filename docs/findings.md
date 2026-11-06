@@ -75,9 +75,25 @@ The check does not replace your judgement. In that test, on 11 claims written by
 
 Model, effort, prompts and permissions come from the role and the task `finding_verify`, like any [role](configuration.md). A safety filter of the model provider can stop a run. See [Provider safety filters](security.md#provider-safety-filters).
 
+## Checking a fix
+
+Every live `suspected` or `verified` finding is compared with HEAD without AI: `git diff` from the finding's commit against its files and, for a dependency finding, the package manifest. When they changed, the finding is marked **stale** in the table and **Check fix** appears in its details. When they did not, there is nothing to check.
+
+**Check fix** runs one background session per finding, in the read-only role `finding-verify`, in a worktree at HEAD, after an estimate.
+
+- **Result.** `closed`, `not closed` (both with code references) or `undetermined`, with a reason. Results are only added.
+- **What counts next.** After `closed` or `not closed` the finding is compared from the checked commit, so it stays quiet until its files change again. After `undetermined` it stays stale.
+- **Status.** The result never changes the status: only you set `fixed`.
+- **Older manual findings** have no recorded commit and show as stale, because a change cannot be ruled out.
+- **Limit.** A fix made only in other files does not mark a finding stale. After a [fix session](#fix-sessions) the app offers the check anyway.
+
+To check several findings, tick them in the table (**Pick stale** takes the stale ones the filters show), press **Check fix** in the toolbar and confirm the estimate. To check them on a timer, use the [schedule action](schedules.md) `fix_verify`.
+
+Model, effort and permissions come from the role, the prompt from the task `fix_verify`, and the estimate from the `findings.verify_estimate_*` settings.
+
 ## Fix sessions
 
-**Fix** starts an interactive session of the role `assistant` in your working directory, not a worktree, with the finding as the initial prompt (task `fix`). It can edit your code, so review the result. When a commit appears after the session ends, the app [offers to recheck](matrix.md#rechecking-after-a-fix). This is a normal agent session; there is no separate fix generator.
+**Fix** starts an interactive session of the role `assistant` in your working directory, not a worktree, with the finding as the initial prompt (task `fix`). It can edit your code, so review the result. When a commit appears after the session ends, the app also offers to [check the fix](#checking-a-fix), and [offers to recheck](matrix.md#rechecking-after-a-fix). This is a normal agent session; there is no separate fix generator.
 
 ## Command line
 
@@ -87,6 +103,9 @@ aiegis finding show <finding>
 aiegis finding status <finding> false_positive 'Only reachable by administrators'
 aiegis finding verify-estimate <finding...>
 aiegis finding verify <finding...>
+aiegis finding fix-state
+aiegis finding fix-estimate <finding...>
+aiegis finding fix-check <finding...>
 aiegis finding merge <source> <target>
 aiegis finding create <cell> --title '...' --description '...' --severity high --cwe CWE-639 --evidence api/orders.js:12
 aiegis finding link <finding> <cell>

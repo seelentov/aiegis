@@ -35,6 +35,7 @@ import type {
   Evidence,
   Finding,
   FindingDetails,
+  FindingFixState,
   FindingInput,
   FindingStatus,
   Job,
@@ -150,7 +151,11 @@ import {
   DOC_VERSION_ENTITY,
   FINDING_ENTITY,
   findingClaim,
+  FINDING_FIX_VALIDITY,
   FINDING_VERIFY_ENTITY,
+  fixBaseline,
+  fixEligible,
+  FIX_VERIFY_ENTITY,
   MATRIX_BATCH_ENTITY,
   matchesGlobs,
   parseCellId,
@@ -597,7 +602,7 @@ export class Core extends EventEmitter {
     const moduleId =
       job.entityType === MODULE_ENTITY || job.entityType === SCA_MODULE_ENTITY
         ? job.entityId
-        : job.entityType === FINDING_VERIFY_ENTITY
+        : job.entityType === FINDING_VERIFY_ENTITY || job.entityType === FIX_VERIFY_ENTITY
           ? (job.payload.module_id as string | undefined)
           : scaPayload(job)?.module_id;
     if (!moduleId) return this.resolve(job.projectId, job.role);
@@ -2459,7 +2464,7 @@ export class Core extends EventEmitter {
       cells: finding.cells.map((c) => this.cellLabel(s, c)),
       scaItems: finding.scaItems.map((x) => ({ ...x, moduleName: s.getModule(x.moduleId)?.name ?? null })),
       similar: rankSimilar(finding, a.listFindings().filter((f) => f.id !== id), limit),
-      runs: uniq([...runs.map((r) => r.id), ...s.entityRuns(POC_ENTITY, id).map((r) => r.id), ...s.entityRuns(FINDING_VERIFY_ENTITY, id).map((r) => r.id)])
+      runs: uniq([...runs.map((r) => r.id), ...s.entityRuns(POC_ENTITY, id).map((r) => r.id), ...s.entityRuns(FINDING_VERIFY_ENTITY, id).map((r) => r.id), ...s.entityRuns(FIX_VERIFY_ENTITY, id).map((r) => r.id)])
         .map((r) => s.getRun(r)!)
         .sort((x, y) => y.startedAt.localeCompare(x.startedAt)),
       poc: {
@@ -2469,6 +2474,7 @@ export class Core extends EventEmitter {
         setup: s.latestJobFor(POC_ENV_ENTITY, POC_ENV_ID) ?? null,
       },
       verify: { results: a.findingVerifications({ findingId: id }), job: s.activeJobFor(FINDING_VERIFY_ENTITY, id) ?? null },
+      fix: { results: a.fixVerifications({ findingId: id }), job: s.activeJobFor(FIX_VERIFY_ENTITY, id) ?? null },
     };
   }
 
@@ -2487,10 +2493,13 @@ export class Core extends EventEmitter {
   }
 
   estimateFindingVerify(projectId: string, ids: string[]): MatrixEstimate {
+    return this.verifyEstimate(projectId, 'finding_verify', this.verifyTargets(projectId, ids));
+  }
+
+  private verifyEstimate(projectId: string, task: 'finding_verify' | 'fix_verify', { free, busy }: { free: Finding[]; busy: number }): MatrixEstimate {
     const s = this.store(projectId);
     const settings = this.projectSettings(projectId);
-    const role = this.taskRole(projectId, 'finding_verify');
-    const { free, busy } = this.verifyTargets(projectId, ids);
+    const role = this.taskRole(projectId, task);
     const runs = s.recentRuns(role, settings.findings.verify_estimate_history_runs);
     const hist = runs.length ? Math.round(runs.reduce((n, r) => n + billableTokens(r.usage), 0) / runs.length) : null;
     const tokens = hist ?? settings.findings.verify_estimate_tokens;
@@ -2530,6 +2539,86 @@ export class Core extends EventEmitter {
           payload: mod ? { module_id: mod.id } : {},
         },
         commit,
+      );
+    });
+    this.auditChanged(projectId);
+    return jobs;
+  }
+
+  // --- fix verification (SPEC §33) ---
+
+  /** What must change for a fix to be worth checking: the finding's files, and the manifest of a dependency it is about. */
+  private fixTouched(s: ProjectStore, f: Finding): string[] {
+    const manifests = f.scaItems.flatMap((x) => {
+      const inv = s.sca.latestInventory(x.moduleId);
+      return (inv && s.sca.listPackages(inv.id).find((p) => p.key === x.packageKey)?.manifest) || [];
+    });
+    return uniq([...f.files.map((e) => e.file), ...manifests]);
+  }
+
+  private async fixState(projectId: string, f: Finding, head: string): Promise<FindingFixState> {
+    const s = this.store(projectId);
+    const checks = s.audit.fixVerifications({ findingId: f.id });
+    const baseline = fixBaseline(f.commitSha, checks);
+    const last = checks[0]?.outcome ?? null;
+    if (!baseline) return { stale: true, changedFiles: [], baseline, last };
+    // The baseline is in the key: a new check moves it, and a result cached at this HEAD no longer holds.
+    const v = await this.validityOf(projectId, FINDING_FIX_VALIDITY, `${f.id}@${baseline}`, baseline, this.fixTouched(s, f), [], head);
+    return { stale: !v.valid, changedFiles: v.changedFiles, baseline, last };
+  }
+
+  /** Live suspected and verified findings at HEAD, by id; computed from `git diff` without AI. */
+  async findingsFixState(projectId: string): Promise<Record<string, FindingFixState>> {
+    const head = await headSha(this.project(projectId).root);
+    const live = this.store(projectId).audit.listFindings().filter(fixEligible);
+    return Object.fromEntries(await Promise.all(live.map(async (f) => [f.id, await this.fixState(projectId, f, head)] as const)));
+  }
+
+  private async staleFindingIds(projectId: string): Promise<string[]> {
+    return Object.entries(await this.findingsFixState(projectId)).filter(([, x]) => x.stale).map(([id]) => id);
+  }
+
+  /** Eligible findings among `ids` with no active check and a new commit to look at. Staleness is not required: a fix session may fix a finding outside its cited files. */
+  private async fixTargets(projectId: string, ids: string[]): Promise<{ free: { f: Finding; state: FindingFixState }[]; busy: number; head: string }> {
+    const s = this.store(projectId);
+    const head = await headSha(this.project(projectId).root);
+    const live = uniq(ids).map((id) => {
+      const f = s.audit.getFinding(id);
+      if (!f) throw new Error(`finding ${id} not found`);
+      return f;
+    }).filter(fixEligible);
+    const idle = live.filter((f) => !s.activeJobFor(FIX_VERIFY_ENTITY, f.id));
+    const free = (await Promise.all(idle.map(async (f) => ({ f, state: await this.fixState(projectId, f, head) })))).filter((x) => x.state.baseline !== head);
+    return { free, busy: live.length - idle.length, head };
+  }
+
+  async estimateFixVerify(projectId: string, ids: string[]): Promise<MatrixEstimate> {
+    const { free, busy } = await this.fixTargets(projectId, ids);
+    return this.verifyEstimate(projectId, 'fix_verify', { free: free.map((x) => x.f), busy });
+  }
+
+  /** Queues one session per finding at HEAD, in the read-only role of independent verification. */
+  async runFixVerify(projectId: string, ids: string[]): Promise<Job[]> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const { free, busy, head } = await this.fixTargets(projectId, ids);
+    if (!free.length) throw new NothingToDo(busy ? 'these findings are already queued for a fix check' : 'no live suspected or verified findings with a new commit to check');
+    const spec = this.taskSpec(projectId, 'fix_verify');
+    const jobs = free.map(({ f, state }) => {
+      const mod = f.moduleId ? s.getModule(f.moduleId) : undefined;
+      const vars = {
+        project: p.name,
+        finding_id: f.id,
+        title: f.title,
+        commit_sha: head,
+        base_commit: state.baseline ?? 'unknown',
+        changed_files: state.changedFiles.map((x) => `- ${x}`).join('\n') || '(none listed)',
+        claim: findingClaim(f, mod?.name ?? null),
+      };
+      return this.addAgentJob(
+        projectId,
+        { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file), entity: { type: FIX_VERIFY_ENTITY, id: f.id }, payload: mod ? { module_id: mod.id } : {} },
+        head,
       );
     });
     this.auditChanged(projectId);
@@ -2701,7 +2790,7 @@ export class Core extends EventEmitter {
   }
 
   /** Manual finding linked to a cell; file references must exist in the working copy. */
-  createFinding(projectId: string, id: string, input: Omit<FindingInput, 'moduleId'>): Finding {
+  async createFinding(projectId: string, id: string, input: Omit<FindingInput, 'moduleId'>): Promise<Finding> {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const ref = parseCellId(id);
@@ -2711,7 +2800,7 @@ export class Core extends EventEmitter {
       const err = repoFileError(p.root, e.file);
       if (err) throw new Error(err);
     }
-    const f = s.audit.createFinding({ ...input, title: input.title.trim(), moduleId: ref.moduleId }, [ref], { author: 'human', runId: null });
+    const f = s.audit.createFinding({ ...input, title: input.title.trim(), moduleId: ref.moduleId }, [ref], { author: 'human', runId: null }, [], await headSha(p.root));
     this.auditChanged(projectId);
     return f;
   }
@@ -3746,7 +3835,7 @@ export class Core extends EventEmitter {
   }
 
   /** Manual finding for an SCA item; file references must exist in the working copy. */
-  createScaFinding(projectId: string, id: string, input: Omit<FindingInput, 'moduleId'>): Finding {
+  async createScaFinding(projectId: string, id: string, input: Omit<FindingInput, 'moduleId'>): Promise<Finding> {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const ref = parseScaItemId(id);
@@ -3756,7 +3845,7 @@ export class Core extends EventEmitter {
       const err = repoFileError(p.root, e.file);
       if (err) throw new Error(err);
     }
-    const f = s.audit.createFinding({ ...input, title: input.title.trim(), moduleId: ref.moduleId }, [], { author: 'human', runId: null }, [ref]);
+    const f = s.audit.createFinding({ ...input, title: input.title.trim(), moduleId: ref.moduleId }, [], { author: 'human', runId: null }, [ref], await headSha(p.root));
     this.scaChanged(projectId);
     this.auditChanged(projectId);
     return f;
@@ -3991,6 +4080,8 @@ export class Core extends EventEmitter {
         await commitOf(this.project(projectId).root, a.baseRef);
         await commitOf(this.project(projectId).root, a.headRef);
         break;
+      case 'fix_verify':
+        break;
     }
   }
 
@@ -4002,7 +4093,7 @@ export class Core extends EventEmitter {
     const maxTokens = input.maxTokens ?? null;
     if (maxTokens !== null) {
       if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('the token limit must be a positive integer');
-      if (action.kind !== 'matrix' && action.kind !== 'sca' && action.kind !== 'doc_refresh' && action.kind !== 'diff_check') throw new Error('a token limit applies to matrix, SCA, document check and branch check actions');
+      if (action.kind !== 'matrix' && action.kind !== 'sca' && action.kind !== 'doc_refresh' && action.kind !== 'diff_check' && action.kind !== 'fix_verify') throw new Error('a token limit applies to matrix, SCA, document check, branch check and fix check actions');
     }
     this.checkedCron(projectId, input.cron);
     await this.checkScheduleAction(projectId, action);
@@ -4132,6 +4223,11 @@ export class Core extends EventEmitter {
       if (this.store(projectId).diff.find(plan.baseSha, plan.headSha, plan.versionIds)) throw new NothingToDo('these changes are already checked against these document versions');
       return (await this.estimateDiffCheck(projectId, a)).tokens;
     }
+    if (a.kind === 'fix_verify') {
+      const e = await this.estimateFixVerify(projectId, await this.staleFindingIds(projectId));
+      if (!e.cells) throw new NothingToDo('no stale findings to check');
+      return e.tokens;
+    }
     if (a.kind !== 'matrix') return null;
     if (!a.slice) return (await this.estimateMatrix(projectId, a.matrixId, a.stage, a.scope)).tokens;
     const cells = await this.scheduleCells(projectId, a.matrixId, a.slice);
@@ -4176,6 +4272,8 @@ export class Core extends EventEmitter {
       }
       case 'diff_check':
         return (await this.runDiffCheck(projectId, { baseRef: a.baseRef, headRef: a.headRef, target: a.target })).jobs.map((j) => j.id);
+      case 'fix_verify':
+        return (await this.runFixVerify(projectId, await this.staleFindingIds(projectId))).map((j) => j.id);
     }
   }
 
@@ -4476,6 +4574,8 @@ export class Core extends EventEmitter {
     }
     if (job.entityType === SCA_MODULE_ENTITY && s0.sca.inventoryOf(runId, job.entityId)?.status !== 'complete')
       return 'the run finished, but no inventory was recorded: the agent did not call set_inventory_summary';
+    if (job.entityType === FIX_VERIFY_ENTITY && !s0.audit.fixVerifications({ runId }).length)
+      return 'the run finished, but no result was recorded: the agent did not call set_fix_verification; its log shows why, a safety refusal included';
     if (job.entityType === POC_ENTITY && !s0.audit.pocResults({ runIds: [runId] }).length)
       return 'the run finished, but no PoC result was recorded: the agent did not call set_poc_result';
     if (job.entityType === FINDING_VERIFY_ENTITY && !s0.audit.findingVerifications({ runId }).length)
@@ -4762,14 +4862,14 @@ export class Core extends EventEmitter {
       const text = `The session changed HEAD: ${before.slice(0, 8)} → ${after.slice(0, 8)}.`;
       const offer = await this.recheckOffer(projectId, before, after, entity?.type === FINDING_ENTITY ? entity.id : null);
       if (offer) this.notice('info', `${text} ${offer.reason}`, projectId, offer);
-      else this.notice('info', `${text} No linked matrix cells.`, projectId);
+      else this.notice('info', `${text} No linked matrix cells or findings.`, projectId);
     } catch (e) {
       // The repository may be mid-rebase: nothing to tell the user.
       log.warn('recheck offer: %s', (e as Error).message);
     }
   }
 
-  /** Cells whose verdicts depend on files the commits changed, plus the cells of the fixed finding. */
+  /** Cells whose verdicts depend on files the commits changed, plus the cells of the fixed finding; the same for fix checks of findings. */
   private async recheckOffer(projectId: string, before: string, after: string, findingId: string | null): Promise<RecheckOffer | null> {
     const s = this.store(projectId);
     const diff = (await changedFiles(this.project(projectId).root, before, after)) ?? [];
@@ -4778,12 +4878,15 @@ export class Core extends EventEmitter {
       .map((v) => cellId(v));
     const linked = findingId ? (s.audit.getFinding(findingId)?.cells ?? []).map(cellId) : [];
     const cells = uniq([...linked, ...affected]).filter((c) => this.cellAlive(s, parseCellId(c)) && this.matricesOfCell(s, parseCellId(c)).length);
-    if (!cells.length) return null;
+    const live = s.audit.listFindings().filter(fixEligible);
+    const findings = live.filter((f) => f.id === findingId || affectingChanges(diff, this.fixTouched(s, f), []).length > 0).map((f) => f.id);
+    if (!cells.length && !findings.length) return null;
     const parts = [
       linked.length ? `linked to the finding: ${linked.length}` : '',
       affected.length ? `affected by the changes: ${affected.length}` : '',
     ].filter(Boolean);
-    return { cells, reason: `Recheck of matrix cells suggested (${parts.join(', ')}).` };
+    const offers = [cells.length ? `Recheck of matrix cells suggested (${parts.join(', ')}).` : '', findings.length ? `Fix check suggested for ${findings.length} finding(s).` : ''];
+    return { cells, findings, reason: offers.filter(Boolean).join(' ') };
   }
 
   /** Opens the session in an external terminal (macOS). The token lives until the app exits. */

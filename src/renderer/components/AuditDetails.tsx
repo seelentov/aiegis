@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { CellDetails, Evidence, Finding, FindingDetails, FindingStatus, ProjectInfo, Severity, Verdict, VerdictStatus } from '../../shared/types';
+import type { CellDetails, Evidence, Finding, FindingDetails, FindingFixState, FindingStatus, ProjectInfo, Severity, Verdict, VerdictStatus } from '../../shared/types';
 import { FINDING_STATUSES, SEVERITIES, VERDICT_STATUSES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
-import { CELL_STATUS, FINDING_STATUS, FINDING_VERIFY_OUTCOME, JOB_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
+import { CELL_STATUS, FINDING_STATUS, FINDING_VERIFY_OUTCOME, FIX_OUTCOME, JOB_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
 import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { IconButton } from './Icon';
@@ -59,6 +59,19 @@ export async function confirmRecheck(project: ProjectInfo, run: RunFn, cells: st
       source: e.tokensPerCellSource === 'history' ? tr('from history') : tr('from config'),
     }) + `${e.busy ? `, ${tr('already queued: {n}', { n: e.busy })}` : ''}. ${tr('Run?')}`;
   if (e.cells && confirm(text)) await run(api.recheckCells(project.id, cells, matrixId));
+}
+
+/** Fix checks always pass the estimate (SPEC §7, §33). */
+export async function confirmFixVerify(project: ProjectInfo, run: RunFn, findings: string[]): Promise<void> {
+  const e = await run(api.estimateFixVerify(project.id, findings));
+  if (!e) return;
+  const text =
+    tr('Fix check: sessions {sessions}, ≈{tokens} tokens ({source})', {
+      sessions: e.sessions,
+      tokens: kTokens(e.tokens),
+      source: e.tokensPerCellSource === 'history' ? tr('from history') : tr('from config'),
+    }) + `${e.busy ? `, ${tr('already queued: {n}', { n: e.busy })}` : ''}. ${tr('Run?')}`;
+  if (e.cells && confirm(text)) await run(api.runFixVerify(project.id, findings));
 }
 
 function VerdictCompare({ a, b }: { a: Verdict & { run: unknown }; b: Verdict & { run: unknown } }) {
@@ -335,12 +348,14 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
 
 export function FindingDetailsView({ project, id, revision, run, onSelect, onTerminal }: Common & { id: string }) {
   const [d, setD] = useState<FindingDetails | null>(null);
+  const [fixState, setFixState] = useState<FindingFixState | null>(null);
   const [status, setStatus] = useState<FindingStatus>('verified');
   const [reason, setReason] = useState('');
 
   useEffect(() => {
     setReason('');
     void run(api.findingDetails(project.id, id)).then((x) => setD(x ?? null));
+    void run(api.findingsFixState(project.id)).then((x) => setFixState(x?.[id] ?? null));
   }, [project.id, id, revision, run]);
 
   if (!d) return null;
@@ -456,6 +471,42 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
         </div>
       ))}
       {d.verify.results[0] && f.status === 'suspected' && <div className="muted small">{tr('The status stays yours to set: this result does not change it.')}</div>}
+      </Section>
+
+      <Section title={tr('Fix check')}>
+      {fixState?.stale && (
+        <div className="actions">
+          <IconButton icon="check" label={tr('Check fix')} disabled={Boolean(d.fix.job)} title={tr('Estimate, then run a clean session that judges at HEAD whether the finding is closed')} onClick={() => void confirmFixVerify(project, run, [f.id])} />
+          {d.fix.job && <span className="muted small">{tr('job queued: {status}', { status: d.fix.job.status })}</span>}
+        </div>
+      )}
+      {fixState && (
+        <div className="muted small">
+          {fixState.stale
+            ? fixState.changedFiles.length
+              ? tr('Files of the finding changed since {commit}: {files}', { commit: fixState.baseline!.slice(0, 8), files: fixState.changedFiles.join(', ') })
+              : tr('The commit to compare with is not available, so a change cannot be ruled out')
+            : tr('The files of the finding did not change: there is nothing to check')}
+        </div>
+      )}
+      {d.fix.results.map((r) => (
+        <div key={r.id} className="result">
+          <div className="muted small">
+            {time(r.createdAt)} · {r.author} · {r.commitSha.slice(0, 8)}
+            {r.runId && (
+              <>
+                {' '}
+                · <a onClick={() => onSelect({ kind: 'run', id: r.runId! })}>{tr('run')}</a>
+              </>
+            )}
+          </div>
+          <div className="prewrap">
+            <span className={`status fx-${r.outcome}`}>{FIX_OUTCOME[r.outcome]}</span> {r.reason}
+          </div>
+          <EvidenceList project={project} run={run} items={r.evidence} />
+        </div>
+      ))}
+      {d.fix.results[0]?.outcome === 'closed' && f.status !== 'fixed' && <div className="muted small">{tr('The “fixed” status stays yours to set: this result does not change it.')}</div>}
       </Section>
 
       <Section title={tr('PoC tester')}>

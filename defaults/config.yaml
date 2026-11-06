@@ -417,6 +417,13 @@ tasks:
     role: finding-verify
     title: { en: "Verification: {{title}}", ru: "Проверка находки: {{title}}" }
     prompt: instructions/tasks/finding-verify.md
+  # Fix check of a finding (same role): a clean session at HEAD judges whether the flaw is closed.
+  # Placeholders: project, finding_id, title, commit_sha (HEAD), base_commit (the last judged commit or "unknown"),
+  # changed_files (files of the finding changed since then), claim (what the finding states, as JSON).
+  fix_verify:
+    role: finding-verify
+    title: { en: "Fix check: {{title}}", ru: "Проверка исправления: {{title}}" }
+    prompt: instructions/tasks/fix-verify.md
   # "Open fix session" (interactive, user's working directory).
   # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, cells.
   fix:
@@ -569,7 +576,7 @@ roles:
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash(git log *--ou*)", "Bash(git show *--ou*)", "Bash(git diff *--ou*)"]
 
   # Independent verification: tries to refute one finding by reading the code; no environment, no writing.
-  # Its token reaches only whoami and set_finding_verification (SPEC §28). Read stays inside the checkout and there is no
+  # Its token reaches only whoami and the result tool of its task (SPEC §28, §33). Read stays inside the checkout and there is no
   # `git diff` (given paths outside the repository it reads them): the transcript of the original session must stay out
   # of reach. `--output` (git takes abbreviations) would let these commands write files.
   # The method is adapted from capitalone/VulnHunter (Apache-2.0), see instructions/methodology/README.md.

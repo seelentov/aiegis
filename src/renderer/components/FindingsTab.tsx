@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { Finding, MatrixEstimate, ModuleSummary, ProjectInfo } from '../../shared/types';
+import type { Finding, FindingFixState, MatrixEstimate, ModuleSummary, ProjectInfo } from '../../shared/types';
 import { SEVERITIES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
-import { FINDING_STATUS, FINDING_VERIFY_OUTCOME, SEVERITY, time } from '../format';
+import { FINDING_STATUS, FINDING_VERIFY_OUTCOME, FIX_OUTCOME, SEVERITY, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
 import { IconButton } from './Icon';
@@ -25,9 +25,12 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
   const [merged, setMerged] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   const [estimate, setEstimate] = useState<MatrixEstimate | null>(null);
+  const [estimateFix, setEstimateFix] = useState(false);
+  const [fixStates, setFixStates] = useState<Record<string, FindingFixState>>({});
 
   useEffect(() => {
     void run(api.listFindings(project.id)).then((f) => f && setFindings(f));
+    void run(api.findingsFixState(project.id)).then((x) => x && setFixStates(x));
     void api.listModules(project.id).then(setModules);
     void api.currentRequirements(project.id).then((r) => setDocOf(new Map(r.map((i) => [i.requirementId, i.documentTitle]))));
   }, [project.id, revision, run]);
@@ -44,6 +47,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
       { key: 'severity', title: 'Severity', text: (f) => SEVERITY[f.severity], sort: (f) => SEVERITIES.indexOf(f.severity), filter: 'enum' },
       { key: 'status', title: tr('Status'), text: (f) => FINDING_STATUS[f.status], filter: 'enum' },
       { key: 'verification', title: tr('Verification'), text: (f) => (f.verification ? FINDING_VERIFY_OUTCOME[f.verification] : ''), filter: 'enum' },
+      { key: 'fix', title: tr('Fix check'), text: (f) => [fixStates[f.id]?.stale ? tr('stale|map') : '', fixStates[f.id]?.last ? FIX_OUTCOME[fixStates[f.id].last!] : ''].filter(Boolean).join(' · '), filter: 'enum' },
       { key: 'cwe', title: 'CWE', text: (f) => f.cwe ?? '' },
       { key: 'module', title: tr('Module'), text: (f) => moduleName(f.moduleId), filter: 'enum' },
       { key: 'document', title: tr('Document'), text: documents, filter: 'enum' },
@@ -54,9 +58,11 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
 
   const eligible = (f: Finding) => f.status === 'suspected' && !f.mergedInto;
   const chosen = findings.filter((f) => picked.includes(f.id) && eligible(f)).map((f) => f.id);
+  const stale = (f: Finding) => Boolean(fixStates[f.id]?.stale);
+  const chosenFix = findings.filter((f) => picked.includes(f.id) && stale(f)).map((f) => f.id);
   const start = async () => {
     setEstimate(null);
-    if (await run(api.runFindingVerify(project.id, chosen))) setPicked([]);
+    if (await run(estimateFix ? api.runFixVerify(project.id, chosenFix) : api.runFindingVerify(project.id, chosen))) setPicked([]);
   };
 
   return (
@@ -71,11 +77,19 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
           title={tr('Estimate, then run a clean session per picked finding that tries to refute it')}
           label={tr('Verify {n}', { n: chosen.length })}
           disabled={!chosen.length}
-          onClick={() => void run(api.estimateFindingVerify(project.id, chosen)).then((e) => e && setEstimate(e))}
+          onClick={() => void run(api.estimateFindingVerify(project.id, chosen)).then((e) => { setEstimateFix(false); if (e) setEstimate(e); })}
+        />
+        <IconButton icon="check" title={tr('Pick the stale findings shown below')} label={tr('Pick stale')} onClick={() => setPicked(g.rows.filter(stale).map((f) => f.id))} />
+        <IconButton
+          icon="play"
+          title={tr('Estimate, then run a clean session per picked stale finding that judges at HEAD whether it is closed')}
+          label={tr('Check fix {n}', { n: chosenFix.length })}
+          disabled={!chosenFix.length}
+          onClick={() => void run(api.estimateFixVerify(project.id, chosenFix)).then((e) => { setEstimateFix(true); if (e) setEstimate(e); })}
         />
         {g.count}
       </div>
-      {estimate && <EstimatePanel estimate={estimate} title={tr('independent verification')} batchSetting="findings.verify_estimate_tokens" perFinding onRun={() => void start()} onCancel={() => setEstimate(null)} />}
+      {estimate && <EstimatePanel estimate={estimate} title={estimateFix ? tr('fix check') : tr('independent verification')} batchSetting="findings.verify_estimate_tokens" perFinding onRun={() => void start()} onCancel={() => setEstimate(null)} />}
       <table className="grid">
         {g.head}
         <tbody>
@@ -90,7 +104,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
                 <input
                   type="checkbox"
                   aria-label={tr('Pick for verification')}
-                  disabled={!eligible(f)}
+                  disabled={!eligible(f) && !stale(f)}
                   checked={picked.includes(f.id)}
                   onChange={(e) => setPicked(e.target.checked ? [...picked, f.id] : picked.filter((id) => id !== f.id))}
                 />
@@ -107,6 +121,10 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
                 <span className={`status fs-${f.status}`}>{FINDING_STATUS[f.status]}</span>
               </td>
               <td>{f.verification && <span className={`status fv-${f.verification}`}>{FINDING_VERIFY_OUTCOME[f.verification]}</span>}</td>
+              <td>
+                {stale(f) && <span className="status stale">{tr('stale|map')}</span>}
+                {fixStates[f.id]?.last && <span className={`status fx-${fixStates[f.id].last}`}>{FIX_OUTCOME[fixStates[f.id].last!]}</span>}
+              </td>
               <td className="mono">{f.cwe ?? ''}</td>
               <td>{moduleName(f.moduleId)}</td>
               <td>{documents(f)}</td>

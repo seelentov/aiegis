@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import {
   ENTRY_POINT_KINDS,
   FINDING_VERIFY_OUTCOMES,
+  FIX_OUTCOMES,
   POC_OUTCOMES,
   SCA_STATUSES,
   SEVERITIES,
@@ -30,7 +31,7 @@ import {
 import type { Settings } from '../config/loader';
 import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, DOC_REFRESH_ENTITY, DOC_TEXT_ENTITY, sha256File } from '../documents';
 import type { RefreshProposalInput } from '../core';
-import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, FINDING_VERIFY_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
+import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, FINDING_VERIFY_ENTITY, FIX_VERIFY_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { CARRIED_AUTHOR } from '../audit-store';
 import { DIFF_ITEM_ENTITY, diffItemId, diffVerdictError } from '../diff-check';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
@@ -170,6 +171,41 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           const s = svc.store(pid);
           if (!s.audit.getFinding(a.finding_id)) return fail(`finding ${a.finding_id} not found`);
           const r = s.audit.addFindingVerification({ findingId: a.finding_id, outcome: a.outcome, reason: a.reason, evidence, commitSha: run.commitSha }, by);
+          svc.onWrite(pid);
+          return ok({ saved: r.id, outcome: r.outcome });
+        }),
+    );
+    return server;
+  }
+
+  // A fix check is independent in the same way (SPEC §33).
+  if (grant.scope.some((e) => e.type === FIX_VERIFY_ENTITY)) {
+    server.registerTool(
+      'set_fix_verification',
+      {
+        description:
+          'Result of the fix check of the finding in your scope (fix_verify:<finding_id>) at the commit of your checkout: closed / not_closed need evidence (code references); undetermined needs a reason naming what is missing. Does not change the finding status. Every call is stored and shown to humans.',
+        inputSchema: {
+          finding_id: z.string(),
+          outcome: z.enum(FIX_OUTCOMES),
+          reason: z.string().min(1).describe('Your own argument'),
+          evidence: evidenceSchema.optional(),
+        },
+      },
+      async (a) =>
+        guard({ kind: 'write', entity: { type: FIX_VERIFY_ENTITY, id: a.finding_id } }, () => {
+          const run = liveRun();
+          const evidence = a.evidence ?? [];
+          if (a.outcome !== 'undetermined' && !evidence.length) return fail(`${a.outcome} requires evidence (code references)`);
+          const s = svc.store(pid);
+          const f = s.audit.getFinding(a.finding_id);
+          if (!f) return fail(`finding ${a.finding_id} not found`);
+          // The fix may have deleted a file of the finding.
+          for (const e of evidence.filter((x) => !f.files.some((y) => y.file === x.file))) {
+            const err = repoFileError(run.cwd, e.file);
+            if (err) return fail(err);
+          }
+          const r = s.audit.addFixVerification({ findingId: f.id, outcome: a.outcome, reason: a.reason, evidence, commitSha: run.commitSha }, by);
           svc.onWrite(pid);
           return ok({ saved: r.id, outcome: r.outcome });
         }),

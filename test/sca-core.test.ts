@@ -136,7 +136,7 @@ describe('SCA with a fake claude', () => {
   it('manual verdicts and findings: reachable needs a linked finding; human verdict is a new record', async () => {
     const id = scaItemId({ moduleId, packageKey: 'maven:net.mystery:x@3.0', vulnId: 'CVE-4' });
     await expect(core.setScaVerdict(pid, id, { status: 'reachable', reason: 'used', evidence: [] })).rejects.toThrow(/finding/);
-    const f = core.createScaFinding(pid, id, { title: 'x reachable', description: 'd', severity: 'medium', cwe: null, entryPoint: null, files: [{ file: 'svc/Api.java' }], recommendation: null });
+    const f = await core.createScaFinding(pid, id, { title: 'x reachable', description: 'd', severity: 'medium', cwe: null, entryPoint: null, files: [{ file: 'svc/Api.java' }], recommendation: null });
     const v = await core.setScaVerdict(pid, id, { status: 'reachable', reason: 'checked by hand', evidence: [{ file: 'svc/Api.java', line: 2 }] });
     expect(v).toMatchObject({ author: 'human', status: 'reachable' });
     const d = await core.scaItemDetails(pid, id);
@@ -167,6 +167,8 @@ describe('SCA with a fake claude', () => {
     git('commit', '-qam', 'bump');
     m = (await core.scaView(pid)).modules.find((x) => x.module.id === moduleId)!;
     expect(m.inventoryStale).toBe(true);
+    const scaFinding = core.listFindings(pid).find((x) => !x.mergedInto && x.scaItems.length)!;
+    expect((await core.findingsFixState(pid))[scaFinding.id].changedFiles).toContain('svc/build.gradle');
   });
 
   it('a run that does not finish its inventory fails and leaves no current inventory', async () => {
