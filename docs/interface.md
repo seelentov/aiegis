@@ -1,0 +1,75 @@
+# Interface
+
+![The main window with the matrix tab and the details panel](screenshots/matrix.png)
+
+The layout follows VS Code:
+
+- **Activity bar** (far left): the project list toggle, then the tabs by group. A badge on **Queue** shows how many jobs are running.
+- **Project list**: can be hidden.
+- **Breadcrumbs** above the content: project › tab › selected item. A progress line runs along their lower edge while jobs are running.
+- **Details panel** (right): opens when you select a row. Close it with the cross or `Esc`. Its sections collapse, and the app remembers their state by section name.
+- **Terminal panel** (bottom): tabs with read-only output streams and interactive sessions. See [Queue and sessions](queue-and-sessions.md#terminal-panel).
+- **Status bar**: the project, jobs in progress or a paused queue (opens **Queue**), the number of sessions (opens the terminal), and the notification bell.
+
+## Tabs and keyboard shortcuts
+
+`⌘` on macOS, `Ctrl` elsewhere.
+
+| Shortcut | Tab | Group |
+|---|---|---|
+| `⌘1` | [Matrix](matrix.md) | Audit |
+| `⌘2` | [Findings](findings.md) | Audit |
+| `⌘3` | [SCA](sca.md) | Audit |
+| `⌘4` | [Signals](signals.md) | Audit |
+| `⌘5` | [Entry points](entry-points.md) | Audit |
+| `⌘6` | [Branch check](branch-check.md) | Audit |
+| `⌘7` | [Modules](modules.md) | Sources |
+| `⌘8` | [Documents](documents.md) | Sources |
+| `⌘9` | [Queue](queue-and-sessions.md) | System |
+| `⌘0` | [Schedules](schedules.md) | System |
+| none | [Settings](configuration.md#the-settings-tab) | System |
+
+| Shortcut | Action |
+|---|---|
+| `⌘B` | Show or hide the project list |
+| `⌘J` | Show or hide the terminal |
+| `Esc` | Close the details panel (not while typing in a field or in the terminal) |
+
+## Projects
+
+**Add project** opens a folder dialog; the folder must be a git repository. A project's id is derived from the real path of its root, so moving a repository makes it a new project.
+
+**Remove from list** forgets the project in the app. Its audit data stays on disk, and adding the same path again brings it back. See [Data and logs](data-and-logs.md).
+
+## Tables
+
+Every table works the same way:
+
+- click a column heading to sort;
+- use the field under the heading to filter by text or by value;
+- filters last until the app restarts;
+- **Reset filters and sorting** clears them.
+
+Row and toolbar actions are icons with a tooltip. Form buttons such as **Save** and **Cancel** are text.
+
+## Resizing
+
+Drag a divider to resize the project list, the details panel or the terminal. With the keyboard, focus a divider and use the arrow keys. Double-click a divider to restore its default. Sizes and the last open tab are remembered on this machine.
+
+The terminal can also fill the whole work area: use its button or double-click its tab bar.
+
+## Notifications
+
+The bell in the status bar keeps the last 50 notifications of the session and counts unread warnings and errors. Notifications include scanners that are unavailable, default settings added after an upgrade, schedules that did not start, and offers to recheck after a commit.
+
+## Effective configuration
+
+Modules, cells, dependency items, runs and **Settings** can show the effective configuration: the final value of each field (agent, model, effort, instructions, permissions, env) and the level it came from. See [Configuration](configuration.md#effective-configuration).
+
+## Opening files
+
+File references open in VS Code in your working copy, at the line when one is known. If the reference belongs to another commit, the lines may differ; the signals table warns you about this.
+
+## Language
+
+Set `ui.language` to `en` or `ru` in the global configuration. Role and task titles follow it too. Errors from the core, notifications and MCP replies are always in English.
