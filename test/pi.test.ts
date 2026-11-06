@@ -14,6 +14,39 @@ const rc = (allow: string[], deny: string[] = [], dirs: string[] = []): PiRunCon
 const CWD = '/w/tree';
 
 describe('pi permissions', () => {
+  it('keeps the finding-verify role inside its checkout, read-only', () => {
+    const { permissions: p } = YAML.parse(fs.readFileSync(path.join(DEFAULTS_DIR, 'config.yaml'), 'utf8')).roles['finding-verify'];
+    const role = rc(p.allow, p.deny);
+    for (const [tool, input] of [
+      ['read', { path: 'src/a.ts' }],
+      ['read', { path: `${CWD}/src/a.ts` }],
+      ['grep', { pattern: 'x' }],
+      ['grep', { pattern: 'x', path: 'src' }],
+      ['find', { pattern: '*.java' }],
+      ['ls', {}],
+      ['bash', { command: 'git log -p -- src/a.ts' }],
+      ['bash', { command: 'git show HEAD:src/a.ts' }],
+      ['mcp__aiegis__set_finding_verification', {}],
+    ] as const) expect(decide(role, CWD, tool, input).kind, `${tool} ${JSON.stringify(input)}`).toBe('allow');
+    for (const [tool, input] of [
+      ['read', { path: '/etc/hosts' }],
+      ['read', { path: '../other/secret' }],
+      ['read', { path: `${os.homedir()}/.claude/projects/x.jsonl` }],
+      ['grep', { pattern: 'x', path: '/etc' }],
+      ['grep', { pattern: 'x', path: '..' }],
+      ['find', { pattern: '*', path: '/' }],
+      ['ls', { path: '/etc' }],
+      ['edit', { path: 'src/a.ts' }],
+      ['write', { path: 'src/a.ts' }],
+      ['bash', { command: 'git log --output=/tmp/x' }],
+      ['bash', { command: 'git show --ou=/tmp/x HEAD' }],
+      ['bash', { command: 'git diff /etc/hosts /etc/shells' }],
+      ['bash', { command: 'cat /etc/hosts' }],
+      ['bash', { command: 'git log > /tmp/x' }],
+      ['bash', { command: 'git log; cat /etc/hosts' }],
+    ] as const) expect(decide(role, CWD, tool, input).kind, `${tool} ${JSON.stringify(input)}`).not.toBe('allow');
+  });
+
   const sca = rc(['Read', 'Glob', 'mcp__aiegis', 'Write(./.aiegis-sca/**)', 'Bash(git log:*)', 'Bash(npm ls:*)'], ['WebFetch'], ['/home/u/.m2']);
 
   it('allows tools and MCP tools the rules name', () => {
