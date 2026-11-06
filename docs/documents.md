@@ -108,6 +108,8 @@ The app shows no estimate for generating documents.
 
 **Out of force** takes a document out with a reason: its requirements leave the matrices and checks, while its history and findings stay. **Back into force** restores it, and anything that changed in between shows as `stale` by the normal rules. Documents are never physically deleted.
 
+A single item can go out of force too, while its document stays in force and keeps being checked by the refresher: **Out of force** on the item's row of an approved version, with a reason. The item leaves the matrices and branch checks, including checks already done, and its history stays. The decision belongs to the requirement, so it carries over to new versions while the item keeps its key; new items come to the review as usual. **Back into force** on the row returns it.
+
 ## New matrix
 
 An approved version offers **New matrix**, which opens the normal [matrix form](matrix.md#creating-a-matrix) with this document selected.

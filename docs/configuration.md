@@ -83,7 +83,7 @@ Settings edits the same files. On the left are the sections of `config.yaml` (Ge
 
 On every start:
 
-- missing top-level keys and missing entries of `roles`, `tasks`, `scanners`, `poc`, `terminal`, `limits` and `doc_refresh` are added to your global `config.yaml`. Existing values and comments are not changed, so the **values** of a role you already have, such as its permissions, are not updated;
+- missing top-level keys and missing entries of `roles`, `tasks`, `scanners`, `poc`, `terminal`, `limits`, `doc_refresh`, `matrix`, `findings` and `diff_check` are added to your global `config.yaml`. Existing values and comments are not changed, so the **values** of a role you already have, such as its permissions, are not updated;
 - `~/.aiegis/.defaults.json` holds the hash of each default file. A default file that changed replaces yours if you did not edit it, with a notification. If you edited it, your file stays, and one warning lists what to merge by hand.
 
 ## Settings reference
@@ -158,8 +158,10 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 | `matrix.economy_batch_size` | `100` | Cells per merged session |
 | `matrix.estimate_tokens_per_economy_session` | `165000` | Estimate of a merged session with no history |
 | `diff_check.batch_size` | `600` | Requirements per session |
-| `diff_check.max_diff_kb_in_prompt` | `200` | A larger diff stays out of the prompt |
-| `diff_check.estimate_tokens_per_requirement` | `300` | Used for the estimate |
+| `diff_check.max_diff_kb_in_prompt` | `1000` | A larger diff stays out of the prompt |
+| `diff_check.prompt_exclude` | tests, styles, lock and generated files | Pathspec globs left out of the diff in the prompt |
+| `diff_check.estimate_tokens_per_requirement` | `250` | Estimate per requirement |
+| `diff_check.estimate_tokens_per_diff_kb` | `450` | Estimate per KB of the diff in a session's prompt |
 | `findings.similar_limit` | `5` | Candidates from `find_similar` |
 | `findings.verify_estimate_history_runs` | `20` | Recent runs of `finding-verify` averaged for its estimate |
 | `findings.verify_estimate_tokens` | `20000` | Billable tokens per finding in that estimate when there is no history |

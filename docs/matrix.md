@@ -20,6 +20,8 @@ A cell is global: a verdict for a module and a requirement is shared by every ma
 | `finding` | The requirement is broken | A reason, code references and a linked finding |
 | `needs human` | The agent could not decide | A reason |
 
+A `pass` must cite the code that meets the requirement. The agent checks every place in the module that does what the requirement is about, and a control it did not find is a violation or `needs human`. A `pass` argued from silent scanners is rejected.
+
 `stale` is a separate flag on top of a status: the code or the requirement changed after the verdict. See [freshness](concepts.md#freshness-stale). `applicable` marks a cell the triage left for the verdict stage; the cell stays `not checked`.
 
 The counters above the grid filter the rows. The grid is grouped by document and section, and the header shows which commit the verdicts are displayed for.

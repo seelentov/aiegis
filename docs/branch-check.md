@@ -20,7 +20,15 @@ The accepted items of the current approved versions of the target. Documents [ou
 
 ## Sessions
 
-Usually one session covers the whole check (task `diff_check`, role `diff-check`), running in a worktree at the branch's commit. All the items and the diff go into the prompt. The diff stays out when it exceeds `diff_check.max_diff_kb_in_prompt`, and the agent then reads what it needs with `git diff`. Sessions are split only above `diff_check.batch_size` items, because each session would read the same diff again.
+Usually one session covers the whole check (task `diff_check`, role `diff-check`), running in a worktree at the branch's commit. All the items and the diff go into the prompt, up to `diff_check.max_diff_kb_in_prompt` (1000 KB, about 450 thousand tokens). Above that the diff stays out and the agent reads what it needs with `git diff`, which misses more: on a 289 KB branch an agent reading the diff by itself found 1 of 5 planted flaws, and the diff in the prompt found all 5.
+
+Files matching `diff_check.prompt_exclude` (tests, styles, lock and generated files by default) are left out of the diff in the prompt. They stay in the list of changed files, and the agent reads them when they matter.
+
+The agent first lists the security-relevant changes, then reads the code each of them affects outside the diff: callers of a changed method, a called method, how a new operation is exposed. A candidate it could not trace to the end becomes `needs_human`.
+
+Sessions are split only above `diff_check.batch_size` items, because each session would read the same diff again. Splitting a large diff by files was measured too: it cost about 40% more and found no more.
+
+A global config from an older version keeps its own `max_diff_kb_in_prompt` (200 before): raise it by hand.
 
 Runs are atomic per item: **Retry** takes only items with no verdict.
 
@@ -49,7 +57,7 @@ The code has not merged, so results stay inside the check and do not reach **Fin
 
 ## Estimate
 
-The estimate uses the matrix's panel, with requirements instead of cells: items × `diff_check.estimate_tokens_per_requirement`, without run history. The figure grows with the size of the diff.
+The estimate uses the matrix's panel, with requirements instead of cells, without run history. Each session counts items × `diff_check.estimate_tokens_per_requirement` plus the KB of the diff in its prompt × `diff_check.estimate_tokens_per_diff_kb`.
 
 ## On a schedule
 
