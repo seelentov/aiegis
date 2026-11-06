@@ -243,6 +243,8 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   },
   retireDocument: { name: 'doc retire', usage: '<document> <reason>', help: 'Take a document out of force: it leaves matrices and checks, history stays', run: (a, c) => c.call('retireDocument', c.pid(), a.pos[0], a.pos[1]) },
   restoreDocument: { name: 'doc restore', usage: '<document>', help: 'Bring a document back into force', run: (a, c) => c.call('restoreDocument', c.pid(), a.pos[0]) },
+  retireRequirements: { name: 'doc item-retire', usage: '<reason> <requirement...>', help: 'Take requirements out of force: they leave matrices and checks, their document and history stay', run: (a, c) => c.call('retireRequirements', c.pid(), a.pos.slice(1), a.pos[0]) },
+  restoreRequirements: { name: 'doc item-restore', usage: '<requirement...>', help: 'Bring requirements back into force', run: (a, c) => c.call('restoreRequirements', c.pid(), a.pos) },
   estimateDocRefresh: { name: 'doc check-estimate', usage: '(--set <id> | --document <id>)', help: 'Estimate a document check; nothing runs', run: (a, c) => c.call('estimateDocRefresh', c.pid(), refreshTarget(a)) },
   refreshDocuments: {
     name: 'doc check',

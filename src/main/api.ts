@@ -36,6 +36,8 @@ export function coreApi(core: Core): CoreApi {
     setDocumentSource: (pid, id, source) => core.setDocumentSource(pid, id, source),
     retireDocument: (pid, id, reason) => core.retireDocument(pid, id, reason),
     restoreDocument: (pid, id) => core.restoreDocument(pid, id),
+    retireRequirements: (pid, ids, reason) => core.retireRequirements(pid, ids, reason),
+    restoreRequirements: (pid, ids) => core.restoreRequirements(pid, ids),
     estimateDocRefresh: (pid, t) => core.estimateDocRefresh(pid, t),
     refreshDocuments: (pid, t, o) => core.refreshDocuments(pid, t, o),
     listDocProposals: (pid) => core.listDocProposals(pid),

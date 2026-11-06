@@ -243,6 +243,20 @@ describe('document refresher', () => {
     expect((await core.matrixSlice(pid, matrixId, {})).length).toBe(withCells.length);
   });
 
+  it('retired items leave matrices while the document stays in force, and come back', async () => {
+    const withCells = await core.matrixSlice(pid, matrixId, {});
+    const item = core.currentRequirements(pid).find((i) => i.documentTitle === 'Order A')!;
+    expect(() => core.retireRequirements(pid, [item.requirementId], ' ')).toThrow(/state why/);
+    expect(() => core.retireRequirements(pid, ['missing'], 'not code')).toThrow(/not found/);
+    core.retireRequirements(pid, [item.requirementId], 'not code');
+    expect(core.currentRequirements(pid).some((i) => i.requirementId === item.requirementId)).toBe(false);
+    expect((await core.matrixSlice(pid, matrixId, {})).length).toBeLessThan(withCells.length);
+    expect(docOf(docA).retiredAt).toBeNull();
+    expect(core.docVersion(pid, item.versionId).items.find((i) => i.id === item.id)).toMatchObject({ retiredReason: 'not code' });
+    core.restoreRequirements(pid, [item.requirementId]);
+    expect((await core.matrixSlice(pid, matrixId, {})).length).toBe(withCells.length);
+  });
+
   it('replace: the old document leaves only when the new one is approved, and stays if it is discarded', async () => {
     pages.set('/list', { body: html('<p>REPLACED BY order S</p><p>S-1: Successor rule must hold.</p><p>END</p>') });
     await check({ setId: set.id });

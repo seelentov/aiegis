@@ -367,7 +367,7 @@ export function agentOf(cfg: EffectiveConfig): 'claude' | 'pi' {
 }
 
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh', 'findings'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh', 'matrix', 'findings'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing

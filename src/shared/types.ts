@@ -350,6 +350,9 @@ export interface RequirementItem {
   author: string;
   runId: string | null;
   updatedAt: string;
+  /** Out of force in every version: it leaves matrices and checks while its document stays in force. */
+  retiredAt: string | null;
+  retiredReason: string | null;
 }
 
 /** A requirement with its grounds: enough to name it as the reason of a task. */

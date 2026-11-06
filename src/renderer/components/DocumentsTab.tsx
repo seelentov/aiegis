@@ -99,6 +99,7 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
   const editable = v.status === 'review' || v.status === 'failed';
   const active = view.job && (view.job.status === 'queued' || view.job.status === 'running');
   const review = (ids: string[], r: RequirementItem['review']) => void run(api.reviewItems(project.id, v.id, ids, r));
+  const [retiring, setRetiring] = useState<{ item: RequirementItem; reason: string } | null>(null);
   const save = async (d: ItemDraft) => {
     const ok = await run(api.saveItem(project.id, v.id, { key: d.key.trim() || null, text: d.text, section: d.section, clause: d.clause, quote: d.quote }));
     if (ok) setEditing(null);
@@ -205,6 +206,23 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
           <ItemForm onSave={(d) => void save(d)} onCancel={() => setEditing(null)} />
         </div>
       )}
+      {retiring && (
+        <div className="card">
+          <strong>{tr('Take item {key} out of force', { key: retiring.item.key })}</strong>
+          <div className="form">
+            <label className="wide">
+              {tr('Reason')}
+              <input value={retiring.reason} onChange={(e) => setRetiring({ ...retiring, reason: e.target.value })} />
+            </label>
+            <div className="wide row">
+              <button className="primary" disabled={!retiring.reason.trim()} onClick={() => void run(api.retireRequirements(project.id, [retiring.item.requirementId], retiring.reason)).then(() => setRetiring(null))}>
+                {tr('Save')}
+              </button>
+              <button onClick={() => setRetiring(null)}>{tr('Cancel')}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <table className="grid req-grid">
         {g.head}
         <tbody>
@@ -221,7 +239,7 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
                 </td>
               </tr>
             ) : (
-              <tr key={i.id} className={`review-${i.review}`}>
+              <tr key={i.id} className={i.retiredAt ? 'removed' : `review-${i.review}`} title={i.retiredReason ?? undefined}>
                 <td className="mono">
                   {i.key}
                   {CHANGE[i.change] && <div className={`status c-${i.change}`}>{CHANGE[i.change]}</div>}
@@ -235,8 +253,14 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
                   {i.quote && i.quote !== i.text && <div className="muted small quote">«{i.quote}»</div>}
                   <div className="muted small">{i.author}</div>
                 </td>
-                <td>{REVIEW[i.review]}</td>
+                <td>{i.retiredAt ? tr('out of force') : REVIEW[i.review]}</td>
                 <td className="actions">
+                  {v.status === 'approved' && i.review === 'accepted' &&
+                    (i.retiredAt ? (
+                      <IconButton icon="undo" title={tr('Back into force: the item returns to matrices')} onClick={() => void run(api.restoreRequirements(project.id, [i.requirementId]))} />
+                    ) : (
+                      <IconButton icon="reject" className="danger" title={tr('Out of force: the item leaves matrices and checks')} onClick={() => setRetiring({ item: i, reason: '' })} />
+                    ))}
                   {editable && (
                     <>
                       <IconButton icon="check" className="ok" title={tr('Accept')} aria-pressed={i.review === 'accepted'} disabled={i.review === 'accepted'} onClick={() => review([i.id], 'accepted')} />

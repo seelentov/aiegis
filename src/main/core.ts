@@ -1388,6 +1388,18 @@ export class Core extends EventEmitter {
     this.auditChanged(projectId);
   }
 
+  /** A document in force with some items that do not apply: they leave matrices and checks, history stays. */
+  retireRequirements(projectId: string, requirementIds: string[], reason: string): void {
+    if (!reason.trim()) throw new Error('state why the requirements are out of force');
+    this.store(projectId).audit.setRequirementsRetired(requirementIds, reason.trim());
+    this.auditChanged(projectId);
+  }
+
+  restoreRequirements(projectId: string, requirementIds: string[]): void {
+    this.store(projectId).audit.setRequirementsRetired(requirementIds, null);
+    this.auditChanged(projectId);
+  }
+
   listDocProposals(projectId: string): DocProposal[] {
     return this.store(projectId).audit.listDocProposals();
   }
@@ -3776,11 +3788,11 @@ export class Core extends EventEmitter {
     return { title, versionIds };
   }
 
-  /** Accepted requirements of document versions: approved versions do not change, so a check keeps its list. */
+  /** Accepted requirements of document versions: approved versions do not change, so a check keeps its list, minus retired items. */
   private diffItems(s: ProjectStore, versionIds: string[]): (RequirementItem & { documentTitle: string })[] {
     return versionIds.flatMap((id) => {
       const documentTitle = s.audit.getDocumentTitle(s.audit.getVersion(id)!.documentId) ?? '';
-      return s.audit.listItems(id).filter((i) => i.review === 'accepted').map((i) => ({ ...i, documentTitle }));
+      return s.audit.listItems(id).filter((i) => i.review === 'accepted' && !i.retiredAt).map((i) => ({ ...i, documentTitle }));
     });
   }
 

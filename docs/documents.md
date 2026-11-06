@@ -128,6 +128,8 @@ aiegis doc plan --hint 'Focus on the payment flow'
 aiegis doc rewrite <document> --hint '...'
 aiegis doc retire <document> 'Replaced by the 2026 edition'
 aiegis doc restore <document>
+aiegis doc item-retire 'Not checkable in code' <requirement>...
+aiegis doc item-restore <requirement>...
 aiegis doc repeats
 aiegis doc requirements
 ```
