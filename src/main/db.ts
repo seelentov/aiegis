@@ -693,6 +693,10 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE verdicts ADD COLUMN preliminary INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  ALTER TABLE requirements ADD COLUMN retired_at TEXT;
+  ALTER TABLE requirements ADD COLUMN retired_reason TEXT;
+  `,
 ];
 
 export function migrate(db: DB): void {

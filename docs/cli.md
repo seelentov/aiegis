@@ -102,6 +102,8 @@ Documents. See [Documents](documents.md).
 | `doc source <document> [url] [--insecure]` | Set the link of a document, or clear it; --insecure does not verify the certificate of its host |
 | `doc retire <document> <reason>` | Take a document out of force: it leaves matrices and checks, history stays |
 | `doc restore <document>` | Bring a document back into force |
+| `doc item-retire <reason> <requirement...>` | Take requirements out of force: they leave matrices and checks, their document and history stay |
+| `doc item-restore <requirement...>` | Bring requirements back into force |
 | `doc check-estimate (--set <id> \| --document <id>)` | Estimate a document check; nothing runs |
 | `doc check (--set <id> \| --document <id>) [--force]` | Check a set or one document against its links; without AI when the sources did not change, unless --force |
 | `doc plan [--hint <text>]` | Queue AI-written security documents |

@@ -112,6 +112,8 @@ export interface AiegisApi {
   /** Out of force: requirements leave matrices, the refresher skips it, history stays. */
   retireDocument(projectId: string, documentId: string, reason: string): void;
   restoreDocument(projectId: string, documentId: string): void;
+  retireRequirements(projectId: string, requirementIds: string[], reason: string): void;
+  restoreRequirements(projectId: string, requirementIds: string[]): void;
   estimateDocRefresh(projectId: string, target: DocRefreshTarget): DocRefreshEstimate;
   /** Checks a set or one document against its links; without AI when the sources did not change. */
   refreshDocuments(projectId: string, target: DocRefreshTarget, o: { force?: boolean }): DocRefreshStart;
