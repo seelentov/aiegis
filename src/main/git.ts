@@ -40,8 +40,10 @@ export async function mergeBase(dir: string, a: string, b: string): Promise<stri
 }
 
 /** Text of a diff; null if it cannot be read (unknown commit, more than the output limit of `git`). */
-export async function diffText(dir: string, from: string, to: string): Promise<string | null> {
-  return git(dir, ['diff', '--no-ext-diff', from, to, '--']).catch((e: Error) => {
+/** `exclude` are pathspec globs left out of the text. */
+export async function diffText(dir: string, from: string, to: string, exclude: string[] = []): Promise<string | null> {
+  const paths = exclude.length ? ['.', ...exclude.map((g) => `:(exclude,glob)${g}`)] : [];
+  return git(dir, ['diff', '--no-ext-diff', from, to, '--', ...paths]).catch((e: Error) => {
     log.warn('diff %s..%s failed: %s', from, to, e.message);
     return null;
   });

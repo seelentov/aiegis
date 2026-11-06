@@ -3816,7 +3816,11 @@ export class Core extends EventEmitter {
   /** Dry-run estimate (SPEC §7) in the form of the matrix panel: requirements stand for cells. */
   async estimateDiffCheck(projectId: string, o: DiffCheckInput): Promise<MatrixEstimate> {
     const plan = await this.diffPlan(projectId, o);
-    const tpc = this.projectSettings(projectId).diff_check.estimate_tokens_per_requirement;
+    const settings = this.projectSettings(projectId).diff_check;
+    const tpc = settings.estimate_tokens_per_requirement;
+    const diff = await diffText(this.project(projectId).root, plan.baseSha, plan.headSha, settings.prompt_exclude);
+    const diffTokens = Math.round((Math.min(Buffer.byteLength(diff ?? ''), settings.max_diff_kb_in_prompt * 1024) / 1024) * settings.estimate_tokens_per_diff_kb);
+    const sessionTokens = (n: number) => n * tpc + diffTokens;
     return {
       stage: 'verdicts',
       role: this.taskRole(projectId, 'diff_check'),
@@ -3824,17 +3828,18 @@ export class Core extends EventEmitter {
       cells: plan.items.length,
       tokensPerCell: tpc,
       tokensPerCellSource: 'config',
-      tokens: plan.items.length * tpc,
+      tokens: plan.batches.reduce((t, b) => t + sessionTokens(b.length), 0),
       maxTokensPerRun: this.projectSettings(projectId).limits.max_tokens_per_run,
-      batches: plan.batches.map((b) => ({ moduleId: '', moduleName: plan.title, group: '', cells: b.length, tokens: b.length * tpc })),
+      batches: plan.batches.map((b) => ({ moduleId: '', moduleName: plan.title, group: '', cells: b.length, tokens: sessionTokens(b.length) })),
       busy: 0,
     };
   }
 
   private async renderDiffTask(projectId: string, check: DiffCheck, items: (RequirementItem & { documentTitle: string })[]): Promise<{ role: string; title: string; prompt: string }> {
     const spec = this.taskSpec(projectId, 'diff_check');
-    const diff = await diffText(this.project(projectId).root, check.baseSha, check.headSha);
-    const fits = diff !== null && Buffer.byteLength(diff) <= this.projectSettings(projectId).diff_check.max_diff_kb_in_prompt * 1024;
+    const settings = this.projectSettings(projectId).diff_check;
+    const diff = await diffText(this.project(projectId).root, check.baseSha, check.headSha, settings.prompt_exclude);
+    const fits = diff !== null && Buffer.byteLength(diff) <= settings.max_diff_kb_in_prompt * 1024;
     const documents = [...new Set(items.map((i) => i.documentTitle))];
     const vars = {
       project: this.project(projectId).name,
@@ -3845,7 +3850,9 @@ export class Core extends EventEmitter {
       base_sha: check.baseSha,
       head_sha: check.headSha,
       changed_files: check.files.map((f) => `- ${f}`).join('\n'),
-      diff: fits ? diff : `(too large for this prompt: read it with \`git diff ${check.baseSha}..${check.headSha} -- <path>\`)`,
+      diff: fits
+        ? `${diff}${settings.prompt_exclude.length ? `\n(tests, styles, lock and generated files are left out of this diff; read them with \`git diff ${check.baseSha}..${check.headSha} -- <path>\` if they matter)` : ''}`
+        : `(too large for this prompt: read it with \`git diff ${check.baseSha}..${check.headSha} -- <path>\`)`,
       requirements: documents
         .map((d) => [`### ${d}`, ...items.filter((i) => i.documentTitle === d).map((i) => `- item_id \`${i.id}\` — ${i.key}${i.section ? ` (${i.section})` : ''}: ${i.text}`)].join('\n'))
         .join('\n\n'),
