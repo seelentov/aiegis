@@ -189,7 +189,7 @@ export function scannerSettings(settings: Settings, name: string): ScannerSettin
 }
 
 /** App-started task kinds that must be configured. */
-export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'doc_review', 'doc_catalogue', 'doc_text', 'matrix_triage', 'matrix_verdicts', 'matrix_economy', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup', 'finding_verify'] as const;
+export const TASK_KINDS = ['modules', 'entry_points', 'requirements', 'doc_refresh', 'doc_review', 'doc_catalogue', 'doc_text', 'matrix_triage', 'matrix_verdicts', 'matrix_economy', 'fix', 'sca_inventory', 'sca_reachability', 'poc', 'poc_setup', 'finding_verify', 'fix_verify'] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export interface TaskSettings {

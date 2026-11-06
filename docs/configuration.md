@@ -268,6 +268,7 @@ See [PoC tester](poc.md).
 | `sca_inventory` | `sca-inventory` | `project`, `module_id`, `module_name`, `module_globs`, `module_description`, `out_dir`, `inputs`, `scanner_hints` |
 | `sca_reachability` | `sca` | `project`, `module_id`, `module_name`, `module_globs`, `module_description`, `package_key`, `package`, `direct`, `manifest`, `import_names`, `import_hits`, `vulnerabilities` |
 | `finding_verify` | `finding-verify` | `project`, `finding_id`, `title`, `commit_sha`, `claim` |
+| `fix_verify` | `finding-verify` | `project`, `finding_id`, `title`, `commit_sha`, `base_commit`, `changed_files`, `claim` |
 | `poc` | `tester` | `project`, `finding_id`, `title`, `severity`, `cwe`, `description`, `files`, `recommendation`, `entry_point`, `module_name`, `base_url`, `accounts`, `out_dir` |
 | `poc_setup` | `env-setup` | `project`, `project_root`, `environment`, `accounts`, `scripts_dir`, `env_passthrough`, `last_failure` |
 | `fix` | `assistant` | `project`, `finding_id`, `title`, `severity`, `cwe`, `description`, `files`, `recommendation`, `cells` |

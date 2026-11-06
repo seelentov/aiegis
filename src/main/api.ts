@@ -75,6 +75,9 @@ export function coreApi(core: Core): CoreApi {
     enqueuePocSetup: (pid) => core.enqueuePocSetup(pid),
     estimateFindingVerify: (pid, ids) => core.estimateFindingVerify(pid, ids),
     runFindingVerify: (pid, ids) => core.runFindingVerify(pid, ids),
+    findingsFixState: (pid) => core.findingsFixState(pid),
+    estimateFixVerify: (pid, ids) => core.estimateFixVerify(pid, ids),
+    runFixVerify: (pid, ids) => core.runFixVerify(pid, ids),
 
     scannerStatus: (pid, refresh) => core.scannerStatus(pid, refresh),
     runScanners: (pid, o) => core.runScanners(pid, o),

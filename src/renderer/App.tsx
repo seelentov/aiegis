@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AppEvent, ProjectInfo, QueueState, RecheckOffer, TerminalInfo } from '../shared/types';
 import { api, bridge, errorText } from './api';
-import { confirmRecheck } from './components/AuditDetails';
+import { confirmFixVerify, confirmRecheck } from './components/AuditDetails';
 import { DetailsPanel, type Selection } from './components/DetailsPanel';
 import { DiffTab } from './components/DiffTab';
 import { DocumentsTab } from './components/DocumentsTab';
@@ -414,19 +414,36 @@ export function App() {
             {n.text}
             {n.recheck && (
               <div className="row">
-                <button
-                  className="primary btn-icon-label"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const offer = n.recheck!;
-                    const p = projects.find((x) => x.id === offer.projectId);
-                    setNotices((x) => x.filter((y) => y.id !== n.id));
-                    if (p) void confirmRecheck(p, run, offer.cells);
-                  }}
-                >
-                  <Icon name="recheck" />
-                  <span>{tr('Recheck ({n})', { n: n.recheck.cells.length })}</span>
-                </button>
+                {n.recheck.cells.length > 0 && (
+                  <button
+                    className="primary btn-icon-label"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const offer = n.recheck!;
+                      const p = projects.find((x) => x.id === offer.projectId);
+                      setNotices((x) => x.filter((y) => y.id !== n.id));
+                      if (p) void confirmRecheck(p, run, offer.cells);
+                    }}
+                  >
+                    <Icon name="recheck" />
+                    <span>{tr('Recheck ({n})', { n: n.recheck.cells.length })}</span>
+                  </button>
+                )}
+                {n.recheck.findings.length > 0 && (
+                  <button
+                    className="btn-icon-label"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const offer = n.recheck!;
+                      const p = projects.find((x) => x.id === offer.projectId);
+                      setNotices((x) => x.filter((y) => y.id !== n.id));
+                      if (p) void confirmFixVerify(p, run, offer.findings);
+                    }}
+                  >
+                    <Icon name="check" />
+                    <span>{tr('Check fix ({n})', { n: n.recheck.findings.length })}</span>
+                  </button>
+                )}
                 <button>{tr('Close')}</button>
               </div>
             )}

@@ -155,6 +155,8 @@ async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
     }
     case 'diff_check':
       return { kind, ...diffInput(a) };
+    case 'fix_verify':
+      return { kind };
     case 'scanners':
       return { kind, moduleIds: a.has('repository') ? null : (mods ?? []) };
     case 'sca_inventory':
@@ -347,6 +349,18 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   createFinding: { name: 'finding create', usage: `<cell> ${FINDING_FLAGS}`, help: 'Create a finding on a cell', run: (a, c) => c.call('createFinding', c.pid(), a.pos[0], findingInput(a)) },
   linkFinding: { name: 'finding link', usage: '<finding> <cell>', help: 'Link a finding to a cell', run: (a, c) => c.call('linkFinding', c.pid(), a.pos[0], a.pos[1]) },
   enqueuePoc: { name: 'finding poc', usage: '<finding>', help: 'Queue the PoC tester on a finding', run: (a, c) => c.call('enqueuePoc', c.pid(), a.pos[0]) },
+  findingsFixState: { name: 'finding fix-state', usage: '', help: 'Show whether the files of live findings changed since their last fix check', run: (_a, c) => c.call('findingsFixState', c.pid()) },
+  estimateFixVerify: { name: 'finding fix-estimate', usage: '<finding...>', help: 'Estimate fix checks of findings', run: (a, c) => c.call('estimateFixVerify', c.pid(), a.pos) },
+  runFixVerify: {
+    name: 'finding fix-check',
+    usage: '<finding...>',
+    help: 'Queue a clean session per finding that judges at HEAD whether it is closed',
+    columns: ['id', 'status', 'title'],
+    run: async (a, c) => {
+      await c.confirm(await c.call('estimateFixVerify', c.pid(), a.pos));
+      return c.call('runFixVerify', c.pid(), a.pos);
+    },
+  },
   estimateFindingVerify: { name: 'finding verify-estimate', usage: '<finding...>', help: 'Estimate an independent verification of findings', run: (a, c) => c.call('estimateFindingVerify', c.pid(), a.pos) },
   runFindingVerify: {
     name: 'finding verify',

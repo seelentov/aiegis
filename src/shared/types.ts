@@ -517,6 +517,8 @@ export interface Finding extends FindingInput {
   scaItems: ScaItemRef[];
   /** Outcome of the latest independent verification, if any. */
   verification: FindingVerifyOutcome | null;
+  /** The commit the finding was made on: its run's, or HEAD for a manual one; null if not known (older manual findings). */
+  commitSha: string | null;
   runId: string | null;
   author: string;
   createdAt: string;
@@ -593,6 +595,23 @@ export interface CellLabel {
   citation: string | null;
 }
 
+export const FIX_OUTCOMES = ['closed', 'not_closed', 'undetermined'] as const;
+export type FixOutcome = (typeof FIX_OUTCOMES)[number];
+
+/** Whether a later commit closed a finding (SPEC §33). */
+export type FixVerification = Omit<FindingVerification, 'outcome'> & { outcome: FixOutcome };
+
+/** Whether a live suspected or verified finding has something to check (SPEC §33). */
+export interface FindingFixState {
+  /** Its files changed since `baseline`, or the baseline is not known. */
+  stale: boolean;
+  changedFiles: string[];
+  /** The last commit judged closed or not closed, else the commit of the finding; null if not known. */
+  baseline: string | null;
+  /** Outcome of the latest fix check, if any. */
+  last: FixOutcome | null;
+}
+
 export interface FindingDetails {
   finding: Finding;
   events: FindingEvent[];
@@ -605,6 +624,8 @@ export interface FindingDetails {
   poc: { results: PocResult[]; available: boolean; reason: string | null; baseUrl: string | null; job: Job | null; setup: Job | null };
   /** Independent verification: results (newest first) and its queued or running job. */
   verify: { results: FindingVerification[]; job: Job | null };
+  /** Fix verification: results (newest first) and its queued or running job. */
+  fix: { results: FixVerification[]; job: Job | null };
 }
 
 export interface CellDetails {
@@ -626,7 +647,9 @@ export interface CellDetails {
 /** Recheck offered after a session in the working directory committed (SPEC §1, Q22). */
 export interface RecheckOffer {
   cells: string[];
-  /** Why these cells: affected by the commit and/or linked to the fixed finding. */
+  /** Findings whose fix to check: the one the session was fixing and those whose files the commit changed (SPEC §33). */
+  findings: string[];
+  /** Why these: affected by the commit and/or linked to the fixed finding. */
   reason: string;
 }
 
@@ -1061,9 +1084,11 @@ export type ScheduleAction =
   /** Compares the sources first: an agent runs only when they changed. */
   | { kind: 'doc_refresh'; target: DocRefreshTarget }
   /** Starts only when the branches moved since the last check of these document versions. */
-  | ({ kind: 'diff_check' } & DiffCheckInput);
+  | ({ kind: 'diff_check' } & DiffCheckInput)
+  /** Fix checks of the stale findings (SPEC §33). */
+  | { kind: 'fix_verify' };
 
-export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points', 'doc_refresh', 'diff_check'] as const satisfies readonly ScheduleAction['kind'][];
+export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points', 'doc_refresh', 'diff_check', 'fix_verify'] as const satisfies readonly ScheduleAction['kind'][];
 
 export interface ScheduleInput {
   name: string;

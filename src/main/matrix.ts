@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { Evidence, Finding, FindingInput, SimilarFinding } from '../shared/types';
+import type { Evidence, Finding, FindingInput, FixOutcome, SimilarFinding } from '../shared/types';
 
 /** Entity of a requirement extraction job (id = document version id). */
 export const DOC_VERSION_ENTITY = 'doc_version';
@@ -11,6 +11,18 @@ export const MATRIX_BATCH_ENTITY = 'matrix_batch';
 export const FINDING_ENTITY = 'finding';
 /** Independent verification of a finding (SPEC §28). */
 export const FINDING_VERIFY_ENTITY = 'finding_verify';
+/** Fix check of a finding (SPEC §33). */
+export const FIX_VERIFY_ENTITY = 'fix_verify';
+/** Validity entity type of a finding's files since its baseline (id = `<finding>@<baseline>`). */
+export const FINDING_FIX_VALIDITY = 'finding_fix';
+
+/** A rejected or accepted finding, a fixed one and a merged one have no fix to check. */
+export const fixEligible = (f: Pick<Finding, 'status' | 'mergedInto'>) => !f.mergedInto && (f.status === 'suspected' || f.status === 'verified');
+
+/** Commit a finding's files are compared from: an undetermined check moves nothing, so the finding stays to be checked. */
+export function fixBaseline(origin: string | null, checksNewestFirst: { outcome: FixOutcome; commitSha: string }[]): string | null {
+  return checksNewestFirst.find((c) => c.outcome !== 'undetermined')?.commitSha ?? origin;
+}
 
 /**
  * The claim an independent verification gets: what the finding states and where, without notes on its code references,

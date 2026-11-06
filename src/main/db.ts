@@ -716,6 +716,11 @@ const MIGRATIONS: string[] = [
   CREATE TRIGGER finding_verifications_no_delete BEFORE DELETE ON finding_verifications
   BEGIN SELECT RAISE(ABORT, 'finding verifications are append-only'); END;
   `,
+  `
+  -- Fix verification (SPEC §33). A finding made by a session gets its commit from the run: only manual ones store it.
+  ALTER TABLE findings ADD COLUMN commit_sha TEXT;
+  ALTER TABLE finding_verifications ADD COLUMN mode TEXT NOT NULL DEFAULT 'refute';
+  `,
 ];
 
 export function migrate(db: DB): void {

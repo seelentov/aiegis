@@ -220,7 +220,8 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     expect(() => core.setFindingStatus(pid, f.id, 'false_positive', ' ')).toThrow(/specify the reason/);
     core.setFindingStatus(pid, f.id, 'verified', 'reproduced');
     const cell = `${f.cells[0].moduleId}/${f.cells[0].requirementId}`;
-    const dup = core.createFinding(pid, cell, { title: 'IDOR again', description: 'd', severity: 'medium', cwe: 'CWE-639', entryPoint: null, files: [{ file: 'svc/Api.java' }], recommendation: null });
+    const dup = await core.createFinding(pid, cell, { title: 'IDOR again', description: 'd', severity: 'medium', cwe: 'CWE-639', entryPoint: null, files: [{ file: 'svc/Api.java' }], recommendation: null });
+    expect(dup.commitSha).toBe(git('rev-parse', 'HEAD').toString().trim());
     const details = core.findingDetails(pid, dup.id);
     expect(details.similar[0].finding.id).toBe(f.id);
     core.mergeFinding(pid, dup.id, f.id);
@@ -236,6 +237,7 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     core.terminals.write(term, 'q\r');
     const notice = await waitFor(() => events.find((e) => e.type === 'notice' && e.recheck));
     expect(notice.type === 'notice' && notice.recheck!.cells).toContain(cell);
+    expect(notice.type === 'notice' && notice.recheck!.findings).toContain(f.id);
     expect(core.findingDetails(pid, f.id).runs.some((r) => r.id === info.runId)).toBe(true);
   });
 });
