@@ -41,11 +41,6 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
   const [reason, setReason] = useState('');
 
   useEffect(() => {
-    setEditing(false);
-    setReason('');
-  }, [id]);
-
-  useEffect(() => {
     void (async () => {
       const ms = await run(api.listModules(project.id));
       const m = ms?.find((x) => x.id === id) ?? null;
@@ -139,22 +134,30 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
     setJob(null);
     setDetails(null);
     if (!project || !selection || selection.kind !== 'job' && selection.kind !== 'run') return;
+    let current = true;
     void (async () => {
       let runId: string | null = selection.id;
       if (selection.kind === 'job') {
-        const j = (await api.listJobs(project.id)).find((x) => x.id === selection.id) ?? null;
+        const j = (await run(api.getJob(project.id, selection.id))) ?? null;
+        if (!current) return;
         setJob(j);
         runId = j?.lastRunId ?? null;
       }
-      if (runId) setDetails((await run(api.runDetails(project.id, runId))) ?? null);
+      if (!runId) return;
+      const d = (await run(api.runDetails(project.id, runId))) ?? null;
+      if (current) setDetails(d);
     })();
+    return () => {
+      current = false;
+    };
   }, [project, selection, revision, run]);
 
   if (!project || !selection) return <aside className="details empty">{tr('Select a list item')}</aside>;
+  // A key per item: nothing of the previous item stays on screen while actions already go to the new one.
   if (selection.kind === 'module')
     return (
       <aside className="details">
-        <ModuleDetails project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} onOpenMap={onOpenMap} />
+        <ModuleDetails key={selection.id} project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} onOpenMap={onOpenMap} />
       </aside>
     );
 
@@ -162,7 +165,7 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
     const common = { project, revision, run, onSelect };
     return (
       <aside className="details">
-        {selection.kind === 'signal' ? <SignalDetailsView {...common} id={selection.id} /> : <SuppressionDetailsView {...common} id={selection.id} />}
+        {selection.kind === 'signal' ? <SignalDetailsView key={selection.id} {...common} id={selection.id} /> : <SuppressionDetailsView key={selection.id} {...common} id={selection.id} />}
       </aside>
     );
   }
@@ -170,27 +173,27 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
   if (selection.kind === 'doc-proposal')
     return (
       <aside className="details">
-        <DocProposalDetailsView project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} />
+        <DocProposalDetailsView key={selection.id} project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} />
       </aside>
     );
   if (selection.kind === 'schedule')
     return (
       <aside className="details">
-        <ScheduleDetailsView project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} />
+        <ScheduleDetailsView key={selection.id} project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} />
       </aside>
     );
 
   if (selection.kind === 'diff')
     return (
       <aside className="details">
-        <DiffDetailsView project={project} id={selection.id} revision={revision} run={run} onTerminal={onTerminal} />
+        <DiffDetailsView key={selection.id} project={project} id={selection.id} revision={revision} run={run} onTerminal={onTerminal} />
       </aside>
     );
 
   if (selection.kind === 'sca')
     return (
       <aside className="details">
-        <ScaItemDetailsView project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} onTerminal={onTerminal} />
+        <ScaItemDetailsView key={selection.id} project={project} id={selection.id} revision={revision} run={run} onSelect={onSelect} onTerminal={onTerminal} />
       </aside>
     );
 
@@ -199,9 +202,9 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
     return (
       <aside className="details">
         {selection.kind === 'cell' ? (
-          <CellDetailsView {...common} id={selection.id} matrixId={selection.matrixId} />
+          <CellDetailsView key={`${selection.matrixId}/${selection.id}`} {...common} id={selection.id} matrixId={selection.matrixId} />
         ) : (
-          <FindingDetailsView {...common} id={selection.id} />
+          <FindingDetailsView key={selection.id} {...common} id={selection.id} />
         )}
       </aside>
     );

@@ -140,6 +140,10 @@ export const RU: Record<string, string> = {
   // Select
   'Search the list': 'Поиск по списку',
   'Nothing found': 'Ничего не найдено',
+  // Tables
+  'Group': 'Группа',
+  'Comment': 'Комментарий',
+  'Added': 'Добавлен',
   // Pager
   'Pages': 'Страницы',
   'First page': 'Первая страница',

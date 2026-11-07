@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { Job, ProjectInfo, QueueState, Run } from '../../shared/types';
+import type { Job, ProjectInfo, QueueState, Run, JobStatus, RunStatus } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
 import type { Selection } from './DetailsPanel';
-import { EmptyRow, useGrid } from './Grid';
+import { EmptyRow, useServerGrid } from './Grid';
 import { locale, tr } from '../i18n';
 import { IconButton, Input, Select, Table, Textarea } from '../ui';
 
@@ -19,9 +19,10 @@ interface Props {
 
 type Role = { name: string; title: string; kind: string };
 
+// Times are stored in UTC, and the service matches the stored text.
+const DATE_FILTER = 'YYYY-MM-DD';
+
 export function QueueTab({ project, revision, run, selection, onSelect, onTerminal }: Props) {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [runs, setRuns] = useState<Run[]>([]);
   const [queue, setQueue] = useState<QueueState | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [role, setRole] = useState('');
@@ -29,8 +30,6 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
   const [prompt, setPrompt] = useState('');
 
   useEffect(() => {
-    void api.listJobs(project.id).then(setJobs);
-    void api.listRuns(project.id).then(setRuns);
     void api.queueState().then(setQueue);
   }, [project.id, revision]);
 
@@ -49,22 +48,23 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
   };
 
   const sel = (kind: Selection['kind'], id: string) => selection?.kind === kind && selection.id === id;
-  const jobGrid = useGrid('queue.jobs', jobs, [
-    { key: 'status', title: tr('Status'), text: (j) => JOB_STATUS[j.status], filter: 'enum' },
+  const reload = `${project.id}/${revision}`;
+  const jobGrid = useServerGrid<Job>('queue.jobs', [
+    { key: 'status', title: tr('Status'), text: (j) => JOB_STATUS[j.status], filter: 'enum', label: (v) => JOB_STATUS[v as JobStatus] },
     { key: 'title', title: tr('Job'), text: (j) => j.title },
     { key: 'role', title: tr('Role'), text: (j) => j.role, filter: 'enum' },
-    { key: 'created', title: tr('Created'), text: (j) => time(j.createdAt), sort: (j) => j.createdAt },
+    { key: 'created', title: tr('Created'), text: (j) => time(j.createdAt), placeholder: DATE_FILTER },
     { key: 'actions', title: '', className: 'actions' },
-  ]);
-  const runGrid = useGrid('queue.runs', runs, [
-    { key: 'started', title: tr('Started'), text: (r) => time(r.startedAt), sort: (r) => r.startedAt },
-    { key: 'kind', title: tr('Type'), text: (r) => (r.kind === 'background' ? tr('background') : tr('interactive')), filter: 'enum' },
+  ], (q) => run(api.pageJobs(project.id, q)), reload);
+  const runGrid = useServerGrid<Run>('queue.runs', [
+    { key: 'started', title: tr('Started'), text: (r) => time(r.startedAt), placeholder: DATE_FILTER },
+    { key: 'kind', title: tr('Type'), text: (r) => (r.kind === 'background' ? tr('background') : tr('interactive')), filter: 'enum', label: (v) => (v === 'background' ? tr('background') : tr('interactive')) },
     { key: 'role', title: tr('Role'), text: (r) => r.role, filter: 'enum' },
-    { key: 'status', title: tr('Status'), text: (r) => RUN_STATUS[r.status], filter: 'enum' },
+    { key: 'status', title: tr('Status'), text: (r) => RUN_STATUS[r.status], filter: 'enum', label: (v) => RUN_STATUS[v as RunStatus] },
     { key: 'session', title: tr('Session'), text: (r) => r.sessionId },
-    { key: 'tokens', title: tr('Tokens'), text: (r) => (r.kind === 'background' ? tokens(r.usage) : '—'), sort: (r) => r.usage.input + r.usage.cacheCreation + r.usage.output },
-    { key: 'cost', title: tr('Cost'), text: (r) => cost(r.usage), sort: (r) => r.usage.costUsd ?? 0 },
-  ]);
+    { key: 'tokens', title: tr('Tokens'), text: (r) => tokens(r.usage), filter: 'none' },
+    { key: 'cost', title: tr('Cost'), text: (r) => cost(r.usage), filter: 'none' },
+  ], (q) => run(api.pageRuns(project.id, q)), reload);
 
   return (
     <div className="queue-tab">

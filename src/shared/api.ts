@@ -32,6 +32,8 @@ import type {
   MatrixStage,
   MatrixView,
   Module,
+  Page,
+  PageQuery,
   ModuleRevision,
   ModuleSummary,
   ProjectInfo,
@@ -75,6 +77,9 @@ export interface AiegisApi {
 
   listJobs(projectId: string): Job[];
   listRuns(projectId: string): Run[];
+  pageJobs(projectId: string, query: PageQuery): Page<Job>;
+  pageRuns(projectId: string, query: PageQuery): Page<Run>;
+  getJob(projectId: string, jobId: string): Job;
   runDetails(projectId: string, runId: string): { run: Run; results: ResultRecord[]; log: string | null };
   enqueueTask(projectId: string, task: { prompt: string; role: string; title?: string }): Job;
   cancelJob(projectId: string, jobId: string): void;

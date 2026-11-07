@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import type { CoreMethod } from '../shared/api';
-import type { AppEvent, Job, ProjectInfo } from '../shared/types';
+import type { AppEvent, Job, ProjectInfo, Page } from '../shared/types';
 import { Client } from './client';
 import { COMMANDS, type Command, type Ctx, type Input } from './commands';
 
@@ -85,9 +85,15 @@ export function table(rows: unknown[], columns: string[]): string {
   return cells.map((r) => r.map((c, i) => (i === r.length - 1 ? c : c.padEnd(width[i]))).join('  ')).join('\n');
 }
 
+const isPage = (r: unknown): r is Page<unknown> => typeof r === 'object' && r !== null && 'rows' in r && 'total' in r;
+
 function print(io: Io, a: Input, result: unknown, columns?: string[]): void {
   if (result === undefined) return;
   if (columns && !a.has('json') && Array.isArray(result)) return io.out(table(result, columns));
+  if (columns && !a.has('json') && isPage(result)) {
+    const shown = result.rows.length ? `${result.offset + 1}-${result.offset + result.rows.length}` : '0';
+    return io.out(`${table(result.rows, columns)}\n${shown} of ${result.total}`);
+  }
   // Plain text (a path, a config file) reads better bare.
   if (typeof result === 'string' && !a.has('json')) return io.out(result);
   io.out(JSON.stringify(result, null, 2));
@@ -142,9 +148,7 @@ function watchEvents(client: Client, io: Io, a: Input): Promise<void> {
 /** Prints the output of a job's run as it appears; returns when the job ends. */
 async function watchJob(client: Client, io: Io, pid: string, jobId: string): Promise<void> {
   const job = async () => {
-    const j = ((await client.request('listJobs', [pid])) as Job[]).find((x) => x.id === jobId);
-    if (!j) throw new Error(`job ${jobId} not found`);
-    return j;
+    return (await client.request('getJob', [pid, jobId])) as Job;
   };
   const write = (data: string) => process.stdout.write(data);
   await new Promise<void>((resolve, reject) => {

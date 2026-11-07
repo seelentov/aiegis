@@ -6,6 +6,12 @@ import { DatabaseSync } from 'node:sqlite';
 const BUSY_TIMEOUT_MS = 5000;
 
 export class DB extends DatabaseSync {
+  constructor(...args: ConstructorParameters<typeof DatabaseSync>) {
+    super(...args);
+    // SQLite's own lower() and LIKE fold ASCII only: Cyrillic text would stay case-sensitive.
+    this.function('unicode_lower', { deterministic: true }, (text) => String(text).toLowerCase());
+  }
+
   /** Wraps `fn` in a transaction, or in a savepoint when one is already open. */
   transaction<T>(fn: () => T): () => T {
     return () => {
@@ -720,6 +726,11 @@ const MIGRATIONS: string[] = [
   -- Fix verification (SPEC §33). A finding made by a session gets its commit from the run: only manual ones store it.
   ALTER TABLE findings ADD COLUMN commit_sha TEXT;
   ALTER TABLE finding_verifications ADD COLUMN mode TEXT NOT NULL DEFAULT 'refute';
+  `,
+  `
+  -- Pages of the queue: the default order without sorting the whole table.
+  CREATE INDEX jobs_created ON jobs(created_at);
+  CREATE INDEX runs_started ON runs(started_at);
   `,
 ];
 

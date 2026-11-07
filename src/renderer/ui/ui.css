@@ -88,6 +88,8 @@ table.grid thead tr:last-child th { border-bottom: var(--rule-hair) solid var(--
 .filter-row th { padding-top: 0; padding-bottom: var(--space-xs); }
 .col-filter { width: 100%; min-width: 56px; max-width: 220px; font-size: var(--text-xs); background: transparent; border-color: var(--color-rule); }
 input.col-filter:not([type="checkbox"]), .select-trigger.col-filter { min-height: var(--control-h-s); padding: 0 var(--space-2xs); }
+/* The clear button of an empty search field would still take room and cut the placeholder in a narrow column. */
+input.col-filter:placeholder-shown::-webkit-search-cancel-button { display: none; }
 .col-filter.set { border-color: var(--color-accent); background: var(--color-accent-soft); color: var(--color-ink); }
 .grid-title { display: flex; align-items: center; gap: var(--space-sm); margin: var(--space-md) 0 var(--space-2xs); }
 .grid-title h3 { margin: 0; }

@@ -7,7 +7,7 @@ The layout follows VS Code:
 - **Activity bar** (far left): the project list toggle, then the tabs by group. A badge on **Queue** shows how many jobs are running.
 - **Project list**: can be hidden.
 - **Breadcrumbs** above the content: project › tab › selected item. A progress line runs along their lower edge while jobs are running.
-- **Details panel** (right): opens when you select a row. Close it with the cross or `Esc`. Its sections collapse, and the app remembers their state by section name.
+- **Details panel** (right): opens when you select a row. Close it with the cross or `Esc`. Its sections collapse, and the app remembers their state by section name. Selecting another row clears the panel at once, along with any unsaved form in it.
 - **Terminal panel** (bottom): tabs with read-only output streams and interactive sessions. See [Queue and sessions](queue-and-sessions.md#terminal-panel).
 - **Status bar**: the project, jobs in progress or a paused queue (opens **Queue**), the number of sessions (opens the terminal), and the notification bell.
 
@@ -46,12 +46,14 @@ The layout follows VS Code:
 Every table works the same way:
 
 - click a column heading to sort;
-- use the field under the heading to filter by text or by value;
+- use the field under the heading to filter by text or by value; text filters ignore case in any alphabet;
 - filters last until the app restarts;
 - **Reset filters and sorting** clears them;
 - long tables are split into pages, with `ui.page_size` rows on each (see [Configuration](configuration.md)). A change of filter or sorting returns to the first page.
 
-Histories in the details panel are paged too, by `ui.history_page_size`. The list of documents is not paged, because it is grouped by set.
+Histories in the details panel are paged too, by `ui.history_page_size`. In the list of documents a set stays together: its heading repeats on each page it spans.
+
+The tables of the **Queue** tab hold every job and run, not only the latest ones: the service pages, filters and sorts them. Dates there are filtered by their stored form in UTC, such as `2026-11-01`; tokens and cost only sort.
 
 Actions on a table work on every row that passes the filters, not only on the current page: **Pick suspected**, **Pick stale** and the run button of a matrix section.
 

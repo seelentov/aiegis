@@ -8,6 +8,7 @@ import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { Section } from './Section';
 import { tr } from '../i18n';
+import { useGrid } from './Grid';
 import { Button, Checkbox, IconButton, Input, Paged, Select, Table, Textarea } from '../ui';
 
 interface Common {
@@ -88,9 +89,16 @@ function VerdictCompare({ a, b }: { a: Verdict & { run: unknown }; b: Verdict & 
     [tr('Rationale'), (v) => v.reason],
     [tr('Evidence'), (v) => v.evidence.map((e) => `${e.file}${e.line ? `:${e.line}` : ''}`).join('\n') || '—'],
   ];
+  const g = useGrid('verdict.compare', rows, [
+    { key: 'field', title: tr('Field') },
+    { key: 'a', title: time(a.createdAt) },
+    { key: 'b', title: time(b.createdAt) },
+  ]);
   return (
     <Table compact className="compare">
+      {g.head}
       <tbody>
+        {/* The fields of two verdicts, not a list: all of them show, whatever `ui.page_size` is. */}
         {rows.map(([label, f]) => (
           <tr key={label} className={f(a) !== f(b) ? 'diff' : ''}>
             <td className="muted">{label}</td>
@@ -116,11 +124,6 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
   const [fDesc, setFDesc] = useState('');
   const [link, setLink] = useState('');
   const [compare, setCompare] = useState<string[]>([]);
-
-  useEffect(() => {
-    setForm(null);
-    setCompare([]);
-  }, [id]);
 
   useEffect(() => {
     void run(api.cellDetails(project.id, id, matrixId)).then((x) => setD(x ?? null));
@@ -353,7 +356,6 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
   const [reason, setReason] = useState('');
 
   useEffect(() => {
-    setReason('');
     void run(api.findingDetails(project.id, id)).then((x) => setD(x ?? null));
     void run(api.findingsFixState(project.id)).then((x) => setFixState(x?.[id] ?? null));
   }, [project.id, id, revision, run]);
