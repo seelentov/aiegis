@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-[![M8ven Verified](https://m8ven.ai/badge/mcp/seelentov/aiegis?variant=verified)](https://m8ven.ai/mcp/seelentov/aiegis?s=readme)
+![M8ven Verified](https://m8ven.ai/badge/mcp/seelentov/aiegis?variant=verified)](https://m8ven.ai/mcp/seelentov/aiegis?s=readme)
 </p>
 
 <p align="center">
