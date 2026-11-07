@@ -5,7 +5,7 @@ import type { RunFn } from '../App';
 import { ConfigForm, configSections } from './ConfigForm';
 import { usePersisted } from './Splitter';
 import { syncLanguage, tr } from '../i18n';
-import { Button, IconButton, Select, Table, Textarea } from '../ui';
+import { Button, IconButton, Select, Table, Textarea, setPageSizes } from '../ui';
 
 interface Props {
   project: ProjectInfo | null;
@@ -120,7 +120,10 @@ export function SettingsTab({ project, run, notify }: Props) {
       setError(null);
       notify('info', tr('Saved'));
       // A changed `ui.language` takes effect by reloading the page.
-      if (file === globalCfg) syncLanguage(await api.uiLanguage());
+      if (file === globalCfg) {
+        syncLanguage(await api.uiLanguage());
+        setPageSizes(await api.uiPageSizes());
+      }
       setRevision((r) => r + 1);
     } catch (e) {
       setError(errorText(e));

@@ -13,6 +13,10 @@
 # UI language: en | ru. Also picks the variant of `title: { en: ..., ru: ... }` texts below.
 ui:
   language: en
+  # Rows per page of a table.
+  page_size: 50
+  # Entries per page of a history in the details panel.
+  history_page_size: 20
 
 # App log (global config only): stderr and <data dir>/logs/aiegis.log. Levels: error | warn | info | debug | trace.
 # Tokens, env values, prompts and agent output are never logged; agent output stays in the logs of its run.

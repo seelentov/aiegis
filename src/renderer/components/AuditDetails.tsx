@@ -8,7 +8,7 @@ import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { Section } from './Section';
 import { tr } from '../i18n';
-import { Button, Checkbox, IconButton, Input, Select, Table, Textarea } from '../ui';
+import { Button, Checkbox, IconButton, Input, Paged, Select, Table, Textarea } from '../ui';
 
 interface Common {
   project: ProjectInfo;
@@ -307,7 +307,7 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
 
       <Section title={tr('History')}>
       {cmp.length === 2 && <VerdictCompare a={cmp[0]} b={cmp[1]} />}
-      {timeline.map((t) =>
+      <Paged key={id} items={timeline}>{(t) =>
         'verdict' in t && t.verdict ? (
           <div key={t.key} className="result">
             <div className="muted small">
@@ -337,8 +337,8 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
             </div>
             <div>{'text' in t ? t.text : ''}</div>
           </div>
-        ),
-      )}
+        )
+      }</Paged>
       {timeline.length > 0 && <div className="muted small">{tr('Tick two verdicts to compare them.')}</div>}
       </Section>
       {d.config && <ConfigView config={d.config} title={tr('Effective configuration of the check')} />}
@@ -614,7 +614,7 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
       )}
 
       <Section title={tr('History')}>
-      {[...d.events].reverse().map((e) => (
+      <Paged key={id} items={[...d.events].reverse()}>{(e) => (
         <div key={e.id} className="result">
           <div className="muted small">
             {time(e.createdAt)} · {e.author}
@@ -638,7 +638,7 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
             {e.reason && <span className="muted"> — {e.reason}</span>}
           </div>
         </div>
-      ))}
+      )}</Paged>
       </Section>
       <Section title={tr('Sessions')}>
       {d.runs.length === 0 && <div className="muted">{tr('none')}</div>}

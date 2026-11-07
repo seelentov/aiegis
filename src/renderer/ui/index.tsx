@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { Icon, type IconName } from '../components/Icon';
 
+export { Paged, Pager, pageSizes, pageSlice, setPageSizes } from './Pager';
 export { Select } from './Select';
 
 export type ButtonVariant = 'primary' | 'ghost' | 'danger' | 'ok';

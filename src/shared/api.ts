@@ -245,6 +245,7 @@ export interface AiegisApi {
   readConfigFile(projectId: string | null, file: string): string;
   writeConfigFile(projectId: string | null, file: string, text: string): void;
   uiLanguage(): Language;
+  uiPageSizes(): { table: number; history: number };
 }
 
 export type ApiMethod = keyof AiegisApi;
@@ -264,6 +265,7 @@ export const UI_METHODS = [
   'terminalWrite',
   'terminalResize',
   'uiLanguage',
+  'uiPageSizes',
 ] as const satisfies readonly ApiMethod[];
 export type UiMethod = (typeof UI_METHODS)[number];
 export type CoreMethod = Exclude<ApiMethod, UiMethod>;

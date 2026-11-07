@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Icon } from './Icon';
 import { lang, tr } from '../i18n';
-import { Button, IconButton, Input, Select } from '../ui';
+import { Button, IconButton, Input, Pager, pageSizes, pageSlice, Select } from '../ui';
 
 export interface Col<T> {
   key: string;
@@ -20,14 +20,16 @@ export interface Col<T> {
 interface GridState {
   sort: { key: string; dir: 1 | -1 } | null;
   filters: Record<string, string>;
+  page: number;
 }
 
 // Per-table state survives tab switches for the session.
 const memory = new Map<string, GridState>();
 const collator = new Intl.Collator(lang, { numeric: true, sensitivity: 'base' });
 
-export function useGrid<T>(id: string, rows: T[], cols: Col<T>[]) {
-  const [state, setState] = useState<GridState>(() => memory.get(id) ?? { sort: null, filters: {} });
+/** `order` applies while no column sorts. `rows` is the current page, `all` every row that passes the filters. */
+export function useGrid<T>(id: string, rows: T[], cols: Col<T>[], order?: (a: T, b: T) => number) {
+  const [state, setState] = useState<GridState>(() => memory.get(id) ?? { sort: null, filters: {}, page: 1 });
   useEffect(() => void memory.set(id, state), [id, state]);
 
   const shown = useMemo(() => {
@@ -48,15 +50,19 @@ export function useGrid<T>(id: string, rows: T[], cols: Col<T>[]) {
         const y = key(b);
         return dir * (typeof x === 'number' && typeof y === 'number' ? x - y : collator.compare(String(x), String(y)));
       });
+    } else if (order) {
+      out = [...out].sort(order);
     }
     return out;
   }, [rows, cols, state]);
 
-  const setFilter = (key: string, v: string) => setState((s) => ({ ...s, filters: { ...s.filters, [key]: v } }));
+  const setFilter = (key: string, v: string) => setState((s) => ({ ...s, page: 1, filters: { ...s.filters, [key]: v } }));
   const toggleSort = (key: string) =>
-    setState((s) => ({ ...s, sort: s.sort?.key !== key ? { key, dir: 1 } : s.sort.dir === 1 ? { key, dir: -1 } : null }));
+    setState((s) => ({ ...s, page: 1, sort: s.sort?.key !== key ? { key, dir: 1 } : s.sort.dir === 1 ? { key, dir: -1 } : null }));
   const filtered = Object.values(state.filters).some(Boolean);
-  const reset = () => setState({ sort: null, filters: {} });
+  const reset = () => setState({ sort: null, filters: {}, page: 1 });
+  const { rows: pageRows, page } = pageSlice(shown, state.page, pageSizes.table);
+  const pager = <Pager page={page} total={shown.length} size={pageSizes.table} onPage={(p) => setState((s) => ({ ...s, page: p }))} />;
 
   const head = (
     <thead>
@@ -100,7 +106,7 @@ export function useGrid<T>(id: string, rows: T[], cols: Col<T>[]) {
       </span>
     ) : null;
 
-  return { rows: shown, head, count, filtered, sorted: Boolean(state.sort), colSpan: cols.length };
+  return { rows: pageRows, all: shown, pager, head, count, filtered, colSpan: cols.length };
 }
 
 function ColumnFilter<T>({ col, rows, value, onChange }: { col: Col<T>; rows: T[]; value: string; onChange: (v: string) => void }) {

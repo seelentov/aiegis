@@ -150,7 +150,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
           <Checkbox checked={suppressed} onChange={(e) => setSuppressed(e.target.checked)} /> {tr('show suppressed')}
         </label>
         <span className="muted">
-          {tr('{n} of {total}', { n: g.rows.length, total: view.signals.length })}
+          {tr('{n} of {total}', { n: g.all.length, total: view.signals.length })}
         </span>
         {g.count}
       </div>
@@ -196,6 +196,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
           ))}
         </tbody>
       </Table>
+      {g.pager}
     </>
   );
 }
@@ -315,6 +316,7 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
           ))}
         </tbody>
       </Table>
+      {g.pager}
     </>
   );
 }
@@ -374,6 +376,7 @@ function ScansList({ project, revision, run }: Pick<Props, 'project' | 'revision
         ))}
       </tbody>
     </Table>
+    {g.pager}
     </>
   );
 }

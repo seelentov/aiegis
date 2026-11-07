@@ -70,6 +70,9 @@ input:read-only:not([type="checkbox"]):not([type="radio"]), textarea:read-only {
 .select-option[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 .select-none { padding: var(--space-xs); color: var(--color-muted); }
 
+.pager { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2xs); padding: var(--space-2xs) 0; }
+.pager .small { padding: 0 var(--space-xs); }
+
 /* Tables: horizontal rules only, the row is the unit */
 table.grid { width: 100%; border-collapse: collapse; }
 table.grid th { text-align: left; font-weight: 500; color: var(--color-muted); font-size: var(--text-xs); padding: var(--space-2xs) var(--space-xs); white-space: nowrap; }

@@ -182,7 +182,9 @@ export function DiffTab({ project, revision, run, selection, onSelect }: Props) 
           ))}
         </tbody>
       </Table>
+      {c.pager}
       {view && (
+        <>
         <Table className="diff-rows">
           {r.head}
           <tbody>
@@ -205,6 +207,8 @@ export function DiffTab({ project, revision, run, selection, onSelect }: Props) 
             })}
           </tbody>
         </Table>
+        {r.pager}
+        </>
       )}
     </div>
   );

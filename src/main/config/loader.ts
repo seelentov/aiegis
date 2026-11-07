@@ -67,6 +67,11 @@ export function uiLanguage(global: LoadedFile): Language {
   return global.data.ui?.language ?? 'en';
 }
 
+/** Rows per page of tables and histories from the global config. */
+export function uiPageSizes(global: LoadedFile): { table: number; history: number } {
+  return { table: global.data.ui?.page_size ?? 50, history: global.data.ui?.history_page_size ?? 20 };
+}
+
 /** Logging settings from the global config. */
 export function loggingSettings(global: LoadedFile): LoggingSettings {
   const { level, categories, stderr, file } = global.data.logging ?? {};
