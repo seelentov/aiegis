@@ -415,6 +415,7 @@ export class Core extends EventEmitter {
       cellDetails: (pid, c) => this.cellDetails(pid, cellId(c)),
       recheckCells: (pid, cells) => this.recheckCells(pid, cells.map(cellId)),
       similarLimit: (pid) => this.projectSettings(pid).findings.similar_limit,
+      entryPointsInlineChars: (pid) => this.projectSettings(pid).limits.entry_points_inline_chars,
       signals: (pid, q) => this.signalSlice(pid, q),
       scaSettings: (pid) => this.projectSettings(pid).sca,
       scaReportFile: (pid, r) => this.scaReportFile(pid, r),
@@ -2287,7 +2288,15 @@ export class Core extends EventEmitter {
   async estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force = false): Promise<MatrixEstimate> {
     const matrix = this.matrixOf(this.store(projectId), matrixId);
     const { free, busy } = await this.stageCells(projectId, matrix, stage, scope);
-    return this.estimateRun(projectId, stage, free, busy, force);
+    return { ...this.estimateRun(projectId, stage, free, busy, force), modulesWithoutMap: this.modulesWithoutMap(projectId, free) };
+  }
+
+  /** Modules of the cells with no complete entry point map and no job building one: an interrupted map counts as none. */
+  private modulesWithoutMap(projectId: string, cells: CellRef[]): { id: string; name: string }[] {
+    const s = this.store(projectId);
+    return uniq(cells.map((c) => c.moduleId))
+      .filter((id) => !s.latestSnapshot(id) && !s.activeJobFor(MODULE_ENTITY, id))
+      .map((id) => ({ id, name: s.getModule(id)!.name }));
   }
 
   /** Queues a matrix stage: one job per batch; cells already covered by queued/running jobs are skipped. */
@@ -2322,7 +2331,8 @@ export class Core extends EventEmitter {
 
   async estimateRecheck(projectId: string, cells: string[], matrixId?: string, force = false): Promise<MatrixEstimate> {
     const { groups, busy } = this.recheckGroups(projectId, cells, matrixId);
-    return this.estimateRun(projectId, 'verdicts', groups.flatMap((g) => g.cells), busy, force);
+    const free = groups.flatMap((g) => g.cells);
+    return { ...this.estimateRun(projectId, 'verdicts', free, busy, force), modulesWithoutMap: this.modulesWithoutMap(projectId, free) };
   }
 
   /** Verdict re-check of cells; a single cell is its own session. */

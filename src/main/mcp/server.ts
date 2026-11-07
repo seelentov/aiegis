@@ -56,6 +56,8 @@ export interface McpServices {
   recheckCells(projectId: string, cells: CellRef[]): Promise<Job[]>;
   /** Max candidates of find_similar. */
   similarLimit(projectId: string): number;
+  /** Size of a full entry point map answer; a larger map comes as a brief list. */
+  entryPointsInlineChars(projectId: string): number;
   /** Scanner signals of a module for get_signals (suppressed ones are filtered out). */
   signals(projectId: string, q: SignalQuery): Promise<Record<string, unknown>>;
   /** SCA settings of the project (report size limit). */
@@ -444,15 +446,29 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
   server.registerTool(
     'get_entry_points',
     {
-      description: 'Entry point map of a module: the latest complete snapshot (or the given one) with its entries.',
-      inputSchema: { module_id: z.string(), snapshot_id: z.string().optional() },
+      description:
+        'Entry point map of a module: the latest complete snapshot (or the given one) with its entries. A large map comes as a brief list (`brief: true`): request the details you need with `keys`.',
+      inputSchema: {
+        module_id: z.string(),
+        snapshot_id: z.string().optional(),
+        keys: z.array(z.string()).optional().describe('Only these entries, in full: a few at a time'),
+      },
     },
-    async ({ module_id, snapshot_id }) =>
+    async ({ module_id, snapshot_id, keys }) =>
       guard({ kind: 'read' }, () => {
         const s = svc.store(pid);
         const snap = snapshot_id ? s.getSnapshot(snapshot_id) : s.latestSnapshot(module_id);
         if (!snap || snap.moduleId !== module_id) return ok({ snapshot: null, entry_points: [] });
-        return ok({ snapshot: snap, entry_points: s.listEntryPoints(snap.id) });
+        const entries = s.listEntryPoints(snap.id);
+        if (keys) return ok({ snapshot: { ...snap, touchedFiles: undefined }, entry_points: entries.filter((e) => keys.includes(e.key)) });
+        const full = ok({ snapshot: snap, entry_points: entries });
+        if (full.content[0].text.length <= svc.entryPointsInlineChars(pid)) return full;
+        // An MCP answer over the client's limit lands in a file most sessions never open.
+        return ok({
+          snapshot: { ...snap, touchedFiles: undefined },
+          brief: true,
+          entry_points: entries.map((e) => ({ key: e.key, kind: e.kind, method: e.method, name: e.name, handler: e.handler, auth: e.auth })),
+        });
       }),
   );
 

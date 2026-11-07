@@ -29,7 +29,7 @@ Writes that check files need a live run, so a token stops writing once its run e
 | `list_modules` | Current modules: id, name, globs, description |
 | `upsert_module` | Creates or updates a module, matched by id or else by name. Globs must match tracked files |
 | `remove_module` | Removes a module; the history stays |
-| `get_entry_points` | A module's map: the latest complete snapshot, or a given one |
+| `get_entry_points` | A module's map: the latest complete snapshot, or a given one. A large map comes as a brief list, `keys` returns chosen entries in full |
 | `upsert_entry_point` | Records an entry point in this run's snapshot. The same kind, method and name replaces it |
 | `remove_entry_point` | Removes one from this run's snapshot |
 

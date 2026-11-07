@@ -81,6 +81,9 @@ limits:
   # The same for runs that read whole documents: reading into text, requirement extraction, document checks.
   # Missing a requirement costs more than these runs.
   max_tokens_per_document_run: 1000000
+  # An entry point map answer above this size comes as a brief list, details on request: the MCP client moves
+  # longer answers to a file that sessions rarely open.
+  entry_points_inline_chars: 60000
 
 terminal:
   # macOS application used by "open in external terminal".
