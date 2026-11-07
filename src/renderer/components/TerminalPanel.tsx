@@ -4,9 +4,10 @@ import { useEffect, useRef } from 'react';
 import type { AppEvent, TerminalInfo } from '../../shared/types';
 import { api, bridge } from '../api';
 import type { RunFn } from '../App';
-import { Icon, IconButton } from './Icon';
+import { Icon } from './Icon';
 import { Splitter } from './Splitter';
 import { tr } from '../i18n';
+import { IconButton } from '../ui';
 
 interface Props {
   terminals: TerminalInfo[];
@@ -46,7 +47,7 @@ export function TerminalPanel({ terminals, active, onActivate, run, height, onHe
       <div className="terminal-tabs" onDoubleClick={(e) => open && e.target === e.currentTarget && onMaximized(!maximized)}>
         <IconButton
           icon={collapsed ? 'chevronUp' : 'chevronDown'}
-          className="ghost"
+          variant="ghost"
           disabled={terminals.length === 0}
           title={collapsed ? tr('Show terminal (⌘J)') : tr('Hide terminal (⌘J)')}
           onClick={() => onCollapsed(!collapsed)}
@@ -61,13 +62,13 @@ export function TerminalPanel({ terminals, active, onActivate, run, height, onHe
           >
             {t.mode === 'stream' && <Icon name="output" size={12} />}
             <span title={t.mode === 'stream' ? tr('read-only') : undefined}>{t.title}</span>
-            <IconButton icon="close" className="ghost" title={tr('Close tab')} onClick={(e) => (e.stopPropagation(), close(t))} />
+            <IconButton icon="close" variant="ghost" title={tr('Close tab')} onClick={(e) => (e.stopPropagation(), close(t))} />
           </div>
         ))}
         {open && (
           <IconButton
             icon={maximized ? 'minimize' : 'maximize'}
-            className="ghost terminal-max"
+            variant="ghost" className="terminal-max"
             title={maximized ? tr('Restore terminal size') : tr('Maximize terminal (double-click the tab bar)')}
             aria-pressed={maximized}
             onClick={() => onMaximized(!maximized)}

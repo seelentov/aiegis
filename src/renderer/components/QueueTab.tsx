@@ -5,8 +5,8 @@ import type { RunFn } from '../App';
 import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
-import { IconButton } from './Icon';
 import { locale, tr } from '../i18n';
+import { IconButton, Input, Select, Table, Textarea } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -71,7 +71,7 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
       <div className="toolbar">
         <IconButton
           icon="terminal"
-          className="primary"
+          variant="primary"
           title={tr('Interactive claude session in the terminal')}
           label={tr('New session')}
           onClick={() => void run(api.newSession(project.id)).then(onTerminal)}
@@ -95,23 +95,23 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
         <div className="form">
           <label>
             {tr('Role')}
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <Select value={role} onChange={setRole}>
               {roles.map((r) => (
                 <option key={r.name} value={r.name}>
                   {r.title} ({r.name})
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label>
             {tr('Title')}
-            <input value={title} placeholder={tr('optional')} onChange={(e) => setTitle(e.target.value)} />
+            <Input value={title} placeholder={tr('optional')} onChange={(e) => setTitle(e.target.value)} />
           </label>
           <label className="wide">
             {tr('Prompt')}
-            <textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+            <Textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
           </label>
-          <IconButton icon="plus" className="primary" title={tr('Enqueue the job')} label={tr('Enqueue')} disabled={!prompt.trim() || !role} onClick={() => void enqueue()} />
+          <IconButton icon="plus" variant="primary" title={tr('Enqueue the job')} label={tr('Enqueue')} disabled={!prompt.trim() || !role} onClick={() => void enqueue()} />
         </div>
       </details>
 
@@ -119,7 +119,7 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
         <h3>{tr('Queue')}</h3>
         {jobGrid.count}
       </div>
-      <table className="grid">
+      <Table>
         {jobGrid.head}
         <tbody>
           {jobGrid.rows.length === 0 && (
@@ -143,7 +143,7 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
                   </>
                 )}
                 {(j.status === 'queued' || j.status === 'running') && (
-                  <IconButton icon="stop" className="danger" title={tr('Cancel|action')} onClick={() => void run(api.cancelJob(project.id, j.id))} />
+                  <IconButton icon="stop" variant="danger" title={tr('Cancel|action')} onClick={() => void run(api.cancelJob(project.id, j.id))} />
                 )}
                 {(j.status === 'failed' || j.status === 'cancelled') && (
                   <IconButton icon="retry" title={tr('Retry')} onClick={() => void run(api.retryJob(project.id, j.id))} />
@@ -155,13 +155,13 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
 
       <div className="grid-title">
         <h3>{tr('Sessions and runs')}</h3>
         {runGrid.count}
       </div>
-      <table className="grid">
+      <Table>
         {runGrid.head}
         <tbody>
           {runGrid.rows.length === 0 && (
@@ -183,7 +183,7 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }

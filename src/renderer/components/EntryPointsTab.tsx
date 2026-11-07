@@ -5,8 +5,9 @@ import type { RunFn } from '../App';
 import { time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
-import { Icon, IconButton } from './Icon';
+import { Icon } from './Icon';
 import { tr } from '../i18n';
+import { IconButton, Input, Select, Table } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -178,28 +179,28 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
       <div className="toolbar">
         <label>
           {tr('Module')}{' '}
-          <select value={moduleId ?? ''} onChange={(e) => onModule(e.target.value)}>
+          <Select value={moduleId ?? ''} onChange={onModule}>
             {modules.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {map && map.snapshots.length > 0 && (
           <label>
             {tr('Version')}{' '}
-            <select value={snap?.id ?? ''} onChange={(e) => setSnapshotId(e.target.value)}>
+            <Select value={snap?.id ?? ''} onChange={setSnapshotId}>
               {!snap && <option value="">—</option>}
               {map.snapshots.map((s) => (
                 <option key={s.id} value={s.id}>
                   {snapshotLabel(s)}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
-        <input type="search" aria-label={tr('Search all columns')} placeholder={tr('search all columns')} value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <Input type="search" aria-label={tr('Search all columns')} placeholder={tr('search all columns')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         {moduleId && (
           <IconButton icon={snap ? 'recheck' : 'route'} title={snap ? tr('Rebuild module map') : tr('Build module map')} label={snap ? tr('Rebuild') : tr('Build')} onClick={() => void run(api.enqueueEntryPoints(project.id, moduleId))} />
         )}
@@ -226,7 +227,7 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
             )}
             {snap.status !== 'complete' && <span className="warn"> · {tr('version {status}', { status: SNAPSHOT_STATUS[snap.status] })}</span>}
           </div>
-          <table className="grid entry-grid">
+          <Table className="entry-grid">
             {g.head}
             <tbody>
               {g.rows.length === 0 && (
@@ -236,7 +237,7 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
               )}
               {g.rows.map((r) => row(r.e, r.change))}
             </tbody>
-          </table>
+          </Table>
         </>
       )}
     </div>

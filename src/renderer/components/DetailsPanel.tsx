@@ -7,13 +7,13 @@ import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
 import { CellDetailsView, FindingDetailsView } from './AuditDetails';
 import { ConfigView } from './ConfigView';
 import { DiffDetailsView } from './DiffTab';
-import { IconButton } from './Icon';
 import { ModuleForm } from './ModulesTab';
 import { ScaItemDetailsView } from './ScaDetails';
 import { ScheduleDetailsView } from './SchedulesTab';
 import { Section } from './Section';
 import { SignalDetailsView, SuppressionDetailsView } from './SignalDetails';
 import { tr } from '../i18n';
+import { IconButton, Input } from '../ui';
 
 export interface Selection {
   kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression' | 'sca' | 'doc-proposal' | 'schedule' | 'diff';
@@ -90,13 +90,13 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
             </dd>
           </dl>
           <div className="actions">
-            <IconButton icon="route" className="primary" title={tr('Build the entry point map')} label={tr('Build map')} disabled={Boolean(mod.activeJob)} onClick={() => void run(api.enqueueEntryPoints(project.id, id))} />
+            <IconButton icon="route" variant="primary" title={tr('Build the entry point map')} label={tr('Build map')} disabled={Boolean(mod.activeJob)} onClick={() => void run(api.enqueueEntryPoints(project.id, id))} />
             <IconButton icon="map" title={tr('Open map')} disabled={!mod.latestSnapshot} onClick={() => onOpenMap(id)} />
             <IconButton icon="edit" title={tr('Edit the module')} onClick={() => setEditing(true)} />
           </div>
           <div className="actions">
-            <input placeholder={tr('reason for deletion')} value={reason} onChange={(e) => setReason(e.target.value)} />
-            <IconButton icon="trash" className="danger" title={tr('Delete the module (a reason is required)')} disabled={!reason.trim()} onClick={() => void remove()} />
+            <Input placeholder={tr('reason for deletion')} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <IconButton icon="trash" variant="danger" title={tr('Delete the module (a reason is required)')} disabled={!reason.trim()} onClick={() => void remove()} />
           </div>
         </>
       )}
@@ -269,7 +269,7 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
             )}
           </dl>
           <div className="actions">
-            <IconButton icon="terminal" className="primary" title={tr('Open the session in the built-in terminal')} label={tr('Open session')} onClick={() => void run(api.openRun(project.id, r.id)).then(onTerminal)} />
+            <IconButton icon="terminal" variant="primary" title={tr('Open the session in the built-in terminal')} label={tr('Open session')} onClick={() => void run(api.openRun(project.id, r.id)).then(onTerminal)} />
             <IconButton icon="external" title={tr('Open in an external terminal')} onClick={() => void run(api.openExternal(project.id, r.id))} />
             {details?.log && <IconButton icon="file" title={tr('Open the run log')} onClick={() => void run(api.openInEditor(details.log!))} />}
           </div>

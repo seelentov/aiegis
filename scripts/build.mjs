@@ -27,5 +27,9 @@ await Promise.all([
   }),
 ]);
 
+// The ui kit page (`npm run kit`), a development tool: excluded from the package.
+await build({ ...common, entryPoints: ['src/renderer/ui/Kit.tsx'], outfile: 'dist/kit/kit.js', platform: 'browser', format: 'iife', loader: { '.css': 'css' } });
+cpSync('src/renderer/ui/kit.html', 'dist/kit/index.html');
+
 cpSync('src/renderer/index.html', 'dist/renderer/index.html');
 cpSync('node_modules/@xterm/xterm/css/xterm.css', 'dist/renderer/xterm.css');

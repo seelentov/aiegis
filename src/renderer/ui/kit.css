@@ -1,0 +1,6 @@
+.kit { max-width: 880px; margin-inline: auto; padding: var(--space-lg) var(--space-md) var(--space-2xl); }
+.kit h2 { margin: var(--space-xl) 0 var(--space-sm); }
+.kit .row { flex-wrap: wrap; }
+.kit-row { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-md); align-items: center; padding: var(--space-xs) 0; border-top: var(--rule-hair) solid var(--color-rule); }
+.kit table + table { margin-top: var(--space-md); }
+@media (max-width: 40rem) { .kit-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-2xs); } }

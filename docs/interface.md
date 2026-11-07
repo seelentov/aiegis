@@ -52,6 +52,15 @@ Every table works the same way:
 
 Row and toolbar actions are icons with a tooltip. Form buttons such as **Save** and **Cancel** are text.
 
+## Dropdown lists
+
+Every dropdown can be searched:
+
+- type to narrow the list. Every word must match, in any order: `oauth fix` finds `fix/oauth-token`;
+- lists of 7 or more items always show the search field; in shorter ones it appears when you start typing;
+- on a closed dropdown, a letter opens it with that letter in the search, and the arrow keys open it;
+- inside the list, the up and down arrows move, `Enter` picks and `Esc` or `Tab` closes.
+
 ## Resizing
 
 Drag a divider to resize the project list, the details panel or the terminal. With the keyboard, focus a divider and use the arrow keys. Double-click a divider to restore its default. Sizes and the last open tab are remembered on this machine.

@@ -7,8 +7,8 @@ import { tr } from '../i18n';
 import type { Selection } from './DetailsPanel';
 import { DiffFields, diffFieldsOf, diffInputOf, diffReady, EMPTY_DIFF } from './DiffTab';
 import { EmptyRow, useGrid } from './Grid';
-import { IconButton } from './Icon';
 import { Section } from './Section';
+import { Button, Checkbox, IconButton, Input, Select, Table, Textarea } from '../ui';
 
 type Kind = ScheduleAction['kind'];
 type Target = 'modules' | 'repository';
@@ -29,7 +29,7 @@ function ModuleChecks({ modules, chosen, onChange }: { modules: { id: string; na
       <legend>{tr('Modules (none selected means all)')}</legend>
       {modules.map((m) => (
         <label key={m.id} className="check">
-          <input type="checkbox" checked={chosen.includes(m.id)} onChange={() => onChange(chosen.includes(m.id) ? chosen.filter((x) => x !== m.id) : [...chosen, m.id])} />
+          <Checkbox checked={chosen.includes(m.id)} onChange={() => onChange(chosen.includes(m.id) ? chosen.filter((x) => x !== m.id) : [...chosen, m.id])} />
           {m.name}
         </label>
       ))}
@@ -153,22 +153,22 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
     <div className="form module-form">
       <label>
         {tr('Name')}
-        <input value={name} onChange={(e) => setName(e.target.value)} />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <label>
         {tr('Preset')}
-        <select value={PRESETS.some((p) => p.cron === cron) ? cron : ''} onChange={(e) => e.target.value && setCron(e.target.value)}>
+        <Select value={PRESETS.some((p) => p.cron === cron) ? cron : ''} onChange={(v) => v && setCron(v)}>
           <option value="">{tr('Custom')}</option>
           {PRESETS.map((p) => (
             <option key={p.cron} value={p.cron}>
               {p.title}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label>
         {tr('Cron expression (minute hour day month weekday)')}
-        <input className="mono" value={cron} onChange={(e) => setCron(e.target.value)} />
+        <Input className="mono" value={cron} onChange={(e) => setCron(e.target.value)} />
       </label>
       {cronError && <div className="warn small">{cronError}</div>}
       {preview && (
@@ -178,34 +178,34 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
       )}
       <label>
         {tr('Action')}
-        <select value={kind} onChange={(e) => (setKind(e.target.value as Kind), setMods([]))}>
+        <Select value={kind} onChange={(v) => (setKind(v), setMods([]))}>
           {SCHEDULE_ACTIONS.map((k) => (
             <option key={k} value={k}>
               {SCHEDULE_ACTION[k]}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
 
       {kind === 'task' && (
         <>
           <label>
             {tr('Role')}
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <Select value={role} onChange={setRole}>
               {roles.map((r) => (
                 <option key={r.name} value={r.name}>
                   {r.title} ({r.name})
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label>
             {tr('Title')}
-            <input value={title} placeholder={tr('optional')} onChange={(e) => setTitle(e.target.value)} />
+            <Input value={title} placeholder={tr('optional')} onChange={(e) => setTitle(e.target.value)} />
           </label>
           <label className="wide">
             {tr('Prompt')}
-            <textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+            <Textarea rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
           </label>
         </>
       )}
@@ -214,20 +214,20 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
         <>
           <label>
             {tr('Matrix')}
-            <select value={matrixId} onChange={(e) => (setMatrixId(e.target.value), setMods([]), setSection(''))}>
+            <Select value={matrixId} onChange={(v) => (setMatrixId(v), setMods([]), setSection(''))}>
               {matrices.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label>
             {tr('Stage')}
-            <select value={stage} onChange={(e) => setStage(e.target.value as MatrixStage)}>
+            <Select value={stage} onChange={setStage}>
               <option value="verdicts">{tr('Verdicts')}</option>
               <option value="triage">{tr('n/a triage')}</option>
-            </select>
+            </Select>
           </label>
         </>
       )}
@@ -235,13 +235,13 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
       {(kind === 'matrix' || kind === 'sca') && (
         <label>
           {kind === 'matrix' && stage === 'verdicts' ? tr('Cells of the whole matrix') : tr('Scope')}
-          <select value={scope} onChange={(e) => setScope(e.target.value as MatrixScope)}>
+          <Select value={scope} onChange={setScope}>
             {(['pending', 'stale'] as const).map((x) => (
               <option key={x} value={x}>
                 {SCOPE_TITLE[x]}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       )}
 
@@ -252,22 +252,22 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
             <ModuleChecks modules={view?.modules ?? []} chosen={mods} onChange={setMods} />
             <label>
               {tr('Section')}
-              <select value={section} onChange={(e) => setSection(e.target.value)}>
+              <Select value={section} onChange={setSection}>
                 <option value="">{tr('All')}</option>
                 {sections.map((x) => (
                   <option key={x} value={x}>
                     {x}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label>
               {tr('Requirement keys (one per line)')}
-              <textarea rows={2} value={requirements} onChange={(e) => setRequirements(e.target.value)} />
+              <Textarea rows={2} value={requirements} onChange={(e) => setRequirements(e.target.value)} />
             </label>
             <label>
               {tr('Cell ids (one per line)')}
-              <textarea rows={2} value={cells} onChange={(e) => setCells(e.target.value)} />
+              <Textarea rows={2} value={cells} onChange={(e) => setCells(e.target.value)} />
             </label>
           </div>
         </details>
@@ -276,24 +276,24 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
       {kind === 'scanners' && (
         <label>
           {tr('Scan')}
-          <select value={target} onChange={(e) => setTarget(e.target.value as Target)}>
+          <Select value={target} onChange={setTarget}>
             <option value="modules">{tr('Modules')}</option>
             <option value="repository">{tr('The whole repository')}</option>
-          </select>
+          </Select>
         </label>
       )}
       {((kind === 'scanners' && target === 'modules') || kind === 'sca' || kind === 'sca_inventory') && <ModuleChecks modules={modules} chosen={mods} onChange={setMods} />}
       {kind === 'entry_points' && (
         <label>
           {tr('Module')}
-          <select value={mods[0] ?? ''} onChange={(e) => setMods(e.target.value ? [e.target.value] : [])}>
+          <Select value={mods[0] ?? ''} onChange={(v) => setMods(v ? [v] : [])}>
             <option value="">{tr('All')}</option>
             {modules.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       )}
 
@@ -301,7 +301,7 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
       {kind === 'doc_refresh' && (
         <label>
           {tr('Set or document')}
-          <select value={refresh} onChange={(e) => setRefresh(e.target.value)}>
+          <Select value={refresh} onChange={setRefresh}>
             <option value="" />
             <optgroup label={tr('Sets')}>
               {sets.map((d) => (
@@ -317,22 +317,22 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
                 </option>
               ))}
             </optgroup>
-          </select>
+          </Select>
         </label>
       )}
 
       {limited && (
         <label>
           {tr('Limit of estimated tokens per firing')}
-          <input type="number" min={1} value={maxTokens} placeholder={tr('from the settings')} onChange={(e) => setMaxTokens(e.target.value)} />
+          <Input type="number" min={1} value={maxTokens} placeholder={tr('from the settings')} onChange={(e) => setMaxTokens(e.target.value)} />
         </label>
       )}
 
       <div className="wide row">
-        <button className="primary" disabled={!ready} onClick={() => void save()}>
+        <Button variant="primary" disabled={!ready} onClick={() => void save()}>
           {tr('Save')}
-        </button>
-        <button onClick={() => onDone()}>{tr('Cancel')}</button>
+        </Button>
+        <Button onClick={() => onDone()}>{tr('Cancel')}</Button>
       </div>
     </div>
   );
@@ -395,9 +395,9 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
             )}
           </dl>
           <div className="actions">
-            <IconButton icon="play" className="primary" title={tr('Fire now, with the same checks as a planned firing')} label={tr('Run')} onClick={() => void run(api.runSchedule(project.id, id))} />
+            <IconButton icon="play" variant="primary" title={tr('Fire now, with the same checks as a planned firing')} label={tr('Run')} onClick={() => void run(api.runSchedule(project.id, id))} />
             <IconButton icon="edit" title={tr('Edit the schedule')} onClick={() => setEditing(true)} />
-            <IconButton icon="trash" className="danger" title={tr('Remove the schedule')} onClick={() => void remove()} />
+            <IconButton icon="trash" variant="danger" title={tr('Remove the schedule')} onClick={() => void remove()} />
           </div>
         </>
       )}
@@ -472,7 +472,7 @@ export function SchedulesTab({ project, revision, run, selection, onSelect }: Pr
       )}
 
       {g.count && <div className="toolbar">{g.count}</div>}
-      <table className="grid">
+      <Table>
         {g.head}
         <tbody>
           {g.rows.length === 0 && (
@@ -492,8 +492,7 @@ export function SchedulesTab({ project, revision, run, selection, onSelect }: Pr
                 <Outcome firing={s.lastFiring} /> {s.lastFiring && <span className="muted small">{time(s.lastFiring.firedAt)}</span>}
               </td>
               <td className="actions" onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="checkbox"
+                <Checkbox
                   title={s.enabled ? tr('Disable the schedule') : tr('Enable the schedule')}
                   aria-label={s.enabled ? tr('Disable the schedule') : tr('Enable the schedule')}
                   checked={s.enabled}
@@ -504,7 +503,7 @@ export function SchedulesTab({ project, revision, run, selection, onSelect }: Pr
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }

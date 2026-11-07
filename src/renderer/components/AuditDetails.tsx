@@ -6,9 +6,9 @@ import type { RunFn } from '../App';
 import { CELL_STATUS, FINDING_STATUS, FINDING_VERIFY_OUTCOME, FIX_OUTCOME, JOB_STATUS, kTokens, POC_OUTCOME, SEVERITY, STALE_REASON, time } from '../format';
 import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
-import { IconButton } from './Icon';
 import { Section } from './Section';
 import { tr } from '../i18n';
+import { Button, Checkbox, IconButton, Input, Select, Table, Textarea } from '../ui';
 
 interface Common {
   project: ProjectInfo;
@@ -89,7 +89,7 @@ function VerdictCompare({ a, b }: { a: Verdict & { run: unknown }; b: Verdict & 
     [tr('Evidence'), (v) => v.evidence.map((e) => `${e.file}${e.line ? `:${e.line}` : ''}`).join('\n') || '—'],
   ];
   return (
-    <table className="grid compact compare">
+    <Table compact className="compare">
       <tbody>
         {rows.map(([label, f]) => (
           <tr key={label} className={f(a) !== f(b) ? 'diff' : ''}>
@@ -99,7 +99,7 @@ function VerdictCompare({ a, b }: { a: Verdict & { run: unknown }; b: Verdict & 
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -223,7 +223,7 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
       <div className="actions">
         <IconButton
           icon="recheck"
-          className="primary"
+          variant="primary"
           title={tr('Recheck the cell')}
           label={tr('Recheck')}
           disabled={!d.module || !d.requirement || Boolean(d.cell.activeJob)}
@@ -238,46 +238,46 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
           {form === 'verdict' ? (
             <label>
               {tr('Status')}
-              <select value={status} onChange={(e) => setStatus(e.target.value as VerdictStatus)}>
+              <Select value={status} onChange={setStatus}>
                 {VERDICT_STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {CELL_STATUS[s]}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           ) : (
             <>
               <label>
                 {tr('Heading')}
-                <input value={fTitle} onChange={(e) => setFTitle(e.target.value)} />
+                <Input value={fTitle} onChange={(e) => setFTitle(e.target.value)} />
               </label>
               <label>
                 Severity / CWE
                 <span className="row">
-                  <select value={fSeverity} onChange={(e) => setFSeverity(e.target.value as Severity)}>
+                  <Select value={fSeverity} onChange={setFSeverity}>
                     {SEVERITIES.map((s) => (
                       <option key={s}>{s}</option>
                     ))}
-                  </select>
-                  <input placeholder="CWE-639" value={fCwe} onChange={(e) => setFCwe(e.target.value)} />
+                  </Select>
+                  <Input placeholder="CWE-639" value={fCwe} onChange={(e) => setFCwe(e.target.value)} />
                 </span>
               </label>
             </>
           )}
           <label>
             {form === 'verdict' ? tr('Rationale') : tr('Description')}
-            <textarea rows={3} value={form === 'verdict' ? reason : fDesc} onChange={(e) => (form === 'verdict' ? setReason(e.target.value) : setFDesc(e.target.value))} />
+            <Textarea rows={3} value={form === 'verdict' ? reason : fDesc} onChange={(e) => (form === 'verdict' ? setReason(e.target.value) : setFDesc(e.target.value))} />
           </label>
           <label>
             {tr('Code (one per line: path[:line] [note], from the repository root)')}
-            <textarea rows={2} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+            <Textarea rows={2} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
           </label>
           <div className="row">
-            <button className="primary" onClick={() => void (form === 'verdict' ? saveVerdict() : saveFinding())}>
+            <Button variant="primary" onClick={() => void (form === 'verdict' ? saveVerdict() : saveFinding())}>
               {tr('Save')}
-            </button>
-            <button onClick={() => setForm(null)}>{tr('Cancel')}</button>
+            </Button>
+            <Button onClick={() => setForm(null)}>{tr('Cancel')}</Button>
           </div>
         </div>
       )}
@@ -291,7 +291,7 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
         </div>
       ))}
       <div className="actions">
-        <select value={link} onChange={(e) => setLink(e.target.value)}>
+        <Select value={link} onChange={setLink}>
           <option value="">{tr('link to a finding…')}</option>
           {findings
             .filter((f) => !f.mergedInto && !d.findings.some((x) => x.id === f.id))
@@ -300,7 +300,7 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
                 {f.title}
               </option>
             ))}
-        </select>
+        </Select>
         <IconButton icon="link" title={tr('Link the finding to the cell')} disabled={!link} onClick={() => void run(api.linkFinding(project.id, link, id)).then(() => setLink(''))} />
       </div>
       </Section>
@@ -311,7 +311,7 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
         'verdict' in t && t.verdict ? (
           <div key={t.key} className="result">
             <div className="muted small">
-              <input type="checkbox" title={tr('compare')} checked={compare.includes(t.verdict.id)} onChange={() => toggleCompare(t.verdict!.id)} /> {time(t.at)} ·{' '}
+              <Checkbox title={tr('compare')} checked={compare.includes(t.verdict.id)} onChange={() => toggleCompare(t.verdict!.id)} /> {time(t.at)} ·{' '}
               {t.verdict.author} · <span className="mono">{t.verdict.commitSha.slice(0, 8)}</span>
               {t.verdict.run && (
                 <>
@@ -417,7 +417,7 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
       {!f.mergedInto && (
         <>
           <div className="actions">
-            <IconButton icon="fix" className="primary" title={tr('Open an interactive fix session')} label={tr('Fix')} onClick={() => void run(api.openFixSession(project.id, f.id)).then(onTerminal)} />
+            <IconButton icon="fix" variant="primary" title={tr('Open an interactive fix session')} label={tr('Fix')} onClick={() => void run(api.openFixSession(project.id, f.id)).then(onTerminal)} />
             <IconButton
               icon="recheck"
               title={tr('Recheck the linked matrix cells')}
@@ -427,14 +427,14 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
             />
           </div>
           <div className="actions">
-            <select value={status} onChange={(e) => setStatus(e.target.value as FindingStatus)}>
+            <Select value={status} onChange={setStatus}>
               {FINDING_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {FINDING_STATUS[s]}
                 </option>
               ))}
-            </select>
-            <input placeholder={tr('reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
+            </Select>
+            <Input placeholder={tr('reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
             <IconButton icon="check" title={tr('Change the status')} disabled={status === f.status} onClick={() => void run(api.setFindingStatus(project.id, f.id, status, reason))} />
           </div>
         </>

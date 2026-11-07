@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Icon, IconButton } from './Icon';
+import { Icon } from './Icon';
 import { lang, tr } from '../i18n';
+import { Button, IconButton, Input, Select } from '../ui';
 
 export interface Col<T> {
   key: string;
@@ -65,10 +66,10 @@ export function useGrid<T>(id: string, rows: T[], cols: Col<T>[]) {
           return (
             <th key={c.key} className={c.className} aria-sort={dir === 1 ? 'ascending' : dir === -1 ? 'descending' : undefined}>
               {c.text ? (
-                <button className={dir ? 'th-sort sorted' : 'th-sort'} onClick={() => toggleSort(c.key)}>
+                <Button className={dir ? 'th-sort sorted' : 'th-sort'} onClick={() => toggleSort(c.key)}>
                   {c.title}
                   <Icon name={dir === -1 ? 'sortDesc' : 'sortAsc'} size={12} />
-                </button>
+                </Button>
               ) : (
                 c.title
               )}
@@ -107,18 +108,18 @@ function ColumnFilter<T>({ col, rows, value, onChange }: { col: Col<T>; rows: T[
   if (col.filter === 'enum') {
     const options = [...new Set(rows.map(col.text!))].filter(Boolean).sort(collator.compare);
     return (
-      <select className={value ? 'col-filter set' : 'col-filter'} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+      <Select className={value ? 'col-filter set' : 'col-filter'} aria-label={label} value={value} onChange={onChange}>
         <option value="">{tr('all')}</option>
         {options.map((o) => (
           <option key={o} value={o}>
             {o}
           </option>
         ))}
-      </select>
+      </Select>
     );
   }
   return (
-    <input
+    <Input
       className={value ? 'col-filter set' : 'col-filter'}
       type="search"
       aria-label={label}

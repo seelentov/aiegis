@@ -137,6 +137,9 @@ export const RU: Record<string, string> = {
   'all': 'все',
   'search': 'поиск',
   'Nothing matches the filters': 'Ничего не подходит под фильтры',
+  // Select
+  'Search the list': 'Поиск по списку',
+  'Nothing found': 'Ничего не найдено',
   // Splitter
   '{label}: drag, double-click to reset': '{label}: тяните, двойной щелчок — по умолчанию',
   // TerminalPanel
