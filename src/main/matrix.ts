@@ -169,7 +169,8 @@ export function planEconomyBatches(cells: BatchCell[], size: number): Batch[] {
   return out;
 }
 
-const normCwe = (c: string | null | undefined) => (c ? c.toUpperCase().replace(/^CWE[-\s]?/, '') : '');
+// Agents also send a JSON list as the string, `["CWE-770"]`. shortcut: only the first CWE of a list counts, compare all if multi-CWE findings appear.
+const normCwe = (c: string | null | undefined) => c?.match(/\d+/)?.[0] ?? '';
 const fileSet = (files: Evidence[]) => new Set(files.map((f) => f.file));
 
 /**

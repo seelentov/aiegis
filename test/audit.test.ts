@@ -214,6 +214,8 @@ describe('matrix helpers', () => {
     expect(r.map((x) => x.finding.id)).toEqual([same.id, cweAndFile.id]);
     expect(r[0].reasons).toEqual(['same entry point', 'same CWE-639', 'shared files: svc/A.java']);
     expect(rankSimilar({ entryPoint: null, cwe: null, files: [{ file: 'none' }], moduleId: null }, a.listFindings(), 5)).toEqual([]);
+    const listed = rankSimilar({ entryPoint: null, cwe: '["CWE-639"]', files: [{ file: 'svc/A.java' }], moduleId: 'm1' }, a.listFindings(), 5);
+    expect(listed[0].reasons).toContain('same CWE-639');
   });
 
   it('quotes are checked after normalizing case, whitespace and markdown', () => {
