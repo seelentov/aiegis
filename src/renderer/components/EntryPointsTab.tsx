@@ -238,6 +238,7 @@ export function EntryPointsTab({ project, revision, run, moduleId, onModule, onS
               {g.rows.map((r) => row(r.e, r.change))}
             </tbody>
           </Table>
+          {g.pager}
         </>
       )}
     </div>

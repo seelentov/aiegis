@@ -55,6 +55,7 @@ function api(): ApiImpl {
     terminalWrite: (id, data) => core.terminals.write(id, data),
     terminalResize: (id, cols, rows) => core.terminals.resize(id, cols, rows),
     uiLanguage: () => core.uiLanguage(),
+    uiPageSizes: () => core.uiPageSizes(),
   };
 }
 

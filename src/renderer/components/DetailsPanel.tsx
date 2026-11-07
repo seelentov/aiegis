@@ -13,7 +13,7 @@ import { ScheduleDetailsView } from './SchedulesTab';
 import { Section } from './Section';
 import { SignalDetailsView, SuppressionDetailsView } from './SignalDetails';
 import { tr } from '../i18n';
-import { IconButton, Input } from '../ui';
+import { IconButton, Input, Paged } from '../ui';
 
 export interface Selection {
   kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression' | 'sca' | 'doc-proposal' | 'schedule' | 'diff';
@@ -102,7 +102,7 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
       )}
       {mod && editing && <ModuleForm project={project} run={run} module={mod} onDone={() => setEditing(false)} />}
       <Section title={tr('History')}>
-      {history.map((h) => (
+      <Paged key={id} items={history}>{(h) => (
         <div key={h.id} className="result">
           <div className="muted small">
             {time(h.createdAt)} · {h.author}
@@ -124,7 +124,7 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
             </>
           )}
         </div>
-      ))}
+      )}</Paged>
       </Section>
       {config && <ConfigView config={config} title={tr('Effective configuration of the entry point map')} />}
     </section>

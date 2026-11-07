@@ -8,7 +8,7 @@ import type { Selection } from './DetailsPanel';
 import { DiffFields, diffFieldsOf, diffInputOf, diffReady, EMPTY_DIFF } from './DiffTab';
 import { EmptyRow, useGrid } from './Grid';
 import { Section } from './Section';
-import { Button, Checkbox, IconButton, Input, Select, Table, Textarea } from '../ui';
+import { Button, Checkbox, IconButton, Input, Paged, Select, Table, Textarea } from '../ui';
 
 type Kind = ScheduleAction['kind'];
 type Target = 'modules' | 'repository';
@@ -362,7 +362,8 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
   }, [project.id, revision]);
   useEffect(() => {
     void run(api.scheduleDetails(project.id, id)).then((s) => setSchedule(s ?? null));
-    void run(api.scheduleHistory(project.id, id, 50)).then((h) => h && setHistory(h));
+    // shortcut: loads every firing and pages in the renderer, a query per page once a cron of minutes runs for months.
+    void run(api.scheduleHistory(project.id, id)).then((h) => h && setHistory(h));
   }, [project.id, id, revision, run]);
 
   if (!schedule) return <section />;
@@ -403,7 +404,7 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
       )}
       <Section title={tr('History')}>
         {history.length === 0 && <div className="muted">{tr('No firings yet')}</div>}
-        {history.map((f) => (
+        <Paged key={id} items={history}>{(f) => (
           <div key={f.id} className="result">
             <div className="muted small">
               {time(f.firedAt)} · {f.trigger === 'manual' ? tr('manual') : tr('planned for {time}', { time: time(f.scheduledAt) })}
@@ -417,7 +418,7 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
               </span>
             ))}
           </div>
-        ))}
+        )}</Paged>
       </Section>
     </section>
   );
@@ -504,6 +505,7 @@ export function SchedulesTab({ project, revision, run, selection, onSelect }: Pr
           ))}
         </tbody>
       </Table>
+      {g.pager}
     </div>
   );
 }

@@ -207,6 +207,7 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
           ))}
         </tbody>
       </Table>
+      {g.pager}
     </div>
   );
 }

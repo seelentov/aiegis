@@ -71,7 +71,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
         <label className="check">
           <Checkbox checked={merged} onChange={(e) => setMerged(e.target.checked)} /> {tr('show merged')}
         </label>
-        <IconButton icon="check" title={tr('Pick the suspected findings shown below')} label={tr('Pick suspected')} onClick={() => setPicked(g.rows.filter(eligible).map((f) => f.id))} />
+        <IconButton icon="check" title={tr('Pick the suspected findings that pass the filters, on every page')} label={tr('Pick suspected')} onClick={() => setPicked(g.all.filter(eligible).map((f) => f.id))} />
         <IconButton
           icon="play"
           title={tr('Estimate, then run a clean session per picked finding that tries to refute it')}
@@ -79,7 +79,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
           disabled={!chosen.length}
           onClick={() => void run(api.estimateFindingVerify(project.id, chosen)).then((e) => { setEstimateFix(false); if (e) setEstimate(e); })}
         />
-        <IconButton icon="check" title={tr('Pick the stale findings shown below')} label={tr('Pick stale')} onClick={() => setPicked(g.rows.filter(stale).map((f) => f.id))} />
+        <IconButton icon="check" title={tr('Pick the stale findings that pass the filters, on every page')} label={tr('Pick stale')} onClick={() => setPicked(g.all.filter(stale).map((f) => f.id))} />
         <IconButton
           icon="play"
           title={tr('Estimate, then run a clean session per picked stale finding that judges at HEAD whether it is closed')}
@@ -139,6 +139,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
           ))}
         </tbody>
       </Table>
+      {g.pager}
     </div>
   );
 }

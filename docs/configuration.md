@@ -93,6 +93,8 @@ On every start:
 | Key | Default | Meaning |
 |---|---|---|
 | `ui.language` | `en` | `en` or `ru`. Global only. Also picks the `{ en, ru }` variant of titles |
+| `ui.page_size` | `50` | Rows per page of a table. Global only |
+| `ui.history_page_size` | `20` | Entries per page of a history in the details panel. Global only |
 | `agent` | `claude` | `claude` or `pi`. See [Agents](agents.md) |
 | `model` | `sonnet` | Passed to the agent as is |
 | `effort` | `low` | `--effort` (claude) or `--thinking` (pi) |

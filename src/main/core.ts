@@ -117,6 +117,7 @@ import {
   scannerSettings,
   SOURCE_PROJECT,
   uiLanguage,
+  uiPageSizes,
   type EffectiveConfig,
   type RoleInfo,
   type ScannerSettings,
@@ -681,6 +682,10 @@ export class Core extends EventEmitter {
 
   uiLanguage(): Language {
     return uiLanguage(loadConfigFile(globalConfigPath(this.paths.globalDir)));
+  }
+
+  uiPageSizes(): { table: number; history: number } {
+    return uiPageSizes(loadConfigFile(globalConfigPath(this.paths.globalDir)));
   }
 
   readConfigFile(projectId: string | null, file: string): string {

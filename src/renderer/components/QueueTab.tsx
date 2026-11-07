@@ -156,6 +156,7 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
           ))}
         </tbody>
       </Table>
+      {jobGrid.pager}
 
       <div className="grid-title">
         <h3>{tr('Sessions and runs')}</h3>
@@ -184,6 +185,7 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
           ))}
         </tbody>
       </Table>
+      {runGrid.pager}
     </div>
   );
 }

@@ -86,7 +86,7 @@ export const PocAccountSchema = z.looseObject({
 export const ConfigFileSchema = z.looseObject({
   ...LevelShape,
   /** Read from the global config only. */
-  ui: z.looseObject({ language: z.enum(LANGUAGES).optional() }).optional(),
+  ui: z.looseObject({ language: z.enum(LANGUAGES).optional(), page_size: z.number().int().min(1).optional(), history_page_size: z.number().int().min(1).optional() }).optional(),
   /** Read from the global config only: one process serves all projects. */
   logging: z
     .looseObject({

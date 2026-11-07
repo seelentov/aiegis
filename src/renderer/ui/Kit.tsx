@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../styles.css';
 import './kit.css';
-import { Button, Checkbox, IconButton, Input, Radio, Select, Table, Textarea } from '.';
+import { Button, Checkbox, IconButton, Input, Pager, Radio, Select, Table, Textarea } from '.';
 
 // Sample names for the search; a development page, so its texts stay out of the dictionary.
 const BRANCHES = ['main', 'develop', ...['oauth-token-refresh', 'sarif-import', 'finding-verify', 'schedule-cron', 'pi-agent', 'module-map'].flatMap((b) => [`feature/${b}`, `fix/${b}`, `release/${b}`])];
@@ -20,6 +20,7 @@ function Kit() {
   const [branch, setBranch] = useState('main');
   const [severity, setSeverity] = useState('high');
   const [target, setTarget] = useState('');
+  const [page, setPage] = useState(2);
   return (
     <main className="kit">
       <h1>aiegis ui kit</h1>
@@ -155,6 +156,8 @@ function Kit() {
           </tr>
         </tbody>
       </Table>
+
+      <Pager page={page} total={230} size={50} onPage={setPage} />
 
       <h2>Status and chip</h2>
       <Row state="status">

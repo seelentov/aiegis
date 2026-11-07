@@ -10,7 +10,7 @@ import type { Selection } from './DetailsPanel';
 import { confirmSca } from './ScaTab';
 import { Section } from './Section';
 import { tr } from '../i18n';
-import { Button, IconButton, Input, Select, Textarea } from '../ui';
+import { Button, IconButton, Input, Paged, Select, Textarea } from '../ui';
 
 interface Common {
   project: ProjectInfo;
@@ -268,7 +268,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
 
       <Section title={tr('History')}>
       {timeline.length === 0 && <div className="muted">{tr('none')}</div>}
-      {timeline.map((t) => (
+      <Paged key={id} items={timeline}>{(t) => (
         <div key={t.key} className="result">
           <div className="muted small">
             {time(t.at)} · {t.head}
@@ -286,7 +286,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
           </div>
           <div>{t.body}</div>
         </div>
-      ))}
+      )}</Paged>
       </Section>
       {d.config && <ConfigView config={d.config} title={tr('Effective configuration of the reachability check')} />}
     </section>

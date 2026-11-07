@@ -197,9 +197,10 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
       { key: 'status', title: tr('Reachability'), text: (x) => SCA_STATUS[x.status], filter: 'enum' },
       { key: 'module', title: tr('Module'), text: (x) => moduleName(x.moduleId), filter: 'enum' },
     ],
+    // Without a chosen sort the worst vulnerabilities lead.
+    (a, b) => SEV_RANK[b.vuln.severity] - SEV_RANK[a.vuln.severity] || a.name.localeCompare(b.name),
   );
-  // Without a chosen sort the worst vulnerabilities lead.
-  const items = g.sorted ? g.rows : [...g.rows].sort((a, b) => SEV_RANK[b.vuln.severity] - SEV_RANK[a.vuln.severity] || a.name.localeCompare(b.name));
+  const items = g.rows;
 
   if (!view) return null;
   if (!view.modules.length) return <div className="empty">{tr('Mark up modules first: SCA is built per module.')}</div>;
@@ -249,6 +250,7 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
           ))}
         </tbody>
       </Table>
+      {inv.pager}
       <Inputs project={project} run={run} view={view} />
 
       <div className="grid-title">
@@ -302,6 +304,7 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
           })}
         </tbody>
       </Table>
+      {g.pager}
     </div>
   );
 }

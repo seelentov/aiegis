@@ -48,7 +48,12 @@ Every table works the same way:
 - click a column heading to sort;
 - use the field under the heading to filter by text or by value;
 - filters last until the app restarts;
-- **Reset filters and sorting** clears them.
+- **Reset filters and sorting** clears them;
+- long tables are split into pages, with `ui.page_size` rows on each (see [Configuration](configuration.md)). A change of filter or sorting returns to the first page.
+
+Histories in the details panel are paged too, by `ui.history_page_size`. The list of documents is not paged, because it is grouped by set.
+
+Actions on a table work on every row that passes the filters, not only on the current page: **Pick suspected**, **Pick stale** and the run button of a matrix section.
 
 Row and toolbar actions are icons with a tooltip. Form buttons such as **Save** and **Cancel** are text.
 

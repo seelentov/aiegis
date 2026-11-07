@@ -256,10 +256,14 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
   ];
   const g = useGrid(`matrix.${matrixId}`, (view?.requirements ?? []).filter(rowShown), cols);
 
+  const sectionOf = (r: Req) => `${r.documentTitle} · ${r.section || '—'}`;
+  // The run button of a section covers all of it, also the rows on other pages.
+  const wholeSection = new Map<string, Req[]>();
+  for (const r of g.all) wholeSection.set(sectionOf(r), [...(wholeSection.get(sectionOf(r)) ?? []), r]);
   const sections: { key: string; items: Req[] }[] = [];
   const byKey = new Map<string, Req[]>();
   for (const r of g.rows) {
-    const key = `${r.documentTitle} · ${r.section || '—'}`;
+    const key = sectionOf(r);
     if (!byKey.has(key)) {
       byKey.set(key, []);
       sections.push({ key, items: byKey.get(key)! });
@@ -392,8 +396,8 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
                         <IconButton
                           icon="play"
                           variant="ghost" className="row-run"
-                          title={tr('Verdicts for the section: {n} requirements', { n: sec.items.length })}
-                          onClick={() => void runSlice(tr('section {key}', { key: sec.key }), { requirements: sec.items.map((r) => r.requirementId) })}
+                          title={tr('Verdicts for the section: {n} requirements', { n: wholeSection.get(sec.key)!.length })}
+                          onClick={() => void runSlice(tr('section {key}', { key: sec.key }), { requirements: wholeSection.get(sec.key)!.map((r) => r.requirementId) })}
                         />
                       </td>
                     </tr>
@@ -429,6 +433,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
               </tbody>
             </Table>
           </div>
+          {g.pager}
         </>
       )}
     </div>

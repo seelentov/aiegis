@@ -10,7 +10,7 @@ export const RU: Record<string, string> = {
   'Check fix {n}': 'Проверить исправление: {n}',
   'Check fix ({n})': 'Проверить исправление ({n})',
   'Pick stale': 'Выбрать устаревшие',
-  'Pick the stale findings shown below': 'Выбрать устаревшие находки из показанных ниже',
+  'Pick the stale findings that pass the filters, on every page': 'Выбрать устаревшие находки под фильтрами, на всех страницах',
   'Fix checks of stale findings': 'Проверка исправлений устаревших находок',
   'closed|fix': 'закрыта',
   'not closed|fix': 'не закрыта',
@@ -28,7 +28,7 @@ export const RU: Record<string, string> = {
   'Verification': 'Проверка',
   'Run a clean session that tries to refute the finding': 'Запустить чистую сессию, которая попробует опровергнуть находку',
   'The status stays yours to set: this result does not change it.': 'Статус ставите вы: этот результат его не меняет.',
-  'Pick the suspected findings shown below': 'Выбрать находки в статусе «подозрение» из показанных ниже',
+  'Pick the suspected findings that pass the filters, on every page': 'Выбрать предполагаемые находки под фильтрами, на всех страницах',
   'Pick suspected': 'Выбрать подозрения',
   'Estimate, then run a clean session per picked finding that tries to refute it': 'Оценить, затем запустить по чистой сессии на выбранную находку: она попробует её опровергнуть',
   'Pick for verification': 'Выбрать для проверки',
@@ -140,6 +140,13 @@ export const RU: Record<string, string> = {
   // Select
   'Search the list': 'Поиск по списку',
   'Nothing found': 'Ничего не найдено',
+  // Pager
+  'Pages': 'Страницы',
+  'First page': 'Первая страница',
+  'Previous page': 'Предыдущая страница',
+  'Next page': 'Следующая страница',
+  'Last page': 'Последняя страница',
+  '{from}–{to} of {total}': '{from}–{to} из {total}',
   // Splitter
   '{label}: drag, double-click to reset': '{label}: тяните, двойной щелчок — по умолчанию',
   // TerminalPanel

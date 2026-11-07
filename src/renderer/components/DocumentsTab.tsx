@@ -287,6 +287,7 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
           ))}
         </tbody>
       </Table>
+      {g.pager}
     </div>
   );
 }
@@ -532,8 +533,9 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
 
   const pending = proposals.filter((p) => p.status === 'pending');
   const groups: { set: DocSet | null; rows: DocumentSummary[] }[] = [
-    ...sets.map((set) => ({ set, rows: g.rows.filter((d) => d.setId === set.id) })),
-    { set: null, rows: g.rows.filter((d) => !d.setId) },
+    // Grouped by set, so not paged: a page boundary would cut through the groups.
+    ...sets.map((set) => ({ set, rows: g.all.filter((d) => d.setId === set.id) })),
+    { set: null, rows: g.all.filter((d) => !d.setId) },
   ];
 
   return (
@@ -671,7 +673,7 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
       <Table compact>
         {g.head}
         <tbody>
-          {g.rows.length === 0 && !sets.length && (
+          {g.all.length === 0 && !sets.length && (
             <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>
               {tr('No documents: upload a standard or an internal guideline')}
             </EmptyRow>
