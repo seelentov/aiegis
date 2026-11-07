@@ -32,7 +32,7 @@
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "e2e": "npm run build && ELECTRON_RUN_AS_NODE=1 electron dist/e2e.js",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "postinstall": "electron-rebuild -f -w node-pty && node scripts/dev-brand.mjs",
+    "setup": "npm run rebuild && node scripts/dev-brand.mjs",
     "icons": "electron scripts/icons.mjs",
     "dist": "npm run build && electron-builder --publish never",
     "dist:service": "node scripts/build-sea.mjs"
@@ -111,5 +111,10 @@
     "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "@anthropic-ai/sandbox-runtime": {
+      "zod": "$zod"
+    }
   }
 }

@@ -99,7 +99,8 @@ Builds are not signed. On macOS, right-click the app and choose **Open** the fir
 ```bash
 git clone https://github.com/seelentov/aiegis.git
 cd aiegis
-npm install        # rebuilds node-pty for Electron
+npm install
+npm run setup      # rebuilds node-pty for Electron
 npm start
 ```
 

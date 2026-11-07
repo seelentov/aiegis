@@ -32,6 +32,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run setup
       - run: npm run typecheck
       # The test script uses POSIX env syntax.
       - run: npm test

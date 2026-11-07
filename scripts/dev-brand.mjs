@@ -1,5 +1,5 @@
 // Unpackaged macOS runs take the Dock/menu-bar name from Electron.app's Info.plist; rename it to productName.
-// Packaged builds are named by electron-builder. Runs from postinstall.
+// Packaged builds are named by electron-builder. Runs from `npm run setup`.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';

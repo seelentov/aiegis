@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { openDb } from '../src/main/db';
+import { DOC_REFRESH_ENTITY, DOC_TEXT_ENTITY } from '../src/main/documents';
+import { FINDING_VERIFY_ENTITY, FIX_VERIFY_ENTITY } from '../src/main/matrix';
 import { AiegisMcpServer, mcpConfigJson, NO_SIGNALS_REASON } from '../src/main/mcp/server';
 import { TokenRegistry } from '../src/main/mcp/tokens';
 import { ProjectStore } from '../src/main/store';
@@ -300,6 +302,54 @@ describe('MCP requirement, matrix and finding tools', () => {
     expect(a.latestVerdicts().get(`${mod.id}/${item.requirementId}`)).toMatchObject({ status: 'n/a', reason: 'no HTTP' });
     expect((await call('recheck_cells', { cells: [cell] })).text).toMatch(/no manage access/);
     await c.close();
+  });
+});
+
+describe('MCP tool annotations', () => {
+  const READ_ONLY = [
+    'whoami', 'list_jobs', 'list_runs', 'get_results', 'list_modules', 'get_entry_points', 'list_documents', 'get_requirements',
+    'list_matrices', 'get_matrix', 'get_cell', 'list_findings', 'find_similar', 'get_signals', 'get_sca_inventory',
+  ];
+  const DESTRUCTIVE = [
+    'append_document_text', 'remove_module', 'upsert_entry_point', 'remove_entry_point', 'add_requirement', 'set_document_info',
+    'plan_security_documents', 'save_security_document', 'add_vulnerable_package', 'remove_vulnerable_package', 'set_inventory_summary',
+    'set_poc_environment', 'check_poc_environment', 'cancel_job',
+  ];
+  const OTHER = [
+    'set_finding_verification', 'set_fix_verification', 'fetch_url', 'report_document_check', 'request_document_review', 'request_catalogue_review',
+    'judge_catalogue_entries', 'propose_document_change', 'submit_result', 'upsert_module', 'triage_cell', 'set_verdict', 'set_verdicts',
+    'set_diff_verdicts', 'create_finding', 'link_finding', 'set_sca_verdict', 'create_sca_finding', 'link_sca_finding', 'set_poc_result',
+    'recheck_cells', 'enqueue_task',
+  ];
+
+  it('every tool of every grant shape declares all four hints, matching what it does', async () => {
+    const scopes = [[], [FINDING_VERIFY_ENTITY], [FIX_VERIFY_ENTITY], [DOC_TEXT_ENTITY], [DOC_REFRESH_ENTITY]].map((types) => types.map((type) => ({ type, id: 'x' })));
+    const seen = new Map<string, Record<string, unknown>>();
+    for (const scope of scopes) {
+      const g = tokens.issue({ projectId: 'p1', role: 'task', access: 'scoped', sessionId: 's', runId: 'r', scope });
+      const c = await connect(g.token);
+      for (const t of (await c.listTools()).tools) seen.set(t.name, { ...t.annotations });
+      await c.close();
+      tokens.revoke(g.token);
+    }
+    expect([...seen.keys()].sort()).toEqual([...READ_ONLY, ...DESTRUCTIVE, ...OTHER].sort());
+    for (const [name, a] of seen) {
+      for (const hint of ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint']) expect(typeof a[hint], `${name}.${hint}`).toBe('boolean');
+      expect(a.readOnlyHint, name).toBe(READ_ONLY.includes(name));
+      expect(a.destructiveHint, name).toBe(DESTRUCTIVE.includes(name));
+    }
+    const openWorld = [...seen].filter(([, a]) => a.openWorldHint).map(([name]) => name);
+    expect(openWorld.sort()).toEqual(['check_poc_environment', 'fetch_url']);
+  });
+
+  it('tools without parameters still accept a call that omits arguments', async () => {
+    const g = tokens.issue({ projectId: 'p1', role: 'task', access: 'scoped', sessionId: 's', runId: 'r', scope: [] });
+    const c = await connect(g.token);
+    for (const name of ['whoami', 'list_jobs', 'list_modules', 'list_documents', 'list_matrices']) {
+      expect((await c.callTool({ name })).isError, name).toBeFalsy();
+    }
+    await c.close();
+    tokens.revoke(g.token);
   });
 });
 

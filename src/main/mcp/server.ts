@@ -134,7 +134,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
 
   server.registerTool(
     'whoami',
-    { description: 'Who this session is: project, role, access level, session/run ids and the entities it may write.' },
+    {
+      description: 'Who this session is: project, role, access level, session/run ids and the entities it may write.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async () =>
       ok({
         project: { id: pid, name: svc.projectName(pid) },
@@ -160,6 +164,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           reason: z.string().min(1).describe('Your own argument'),
           evidence: evidenceSchema.optional(),
         },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       async (a) =>
         guard({ kind: 'write', entity: { type: FINDING_VERIFY_ENTITY, id: a.finding_id } }, () => {
@@ -193,6 +198,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           reason: z.string().min(1).describe('Your own argument'),
           evidence: evidenceSchema.optional(),
         },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       async (a) =>
         guard({ kind: 'write', entity: { type: FIX_VERIFY_ENTITY, id: a.finding_id } }, () => {
@@ -223,6 +229,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       {
         description: 'Save the text of the document in parts, in reading order. Part 1 starts over; `last: true` on the final part makes the text available.',
         inputSchema: { part: z.number().int().min(1), text: z.string().min(1), last: z.boolean() },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       },
       async ({ part, text, last }) =>
         guard({ kind: 'write', entity: reading }, () => {
@@ -241,6 +248,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       {
         description: 'Download a page or file for this check. Only hosts of the check\'s links are allowed. Returns fetch_id, kind (html, text, pdf, docx), the start of the text and the links of a page; the whole text is in text_file, a file in file (both relative to your directory).',
         inputSchema: { url: z.string().min(1) },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
       async ({ url }) => guard({ kind: 'write', entity: refresh }, async () => { liveRun(); return ok(await svc.docRefreshFetch(pid, grant.runId, url)); }),
     );
@@ -255,6 +263,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           fetch_id: z.number().int().optional(),
           edition: z.string().optional().describe('Edition or date the source states'),
         },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       async ({ document_id, status, note, fetch_id, edition }) =>
         guard({ kind: 'write', entity: refresh }, () => {
@@ -269,6 +278,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       {
         description: 'Check of a set only: hand a document over to its own comparison, given the fetches of its own pages. It runs when this check ends, and only if those pages changed since the last comparison.',
         inputSchema: { document_id: z.string(), fetch_ids: z.array(z.number().int()).min(1), reason: z.string().min(1) },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       async ({ document_id, fetch_ids, reason }) =>
         guard({ kind: 'write', entity: refresh }, () => {
@@ -281,6 +291,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       {
         description: 'Check of a set only: this fetched page lists documents. When the check ends, separate runs judge each of its entries not judged yet.',
         inputSchema: { fetch_id: z.number().int() },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       async ({ fetch_id }) =>
         guard({ kind: 'write', entity: refresh }, () => {
@@ -293,6 +304,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       {
         description: 'Part of a catalogue only: record the decision on its entries. An entry without one stays open and comes back in the next check.',
         inputSchema: { entries: z.array(z.object({ url: z.string(), belongs: z.boolean().describe('It belongs to the set: in force here or proposed'), reason: z.string().min(1) })).min(1) },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       async ({ entries }) =>
         guard({ kind: 'write', entity: refresh }, () => {
@@ -318,6 +330,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           restored_text: z.string().optional().describe('Whole text: when the conversion of the page is really broken, or consolidated from the current version and an amending act'),
           incomplete: z.boolean().optional().describe('The source shows only part of the new document: nothing is stored, a human uploads the file'),
         },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       async (p) =>
         guard({ kind: 'write', entity: refresh }, () => {
@@ -345,7 +358,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
 
   server.registerTool(
     'list_jobs',
-    { description: 'List background jobs of the project with their status, plus the queue state.' },
+    {
+      description: 'List background jobs of the project with their status, plus the queue state.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async () =>
       guard({ kind: 'read' }, () => ok({ queue: svc.queueState(), jobs: svc.store(pid).listJobs(100) })),
   );
@@ -355,6 +372,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: 'List recent runs (history) of the project.',
       inputSchema: { limit: z.number().int().min(1).max(200).optional() },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ limit }) =>
       guard({ kind: 'read' }, () =>
@@ -367,6 +385,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: 'Read results written by agents, optionally filtered by entity.',
       inputSchema: { entity_type: z.string().optional(), entity_id: z.string().optional() },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ entity_type, entity_id }) =>
       guard({ kind: 'read' }, () => ok(svc.store(pid).listResults({ entityType: entity_type, entityId: entity_id }))),
@@ -382,6 +401,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         summary: z.string().min(1),
         details: z.string().optional(),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ entity_type, entity_id, summary, details }) =>
       guard({ kind: 'write', entity: { type: entity_type, id: entity_id } }, () => {
@@ -399,7 +419,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
 
   server.registerTool(
     'list_modules',
-    { description: 'Current modules of the project: id, name, globs (git pathspec globs, "!" excludes), description.' },
+    {
+      description: 'Current modules of the project: id, name, globs (git pathspec globs, "!" excludes), description.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async () => guard({ kind: 'read' }, () => ok(svc.store(pid).listModules())),
   );
 
@@ -414,6 +438,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         description: z.string().min(1),
         module_id: z.string().optional().describe('Existing module to update (allows renaming)'),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ name, globs, description, module_id }) =>
       guard({ kind: 'write', entity: { type: MODULE_MAP_ENTITY, id: pid } }, async () => {
@@ -434,6 +459,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: 'Remove a module from the markup (history is kept). Requires the module_map entity in scope.',
       inputSchema: { module_id: z.string(), reason: z.string().min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ module_id, reason }) =>
       guard({ kind: 'write', entity: { type: MODULE_MAP_ENTITY, id: pid } }, () => {
@@ -453,6 +479,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         snapshot_id: z.string().optional(),
         keys: z.array(z.string()).optional().describe('Only these entries, in full: a few at a time'),
       },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ module_id, snapshot_id, keys }) =>
       guard({ kind: 'read' }, () => {
@@ -508,6 +535,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           .describe('From the handler to sinks'),
         notes: z.string().optional(),
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: { type: MODULE_ENTITY, id: a.module_id } }, () => {
@@ -540,6 +568,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: "Remove an entry point from this run's map snapshot of your module.",
       inputSchema: epIdentity,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: { type: MODULE_ENTITY, id: a.module_id } }, () => {
@@ -555,7 +584,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
 
   server.registerTool(
     'list_documents',
-    { description: 'Imported documents (standards, guidelines) with their versions and review status.' },
+    {
+      description: 'Imported documents (standards, guidelines) with their versions and review status.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async () => guard({ kind: 'read' }, () => ok(svc.store(pid).audit.listDocuments())),
   );
 
@@ -565,6 +598,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       description:
         'Requirement items of a document version (default: accepted items of the current approved version of document_id).',
       inputSchema: { document_id: z.string().optional(), version_id: z.string().optional() },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ document_id, version_id }) =>
       guard({ kind: 'read' }, () => {
@@ -588,6 +622,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         clause: z.string().optional().describe('Clause as the document numbers it, e.g. "п. 5.2", "подп. б п. 44", "таблица 1"; omit if it has no number'),
         quote: z.string().min(1).describe('Exact source sentence(s) from the document'),
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ version_id, key, text, section, clause, quote }) =>
       guard({ kind: 'write', entity: { type: DOC_VERSION_ENTITY, id: version_id } }, () => {
@@ -622,6 +657,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         edition: z.string().optional().describe('Edition or amending act, e.g. "ред. от 20.01.2026"'),
         quote: z.string().min(1).describe('Exact words of the document stating the number or date, or its heading if it has neither'),
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ version_id, name, number, date, edition, quote }) =>
       guard({ kind: 'write', entity: { type: DOC_VERSION_ENTITY, id: version_id } }, () => {
@@ -657,6 +693,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           .min(1),
         set_name: z.string().min(1).describe('Name of the document set these documents form, e.g. "<project> security (AI)"; an existing AI set keeps its name'),
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ documents, set_name }) =>
       guard({ kind: 'write', entity: { type: DOC_PLAN_ENTITY, id: pid } }, () => {
@@ -671,6 +708,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: `Record the whole Markdown text of the document your run writes (scope ${DOC_GEN_ENTITY}:<slug>): "# Title", then "## Section" headings with requirements as list items "- **<PREFIX>-<n>** <one requirement sentence>". A repeated call replaces the text. When the run succeeds, the document becomes a new version for human review.`,
       inputSchema: { slug: z.string(), markdown: z.string().min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ slug, markdown }) =>
       guard({ kind: 'write', entity: { type: DOC_GEN_ENTITY, id: slug } }, () => {
@@ -702,7 +740,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
 
   server.registerTool(
     'list_matrices',
-    { description: 'Requirement matrices of the project (documents x modules).' },
+    {
+      description: 'Requirement matrices of the project (documents x modules).',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async () => guard({ kind: 'read' }, () => ok(svc.store(pid).audit.listMatrices())),
   );
 
@@ -711,6 +753,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: 'Cells of a matrix: status (not_checked | n/a | pass | finding | needs_human), stale flag, finding count.',
       inputSchema: { matrix_id: z.string() },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ matrix_id }) =>
       guard({ kind: 'read' }, async () => {
@@ -733,7 +776,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
 
   server.registerTool(
     'get_cell',
-    { description: 'One matrix cell: requirement, verdict history, triage, linked findings.', inputSchema: cellArgs },
+    {
+      description: 'One matrix cell: requirement, verdict history, triage, linked findings.',
+      inputSchema: cellArgs,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
     async (a) =>
       guard({ kind: 'read' }, async () => {
         const { config: _c, ...d } = await svc.cellDetails(pid, cellOf(a));
@@ -747,6 +794,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
       description:
         'Applicability triage of a cell in your scope: applicable=false marks it n/a with the reason; applicable=true leaves it for the verdict stage.',
       inputSchema: { ...cellArgs, applicable: z.boolean(), reason: z.string().min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
@@ -809,6 +857,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         reason: z.string().min(1).describe('Justification'),
         evidence: evidenceSchema.optional(),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
@@ -838,6 +887,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           )
           .min(1),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'read' }, () => {
@@ -884,6 +934,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
           )
           .min(1),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'read' }, () => {
@@ -936,6 +987,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: 'Findings of the project (merged ones are omitted).',
       inputSchema: { status: z.string().optional(), module_id: z.string().optional() },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ status, module_id }) =>
       guard({ kind: 'read' }, () =>
@@ -960,6 +1012,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         files: z.array(z.string()).describe('Files of the flaw, relative to the repository root'),
         cwe: z.string().optional().describe('e.g. CWE-639'),
       },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'read' }, () => {
@@ -993,6 +1046,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         files: evidenceSchema.min(1),
         recommendation: z.string().optional(),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
@@ -1025,6 +1079,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: 'Link an existing finding (e.g. a find_similar candidate) to a cell in your scope.',
       inputSchema: { ...cellArgs, finding_id: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: cellEntity(cellOf(a)) }, () => {
@@ -1053,6 +1108,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         file_prefix: z.string().optional().describe('Only files under this path (relative to the repository root)'),
         limit: z.number().int().min(1).max(500).optional(),
       },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'read' }, async () =>
@@ -1101,6 +1157,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: "Dependency inventory of a module: vulnerable packages and their vulnerabilities with reachability status. Default: the module's current inventory.",
       inputSchema: { module_id: z.string() },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ module_id }) =>
       guard({ kind: 'read' }, () => {
@@ -1150,6 +1207,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         purl: z.string().optional(),
         vulnerabilities: z.array(scaVulnSchema).min(1),
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: { type: SCA_MODULE_ENTITY, id: a.module_id } }, () => {
@@ -1206,6 +1264,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: "Remove a package from this run's inventory of your module (e.g. recorded by mistake).",
       inputSchema: { module_id: z.string(), package_key: z.string().describe('"<ecosystem>:<name>@<version>" as returned by add_vulnerable_package') },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: { type: SCA_MODULE_ENTITY, id: a.module_id } }, () => {
@@ -1232,6 +1291,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         manifests: z.array(z.string().min(1)).describe('Build and lock files of the repository the inventory depends on, relative to the repository root'),
         notes: z.string().optional().describe('What could not be resolved, assumptions'),
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: { type: SCA_MODULE_ENTITY, id: a.module_id } }, () => {
@@ -1271,6 +1331,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         reason: z.string().min(1).describe('Justification'),
         evidence: evidenceSchema.optional(),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: scaPkgEntity(a) }, () => {
@@ -1319,6 +1380,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         files: evidenceSchema.min(1),
         recommendation: z.string().optional().describe('e.g. upgrade to the fixed version'),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: scaPkgEntity(a) }, () => {
@@ -1352,6 +1414,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: 'Link an existing finding (e.g. a find_similar candidate) to vulnerabilities of the package in your scope.',
       inputSchema: { ...scaPkgArgs, vuln_ids: z.array(z.string()).min(1), finding_id: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: scaPkgEntity(a) }, () => {
@@ -1377,6 +1440,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         summary: z.string().min(1),
         steps: z.array(pocStep).optional(),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: { type: POC_ENTITY, id: a.finding_id } }, () => {
@@ -1415,6 +1479,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         base_url: z.string().min(1).describe('http(s) URL the tester sends requests to'),
         files: z.array(z.object({ name: z.string().describe('Plain file name'), content: z.string() })).optional(),
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       guard({ kind: 'write', entity: { type: POC_ENV_ENTITY, id: POC_ENV_ID } }, async () => {
@@ -1434,6 +1499,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         action: z.enum(['start', 'status', 'stop']),
         wait_sec: z.number().int().min(0).optional().describe('status: wait up to this many seconds for the start to finish'),
       },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     async ({ action, wait_sec }) =>
       guard({ kind: 'write', entity: { type: POC_ENV_ENTITY, id: POC_ENV_ID } }, async () => {
@@ -1447,6 +1513,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
     {
       description: 'Queue verdict re-checks of matrix cells (requires management access); a dry-run estimate is not shown here.',
       inputSchema: { cells: z.array(z.object(cellArgs)).min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ cells }) =>
       guard({ kind: 'manage' }, async () => {
@@ -1464,6 +1531,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         role: z.string().optional().describe('Background role, default "task"'),
         title: z.string().optional(),
       },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ prompt, role, title }) =>
       guard({ kind: 'manage' }, () => {
@@ -1474,7 +1542,11 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
 
   server.registerTool(
     'cancel_job',
-    { description: 'Cancel a queued or running job (requires management access).', inputSchema: { job_id: z.string() } },
+    {
+      description: 'Cancel a queued or running job (requires management access).',
+      inputSchema: { job_id: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
     async ({ job_id }) =>
       guard({ kind: 'manage' }, () => {
         svc.stopJob(pid, job_id);

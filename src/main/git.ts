@@ -2,12 +2,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getLogger } from './log';
 
-const exec = promisify(execFile);
+const execFileAsync = promisify(execFile);
 const log = getLogger('git');
 
 export async function git(cwd: string, args: string[]): Promise<string> {
   log.debug('git %s in %s', args.join(' '), cwd);
-  const { stdout } = await exec('git', args, { cwd, maxBuffer: 64 * 1024 * 1024 });
+  const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: 64 * 1024 * 1024 });
   return stdout.trim();
 }
 
