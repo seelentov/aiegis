@@ -26,7 +26,7 @@
 
 aiegis turns a repository security audit into a managed process. Requirements from standards and internal guidelines are laid out in a matrix of requirement × module, and background sessions of an AI agent deliver a verdict for each cell, with references to the code.
 
-The app has no chat of its own. It starts your local coding agent, stores the data, prompts and configuration, and the agent reports through a built-in MCP server. By default the agent is `claude` (Claude Code). You can use [pi](https://pi.dev) instead, as in [JetBrains ThinkRail](https://github.com/JetBrains/thinkrail), with models from any provider.
+The app has no chat of its own. It starts your local coding agent, stores the data, prompts and configuration, and the agent reports through a built-in MCP server. By default the agent is `claude` (Claude Code).
 
 > **Status: 0.x, an early version.** The data and configuration formats may change. macOS is the main platform; Windows and Linux builds are produced automatically and get less testing.
 
