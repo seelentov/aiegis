@@ -12,10 +12,7 @@
   <a href="https://github.com/seelentov/aiegis/releases/latest"><img src="https://img.shields.io/github/v/release/seelentov/aiegis?include_prereleases&style=flat-square" alt="Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT" /></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms" />
-</p>
-
-<p align="center">
-![M8ven Verified](https://m8ven.ai/badge/mcp/seelentov/aiegis?variant=verified)](https://m8ven.ai/mcp/seelentov/aiegis?s=readme)
+  <a href="https://m8ven.ai/mcp/seelentov/aiegis?s=readme"><img src="https://m8ven.ai/badge/mcp/seelentov/aiegis?variant=verified" alt="M8ven Verified" /></a>
 </p>
 
 <p align="center">
