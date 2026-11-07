@@ -68,4 +68,14 @@ describe('tables of the renderer', () => {
     });
     expect(bare).toEqual([]);
   });
+
+  it('show a pager wherever they show a page of rows', () => {
+    const dir = path.join(__dirname, '../src/renderer/components');
+    const cut = fs.readdirSync(dir).filter((f) => f !== 'Grid.tsx').flatMap((f) =>
+      fs.readFileSync(path.join(dir, f), 'utf8').split(/\n(?=(?:export )?function )/).flatMap((part) =>
+        [...part.matchAll(/const (\w+) = use(?:Server)?Grid/g)].map((m) => m[1]).filter((v) => part.includes(`${v}.rows`) && !part.includes(`{${v}.pager}`)).map((v) => `${f}: ${v}`),
+      ),
+    );
+    expect(cut).toEqual([]);
+  });
 });

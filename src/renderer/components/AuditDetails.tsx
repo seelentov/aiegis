@@ -98,7 +98,8 @@ function VerdictCompare({ a, b }: { a: Verdict & { run: unknown }; b: Verdict & 
     <Table compact className="compare">
       {g.head}
       <tbody>
-        {g.rows.map(([label, f]) => (
+        {/* The fields of two verdicts, not a list: all of them show, whatever `ui.page_size` is. */}
+        {rows.map(([label, f]) => (
           <tr key={label} className={f(a) !== f(b) ? 'diff' : ''}>
             <td className="muted">{label}</td>
             <td>{f(a)}</td>
