@@ -492,13 +492,14 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
     void run(api.docVersion(project.id, versionId)).then((v) => setView(v ?? null));
   }, [project.id, versionId, revision, run]);
 
+  const setRank = (d: DocumentSummary) => (d.setId ? sets.findIndex((x) => x.id === d.setId) : sets.length);
   const g = useGrid('documents', docs, [
     { key: 'title', title: tr('Document'), text: (d) => d.title },
     { key: 'current', title: tr('Current version'), text: (d) => (d.current ? `v${d.current.n}` : tr('not approved')), filter: 'enum' },
     { key: 'versions', title: tr('Versions') },
     { key: 'check', title: tr('Last check'), text: (d) => (d.retiredAt ? tr('out of force') : d.lastCheck ? CHECK[d.lastCheck.status].label : tr('not checked')), filter: 'enum' },
     { key: 'actions', title: '', className: 'actions' },
-  ]);
+  ], { group: setRank });
 
   const importFile = async (documentId?: string) => {
     const file = await run(api.pickDocumentFile());
@@ -532,10 +533,9 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
   };
 
   const pending = proposals.filter((p) => p.status === 'pending');
-  const groups: { set: DocSet | null; rows: DocumentSummary[] }[] = [
-    // Grouped by set, so not paged: a page boundary would cut through the groups.
-    ...sets.map((set) => ({ set, rows: g.all.filter((d) => d.setId === set.id) })),
-    { set: null, rows: g.all.filter((d) => !d.setId) },
+  const groups: { set: DocSet | null; rows: DocumentSummary[]; all: DocumentSummary[] }[] = [
+    ...sets.map((set) => ({ set, rows: g.rows.filter((d) => d.setId === set.id), all: g.all.filter((d) => d.setId === set.id) })),
+    { set: null, rows: g.rows.filter((d) => !d.setId), all: g.all.filter((d) => !d.setId) },
   ];
 
   return (
@@ -678,8 +678,11 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
               {tr('No documents: upload a standard or an internal guideline')}
             </EmptyRow>
           )}
-          {groups.map(({ set, rows }) => {
-            const own = pending.filter((p) => (set ? p.setId === set.id : !p.setId));
+          {groups.map(({ set, rows, all }) => {
+            // A set shows on every page with its documents; an empty one and the proposals go on the page where it starts.
+            const starts = all.length ? rows[0] === all[0] : g.page === 1;
+            if (!rows.length && !starts) return null;
+            const own = starts ? pending.filter((p) => (set ? p.setId === set.id : !p.setId)) : [];
             if (!set && !rows.length && !own.length) return null;
             const members = docs.filter((d) => (set ? d.setId === set.id : !d.setId));
             return (
@@ -760,6 +763,7 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
           })}
         </tbody>
       </Table>
+      {g.pager}
       {view && <VersionReview project={project} view={view} run={run} onTerminal={onTerminal} onCreateMatrix={onCreateMatrix} />}
     </div>
   );

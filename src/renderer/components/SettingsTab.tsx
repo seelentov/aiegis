@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useGrid } from './Grid';
 import type { ConfigFileInfo, EffectiveConfigView, ProjectInfo } from '../../shared/types';
 import { api, errorText } from '../api';
 import type { RunFn } from '../App';
@@ -50,6 +51,41 @@ function tail(file: string): string {
   return file.split('/').slice(-3).join('/');
 }
 
+interface EffectiveRow {
+  id: string;
+  field: string;
+  value: string;
+  source?: string;
+  className?: string;
+  node?: ReactNode;
+}
+
+function effectiveRows(v: EffectiveConfigView): EffectiveRow[] {
+  const scalar = (field: 'agent' | 'model' | 'effort'): EffectiveRow => ({ id: field, field, value: v[field]?.value ?? '—', source: v[field]?.source });
+  return [
+    scalar('agent'),
+    scalar('model'),
+    scalar('effort'),
+    ...v.allow.map((a) => ({ id: `a${a.value}`, field: 'allow', value: a.value, source: a.source, className: a.denied ? 'strike mono' : 'mono' })),
+    ...v.deny.map((d) => ({ id: `d${d.value}`, field: 'deny', value: d.value, source: d.source, className: 'mono' })),
+    ...v.dirs.map((d) => ({ id: `p${d.value}`, field: 'dir', value: d.value, source: d.source, className: 'mono' })),
+    ...v.env.map((e) => ({ id: `e${e.key}`, field: `env.${e.key}`, value: e.value, source: e.source, className: 'mono' })),
+    ...v.instructions.map((i, n) => ({
+      id: `i${n}`,
+      field: 'instructions',
+      value: i.text,
+      source: i.source,
+      node: (
+        <details>
+          <summary className="mono small" title={i.file}>{i.file ? tail(i.file) : 'inline'}</summary>
+          <pre>{i.text}</pre>
+        </details>
+      ),
+    })),
+    ...v.settings.map((s) => ({ id: `s${s.key}`, field: s.key, value: s.value, source: s.source, className: 'mono' })),
+  ];
+}
+
 export function SettingsTab({ project, run, notify }: Props) {
   const pid = project?.id ?? null;
   const [files, setFiles] = useState<ConfigFileInfo[]>([]);
@@ -62,6 +98,11 @@ export function SettingsTab({ project, run, notify }: Props) {
   const [view, setView] = useState<EffectiveConfigView | null>(null);
   const [viewError, setViewError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const g = useGrid('settings.effective', view ? effectiveRows(view) : [], [
+    { key: 'field', title: tr('Field'), text: (r) => r.field },
+    { key: 'value', title: tr('Value'), text: (r) => r.value },
+    { key: 'source', title: tr('Source'), text: (r) => r.source ?? '', filter: 'enum' },
+  ]);
   const [mode, setMode] = usePersisted<'form' | 'yaml'>('settings.mode', 'form');
   const [section, setSection] = useState('');
   const [configTexts, setConfigTexts] = useState<Record<string, string>>({});
@@ -219,79 +260,21 @@ export function SettingsTab({ project, run, notify }: Props) {
         </div>
         {viewError && <div className="error-text">{viewError}</div>}
         {view && (
+          <>
           <Table compact>
-            <thead>
-              <tr>
-                <th>{tr('Field')}</th>
-                <th>{tr('Value')}</th>
-                <th>{tr('Source')}</th>
-              </tr>
-            </thead>
+            {g.head}
             <tbody>
-              <tr>
-                <td>agent</td>
-                <td>{view.agent?.value ?? '—'}</td>
-                <td className="muted">{view.agent?.source}</td>
-              </tr>
-              <tr>
-                <td>model</td>
-                <td>{view.model?.value ?? '—'}</td>
-                <td className="muted">{view.model?.source}</td>
-              </tr>
-              <tr>
-                <td>effort</td>
-                <td>{view.effort?.value ?? '—'}</td>
-                <td className="muted">{view.effort?.source}</td>
-              </tr>
-              {view.allow.map((a) => (
-                <tr key={'a' + a.value}>
-                  <td>allow</td>
-                  <td className={a.denied ? 'strike mono' : 'mono'}>{a.value}</td>
-                  <td className="muted">{a.source}</td>
-                </tr>
-              ))}
-              {view.deny.map((d) => (
-                <tr key={'d' + d.value}>
-                  <td>deny</td>
-                  <td className="mono">{d.value}</td>
-                  <td className="muted">{d.source}</td>
-                </tr>
-              ))}
-              {view.dirs.map((d) => (
-                <tr key={'p' + d.value}>
-                  <td>dir</td>
-                  <td className="mono">{d.value}</td>
-                  <td className="muted">{d.source}</td>
-                </tr>
-              ))}
-              {view.env.map((e) => (
-                <tr key={'e' + e.key}>
-                  <td>env.{e.key}</td>
-                  <td className="mono">{e.value}</td>
-                  <td className="muted">{e.source}</td>
-                </tr>
-              ))}
-              {view.instructions.map((i, n) => (
-                <tr key={'i' + n}>
-                  <td>instructions</td>
-                  <td>
-                    <details>
-                      <summary className="mono small" title={i.file}>{i.file ? tail(i.file) : 'inline'}</summary>
-                      <pre>{i.text}</pre>
-                    </details>
-                  </td>
-                  <td className="muted">{i.source}</td>
-                </tr>
-              ))}
-              {view.settings.map((s) => (
-                <tr key={'s' + s.key}>
-                  <td>{s.key}</td>
-                  <td className="mono">{s.value}</td>
-                  <td className="muted">{s.source}</td>
+              {g.rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.field}</td>
+                  <td className={r.className}>{r.node ?? r.value}</td>
+                  <td className="muted">{r.source}</td>
                 </tr>
               ))}
             </tbody>
           </Table>
+          {g.pager}
+          </>
         )}
       </div>
     </div>

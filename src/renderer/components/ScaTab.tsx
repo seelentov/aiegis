@@ -118,7 +118,13 @@ function Inputs({ project, run, view }: Pick<Props, 'project' | 'run'> & { view:
     if (await run(api.addScaInput(project.id, file, { moduleId: moduleId || null, note }))) setNote('');
   };
   const moduleName = (id: string | null) => (id ? (view.modules.find((m) => m.module.id === id)?.module.name ?? id.slice(0, 8)) : tr('whole project'));
-  const shown = view.inputs.filter((i) => removed || !i.removedAt);
+  const g = useGrid('sca.inputs', view.inputs.filter((i) => removed || !i.removedAt), [
+    { key: 'file', title: tr('File'), text: (i) => i.filename },
+    { key: 'module', title: tr('Module'), text: (i) => moduleName(i.moduleId), filter: 'enum' },
+    { key: 'note', title: tr('Comment'), text: (i) => i.note },
+    { key: 'added', title: tr('Added'), text: (i) => `${i.author} ${time(i.createdAt)}`, sort: (i) => i.createdAt },
+    { key: 'actions', title: '', className: 'actions' },
+  ]);
   return (
     <details className="sca-inputs">
       <summary>{tr('Uploaded dependency files ({n})', { n: view.inputs.filter((i) => !i.removedAt).length })}</summary>
@@ -140,10 +146,13 @@ function Inputs({ project, run, view }: Pick<Props, 'project' | 'run'> & { view:
           <Checkbox checked={removed} onChange={(e) => setRemoved(e.target.checked)} /> {tr('show excluded')}
         </label>
       </div>
-      {shown.length > 0 && (
+      {view.inputs.length > 0 && (
+        <>
         <Table compact>
+          {g.head}
           <tbody>
-            {shown.map((i) => (
+            {g.rows.length === 0 && <EmptyRow colSpan={g.colSpan} filtered={g.filtered}>—</EmptyRow>}
+            {g.rows.map((i) => (
               <tr key={i.id} className={i.removedAt ? 'removed' : ''}>
                 <td className="mono small">{i.filename}</td>
                 <td>{moduleName(i.moduleId)}</td>
@@ -159,6 +168,8 @@ function Inputs({ project, run, view }: Pick<Props, 'project' | 'run'> & { view:
             ))}
           </tbody>
         </Table>
+        {g.pager}
+        </>
       )}
     </details>
   );
@@ -198,7 +209,7 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
       { key: 'module', title: tr('Module'), text: (x) => moduleName(x.moduleId), filter: 'enum' },
     ],
     // Without a chosen sort the worst vulnerabilities lead.
-    (a, b) => SEV_RANK[b.vuln.severity] - SEV_RANK[a.vuln.severity] || a.name.localeCompare(b.name),
+    { order: (a, b) => SEV_RANK[b.vuln.severity] - SEV_RANK[a.vuln.severity] || a.name.localeCompare(b.name) },
   );
   const items = g.rows;
 

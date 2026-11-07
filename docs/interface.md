@@ -51,7 +51,9 @@ Every table works the same way:
 - **Reset filters and sorting** clears them;
 - long tables are split into pages, with `ui.page_size` rows on each (see [Configuration](configuration.md)). A change of filter or sorting returns to the first page.
 
-Histories in the details panel are paged too, by `ui.history_page_size`. The list of documents is not paged, because it is grouped by set.
+Histories in the details panel are paged too, by `ui.history_page_size`. In the list of documents a set stays together: its heading repeats on each page it spans.
+
+The tables of the **Queue** tab hold every job and run, not only the latest ones: the service pages, filters and sorts them. Dates there are filtered by their stored form in UTC, such as `2026-11-01`; tokens and cost only sort.
 
 Actions on a table work on every row that passes the filters, not only on the current page: **Pick suspected**, **Pick stale** and the run button of a matrix section.
 

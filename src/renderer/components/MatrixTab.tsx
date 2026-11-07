@@ -74,6 +74,12 @@ const STAGE_TITLE: Record<MatrixStage, string> = { triage: tr('n/a triage'), ver
 /** Dry-run estimate shown before queuing a matrix stage (SPEC §7). */
 export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', perFinding, onSwitch, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; perFinding?: boolean; onSwitch?: () => void; onRun: () => void; onCancel: () => void }) {
   const over = estimate.batches.filter((b) => b.tokens > estimate.maxTokensPerRun);
+  const g = useGrid('estimate.sessions', estimate.batches, [
+    { key: 'module', title: tr('Module'), text: (b) => b.moduleName, filter: 'enum' },
+    { key: 'group', title: tr('Group'), text: (b) => b.group || '—', filter: 'enum' },
+    { key: 'cells', title: tr('Cells'), text: (b) => String(b.cells), sort: (b) => b.cells, filter: 'none' },
+    { key: 'tokens', title: tr('Tokens'), text: (b) => kTokens(b.tokens), sort: (b) => b.tokens, filter: 'none' },
+  ]);
   return (
     <div className="card estimate">
       <strong>
@@ -99,8 +105,9 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
       <details>
         <summary>{tr('Sessions')}</summary>
         <Table compact>
+          {g.head}
           <tbody>
-            {estimate.batches.map((b, i) => (
+            {g.rows.map((b, i) => (
               <tr key={i}>
                 <td>{b.moduleName}</td>
                 <td>{b.group || '—'}</td>
@@ -110,6 +117,7 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
             ))}
           </tbody>
         </Table>
+        {g.pager}
       </details>
       {estimate.alternative && (
         <div className="row">

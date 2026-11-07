@@ -1,5 +1,5 @@
 import type { AiegisApi, CoreMethod } from '../shared/api';
-import { FINDING_STATUSES, SCA_STATUSES, SEVERITIES, SUPPRESSION_SCOPES, VERDICT_STATUSES, type DiffCheckInput, type DocRefreshTarget, type Evidence, type FindingInput, type MatrixScope, type MatrixSlice, type MatrixStage, type ReviewState, type SuppressionInput, SCHEDULE_ACTIONS, type ScheduleAction, type ScheduleInput } from '../shared/types';
+import { FINDING_STATUSES, SCA_STATUSES, SEVERITIES, SUPPRESSION_SCOPES, VERDICT_STATUSES, type DiffCheckInput, type DocRefreshTarget, type Evidence, type FindingInput, type PageQuery, type MatrixScope, type MatrixSlice, type MatrixStage, type ReviewState, type SuppressionInput, SCHEDULE_ACTIONS, type ScheduleAction, type ScheduleInput } from '../shared/types';
 
 /** Parsed command line of one command. */
 export interface Input {
@@ -45,6 +45,17 @@ function refreshTarget(a: Input): DocRefreshTarget {
   const documentId = a.one('document');
   if (Boolean(setId) === Boolean(documentId)) throw new Error('pass one of --set and --document');
   return setId ? { setId } : { documentId: documentId! };
+}
+
+function pageQuery(a: Input, filters: string[]): PageQuery {
+  const number = (flag: string) => (a.has(flag) ? Number(a.one(flag)) : undefined);
+  const sort = a.one('sort');
+  return {
+    offset: number('offset'),
+    limit: number('limit'),
+    sort: sort ? { key: sort, dir: a.has('desc') ? -1 : 1 } : undefined,
+    filters: Object.fromEntries(filters.flatMap((f) => (a.has(f) ? [[f, a.one(f)!]] : []))),
+  };
 }
 
 function required(a: Input, flag: string): string {
@@ -186,6 +197,14 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   removeProject: { name: 'project remove', usage: '', help: 'Forget the project', run: (_a, c) => c.call('removeProject', c.pid()) },
 
   listJobs: { name: 'job list', usage: '', help: 'List jobs', columns: ['id', 'status', 'role', 'title'], run: (_a, c) => c.call('listJobs', c.pid()) },
+  pageJobs: {
+    name: 'job page',
+    usage: '[--offset <n>] [--limit <n>] [--sort <column>] [--desc] [--status <status>] [--role <role>] [--title <text>] [--created <text>]',
+    help: 'List a page of all jobs, newest first; sorts by status, title, role or created',
+    columns: ['id', 'status', 'role', 'title', 'createdAt'],
+    run: (a, c) => c.call('pageJobs', c.pid(), pageQuery(a, ['status', 'role', 'title', 'created'])),
+  },
+  getJob: { name: 'job show', usage: '<job>', help: 'Show a job', run: (a, c) => c.call('getJob', c.pid(), a.pos[0]) },
   enqueueTask: {
     name: 'job add',
     usage: '<prompt> [--role <role>] [--title <text>]',
@@ -197,6 +216,13 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   queueState: { name: 'queue state', usage: '', help: 'Show the queue', run: (_a, c) => c.call('queueState') },
   resumeQueue: { name: 'queue resume', usage: '', help: 'Resume a paused queue', run: (_a, c) => c.call('resumeQueue') },
   listRuns: { name: 'run list', usage: '', help: 'List runs', columns: ['id', 'status', 'role', 'kind', 'startedAt'], run: (_a, c) => c.call('listRuns', c.pid()) },
+  pageRuns: {
+    name: 'run page',
+    usage: '[--offset <n>] [--limit <n>] [--sort <column>] [--desc] [--status <status>] [--role <role>] [--kind <kind>] [--session <text>] [--started <text>]',
+    help: 'List a page of all runs, newest first; sorts by started, kind, role, status, session, tokens or cost',
+    columns: ['id', 'status', 'role', 'kind', 'startedAt'],
+    run: (a, c) => c.call('pageRuns', c.pid(), pageQuery(a, ['status', 'role', 'kind', 'session', 'started'])),
+  },
   runDetails: { name: 'run show', usage: '<run>', help: 'Show a run with its results and log', run: (a, c) => c.call('runDetails', c.pid(), a.pos[0]) },
 
   listModules: { name: 'module list', usage: '', help: 'List modules', columns: ['id', 'name', 'description'], run: (_a, c) => c.call('listModules', c.pid()) },

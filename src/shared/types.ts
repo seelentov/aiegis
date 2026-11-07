@@ -5,6 +5,27 @@ export type Language = (typeof LANGUAGES)[number];
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'taken_over';
 
+/** One page of a list held by the service. Column keys are those of `pageJobs` and `pageRuns`. */
+export interface PageQuery {
+  offset?: number;
+  /** `ui.page_size` when omitted. */
+  limit?: number;
+  sort?: { key: string; dir: 1 | -1 };
+  filters?: Record<string, string>;
+}
+
+export interface Page<T> {
+  rows: T[];
+  /** Rows that pass the filters. */
+  total: number;
+  /** Rows without filters. */
+  all: number;
+  /** The offset served: a query past the end gets the last page. */
+  offset: number;
+  /** Distinct values of the columns filtered by value. */
+  options: Record<string, string[]>;
+}
+
 export interface Job {
   id: string;
   projectId: string;

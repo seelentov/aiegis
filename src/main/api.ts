@@ -10,6 +10,9 @@ export function coreApi(core: Core): CoreApi {
 
     listJobs: (pid) => core.listJobs(pid),
     listRuns: (pid) => core.listRuns(pid),
+    pageJobs: (pid, query) => core.pageJobs(pid, query),
+    pageRuns: (pid, query) => core.pageRuns(pid, query),
+    getJob: (pid, jobId) => core.getJob(pid, jobId),
     runDetails: (pid, runId) => core.runDetails(pid, runId),
     enqueueTask: (pid, t) => core.enqueueTask(pid, t),
     cancelJob: (pid, jobId) => core.cancelJob(pid, jobId),

@@ -142,7 +142,7 @@ export function DetailsPanel({ project, selection, revision, run, onTerminal, on
     void (async () => {
       let runId: string | null = selection.id;
       if (selection.kind === 'job') {
-        const j = (await api.listJobs(project.id)).find((x) => x.id === selection.id) ?? null;
+        const j = (await run(api.getJob(project.id, selection.id))) ?? null;
         setJob(j);
         runId = j?.lastRunId ?? null;
       }

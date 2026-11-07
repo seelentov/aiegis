@@ -93,6 +93,8 @@ import type {
   TokenUsage,
   Verdict,
   VerdictStatus,
+  Page,
+  PageQuery,
 } from '../shared/types';
 import { FINDING_STATUSES, SCA_STATUSES, SUPPRESSION_SCOPES, VERDICT_STATUSES } from '../shared/types';
 import { backgroundCommand, interactiveCommand, shellQuote, type ClaudeCommand } from './claude/args';
@@ -713,6 +715,20 @@ export class Core extends EventEmitter {
 
   listRuns(projectId: string): Run[] {
     return this.store(projectId).listRuns();
+  }
+
+  pageJobs(projectId: string, query: PageQuery): Page<Job> {
+    return this.store(projectId).pageJobs({ ...query, limit: query.limit ?? this.uiPageSizes().table });
+  }
+
+  pageRuns(projectId: string, query: PageQuery): Page<Run> {
+    return this.store(projectId).pageRuns({ ...query, limit: query.limit ?? this.uiPageSizes().table });
+  }
+
+  getJob(projectId: string, jobId: string): Job {
+    const job = this.store(projectId).getJob(jobId);
+    if (!job) throw new Error(`job ${jobId} not found`);
+    return job;
   }
 
   runDetails(projectId: string, runId: string): { run: Run; results: ResultRecord[]; log: string | null } {

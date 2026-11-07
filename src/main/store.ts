@@ -14,6 +14,8 @@ import type {
   RunStatus,
   SnapshotStatus,
   TokenUsage,
+  Page,
+  PageQuery,
 } from '../shared/types';
 import { AuditStore } from './audit-store';
 import { entryPointKey, touchedFiles } from './modules';
@@ -25,6 +27,29 @@ import { SignalStore } from './signal-store';
 const now = () => new Date().toISOString();
 
 type Row = Record<string, unknown>;
+
+/** A column a page can sort and filter by; only these reach SQL. `match` is absent on a column that only sorts. */
+interface PageColumn {
+  sql: string;
+  match?: 'exact' | 'like';
+}
+
+const JOB_COLUMNS: Record<string, PageColumn> = {
+  status: { sql: 'status', match: 'exact' },
+  title: { sql: 'title COLLATE NOCASE', match: 'like' },
+  role: { sql: 'role', match: 'exact' },
+  created: { sql: 'created_at', match: 'like' },
+};
+
+const RUN_COLUMNS: Record<string, PageColumn> = {
+  started: { sql: 'started_at', match: 'like' },
+  kind: { sql: 'kind', match: 'exact' },
+  role: { sql: 'role', match: 'exact' },
+  status: { sql: 'status', match: 'exact' },
+  session: { sql: 'session_id', match: 'like' },
+  tokens: { sql: 'tokens_input + tokens_cache_creation + tokens_output' },
+  cost: { sql: 'cost_usd' },
+};
 
 function toJob(projectId: string, r: Row): Job {
   return {
@@ -205,6 +230,49 @@ export class ProjectStore {
       )
       .run(id, j.type, j.role, j.title, j.entityType, j.entityId, JSON.stringify(j.payload), t, t);
     return this.getJob(id)!;
+  }
+
+  /** Filters, order and the count run in SQL, so a page covers the whole table. */
+  private page<T>(table: 'jobs' | 'runs', columns: Record<string, PageColumn>, first: string, q: PageQuery & { limit: number }, map: (r: Row) => T): Page<T> {
+    const column = (key: string) => {
+      if (!Object.hasOwn(columns, key)) throw new Error(`unknown column: ${key}`);
+      return columns[key];
+    };
+    const count = (where: string, params: string[]) => (this.db.prepare(`SELECT count(*) AS n FROM ${table} ${where}`).get(...params) as { n: number }).n;
+    const limit = q.limit;
+    const offset = q.offset ?? 0;
+    if (!Number.isInteger(limit) || limit < 1) throw new Error('limit must be a positive integer');
+    if (!Number.isInteger(offset) || offset < 0) throw new Error('offset must not be negative');
+
+    const clauses: string[] = [];
+    const params: string[] = [];
+    for (const [key, value] of Object.entries(q.filters ?? {})) {
+      const c = column(key);
+      if (!c.match) throw new Error(`column ${key} cannot be filtered`);
+      // shortcut: SQLite LIKE ignores case for ASCII only, a Cyrillic filter is case-sensitive; a custom function if that matters.
+      clauses.push(c.match === 'exact' ? `${c.sql} = ?` : `${c.sql} LIKE ? ESCAPE '\\'`);
+      params.push(c.match === 'exact' ? value : `%${value.replace(/[\\%_]/g, '\\$&')}%`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const total = count(where, params);
+    const served = total ? Math.min(offset, Math.floor((total - 1) / limit) * limit) : 0;
+    const dir = q.sort?.dir === 1 ? 'ASC' : 'DESC';
+    const order = q.sort ? column(q.sort.key).sql : first;
+    const rows = this.db.prepare(`SELECT * FROM ${table} ${where} ORDER BY ${order} ${dir}, rowid ${dir} LIMIT ? OFFSET ?`).all(...params, limit, served) as Row[];
+    const options = Object.fromEntries(
+      Object.entries(columns)
+        .filter(([, c]) => c.match === 'exact')
+        .map(([key, c]) => [key, (this.db.prepare(`SELECT DISTINCT ${c.sql} AS v FROM ${table} ORDER BY v`).all() as { v: string }[]).map((r) => r.v)]),
+    );
+    return { rows: rows.map(map), total, all: count('', []), offset: served, options };
+  }
+
+  pageJobs(q: PageQuery & { limit: number }): Page<Job> {
+    return this.page('jobs', JOB_COLUMNS, 'created_at', q, (r) => toJob(this.projectId, r));
+  }
+
+  pageRuns(q: PageQuery & { limit: number }): Page<Run> {
+    return this.page('runs', RUN_COLUMNS, 'started_at', q, (r) => toRun(this.projectId, r));
   }
 
   getJob(id: string): Job | undefined {
