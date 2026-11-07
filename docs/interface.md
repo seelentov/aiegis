@@ -46,7 +46,7 @@ The layout follows VS Code:
 Every table works the same way:
 
 - click a column heading to sort;
-- use the field under the heading to filter by text or by value;
+- use the field under the heading to filter by text or by value; text filters ignore case in any alphabet;
 - filters last until the app restarts;
 - **Reset filters and sorting** clears them;
 - long tables are split into pages, with `ui.page_size` rows on each (see [Configuration](configuration.md)). A change of filter or sorting returns to the first page.

@@ -40,6 +40,14 @@ describe('pages of a list', () => {
     expect(titles({ limit: 9, filters: { title: 'JOB 7' } })).toEqual(['job 7']);
   });
 
+  it('ignores case in any alphabet, for filters and sorting', () => {
+    for (const title of ['Проверка Ёлки', 'яблоко', 'Арбуз']) store.addJob({ type: 'task', role: 'r', title, entityType: 'task', entityId: title, payload: {} });
+    expect(titles({ limit: 9, filters: { title: 'проверка ёл' } })).toEqual(['Проверка Ёлки']);
+    expect(titles({ limit: 9, filters: { title: 'ЯБЛОКО' } })).toEqual(['яблоко']);
+    const cyrillic = store.pageJobs({ limit: 20, sort: { key: 'title', dir: 1 } }).rows.map((j) => j.title).filter((t) => /[а-я]/i.test(t));
+    expect(cyrillic).toEqual(['Арбуз', 'Проверка Ёлки', 'яблоко']);
+  });
+
   it('sorts the whole list', () => {
     expect(titles({ limit: 1, sort: { key: 'title', dir: 1 } })).toEqual(['100%_done']);
     expect(titles({ limit: 1, sort: { key: 'title', dir: -1 } })).toEqual(['job 7']);
