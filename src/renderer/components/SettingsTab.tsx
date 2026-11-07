@@ -3,9 +3,9 @@ import type { ConfigFileInfo, EffectiveConfigView, ProjectInfo } from '../../sha
 import { api, errorText } from '../api';
 import type { RunFn } from '../App';
 import { ConfigForm, configSections } from './ConfigForm';
-import { IconButton } from './Icon';
 import { usePersisted } from './Splitter';
 import { syncLanguage, tr } from '../i18n';
+import { Button, IconButton, Select, Table, Textarea } from '../ui';
 
 interface Props {
   project: ProjectInfo | null;
@@ -180,17 +180,17 @@ export function SettingsTab({ project, run, notify }: Props) {
           <span className="mono small">{file}</span>
           {file?.endsWith('.yaml') && (
             <span className="toolbar-group">
-              <button aria-pressed={mode === 'form'} onClick={() => setMode('form')}>
+              <Button aria-pressed={mode === 'form'} onClick={() => setMode('form')}>
                 {tr('Form')}
-              </button>
-              <button aria-pressed={mode === 'yaml'} onClick={() => setMode('yaml')}>
+              </Button>
+              <Button aria-pressed={mode === 'yaml'} onClick={() => setMode('yaml')}>
                 YAML
-              </button>
+              </Button>
             </span>
           )}
-          <button className="primary" disabled={!dirty} onClick={() => void save()}>
+          <Button variant="primary" disabled={!dirty} onClick={() => void save()}>
             {tr('Save')}
-          </button>
+          </Button>
           {file && <IconButton icon="external" title={tr('Open the file in an external editor')} onClick={() => void run(api.openInEditor(file))} />}
         </div>
         {form ? (
@@ -198,7 +198,7 @@ export function SettingsTab({ project, run, notify }: Props) {
             <ConfigForm text={text} base={base} section={section} onChange={setText} />
           </div>
         ) : (
-          <textarea className="code" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} />
+          <Textarea className="code" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} />
         )}
         {error && <div className="error-text">{error}</div>}
       </div>
@@ -206,17 +206,17 @@ export function SettingsTab({ project, run, notify }: Props) {
       <div className="settings-effective">
         <div className="toolbar">
           <span>{tr('Effective configuration for role')}</span>
-          <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <Select value={role} onChange={setRole}>
             {roles.map((r) => (
               <option key={r.name} value={r.name}>
                 {r.title} ({r.name})
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         {viewError && <div className="error-text">{viewError}</div>}
         {view && (
-          <table className="grid compact">
+          <Table compact>
             <thead>
               <tr>
                 <th>{tr('Field')}</th>
@@ -288,7 +288,7 @@ export function SettingsTab({ project, run, notify }: Props) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
       </div>
     </div>

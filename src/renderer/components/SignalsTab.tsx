@@ -6,8 +6,8 @@ import type { RunFn } from '../App';
 import { JOB_STATUS, SCAN_STATUS, SEVERITY, SIGNAL_KIND, SUPPRESSION_SCOPE, SUPPRESSION_STATE, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
-import { IconButton } from './Icon';
 import { tr } from '../i18n';
+import { Button, Checkbox, IconButton, Input, Select, Table, Textarea } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -40,17 +40,17 @@ function SarifImportForm({ project, run, notify, onDone }: Pick<Props, 'project'
       <div className="form">
         <label>
           {tr('Commit (required if the report names none)')}
-          <input className="mono" value={commit} onChange={(e) => setCommit(e.target.value)} />
+          <Input className="mono" value={commit} onChange={(e) => setCommit(e.target.value)} />
         </label>
         <label>
           {tr('Source root (if paths are absolute and from another machine)')}
-          <input className="mono" value={sourceRoot} onChange={(e) => setSourceRoot(e.target.value)} />
+          <Input className="mono" value={sourceRoot} onChange={(e) => setSourceRoot(e.target.value)} />
         </label>
         <div className="row">
-          <button className="primary" onClick={() => void importFile()}>
+          <Button variant="primary" onClick={() => void importFile()}>
             {tr('Choose a file and import')}
-          </button>
-          <button onClick={onDone}>{tr('Cancel')}</button>
+          </Button>
+          <Button onClick={onDone}>{tr('Cancel')}</Button>
         </div>
       </div>
     </div>
@@ -88,12 +88,12 @@ function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 
       ))}
       <IconButton icon="recheck" title={tr('Check scanner availability again')} onClick={() => void run(api.scannerStatus(project.id, true)).then((s) => s && setStatus(s))} />
       <span className="toolbar-group">
-        <IconButton icon="scan" className="primary" title={tr('Scan the files of all modules')} label={tr('Modules')} onClick={() => void scan([])} />
+        <IconButton icon="scan" variant="primary" title={tr('Scan the files of all modules')} label={tr('Modules')} onClick={() => void scan([])} />
         <IconButton icon="scan" title={tr('Scan the whole repository')} label={tr('Repository')} onClick={() => void scan(null)} />
       </span>
-      <button title={tr('Import a SARIF 2.1.0 report of an external tool')} aria-pressed={importing} onClick={() => setImporting(!importing)}>
+      <Button title={tr('Import a SARIF 2.1.0 report of an external tool')} aria-pressed={importing} onClick={() => setImporting(!importing)}>
         {tr('Import SARIF')}
-      </button>
+      </Button>
       {jobs.map((j) => (
         <span key={j.id} className={`status s-${j.status}`} title={j.title}>
           {j.role}: {JOB_STATUS[j.status]}
@@ -136,25 +136,25 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
       <div className="toolbar">
         <label>
           {tr('Commit')}{' '}
-          <select value={view.commit} onChange={(e) => setCommit(e.target.value)}>
+          <Select value={view.commit} onChange={setCommit}>
             {view.commits.map((c) => (
               <option key={c.sha} value={c.sha}>
                 {c.sha.slice(0, 8)}
                 {c.sha === view.head ? ' (HEAD)' : ''} · {tr('scans {n}', { n: c.scans })}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {view.commit !== view.head && <span className="warn">{tr('not HEAD: lines in the editor may differ')}</span>}
         <label className="check">
-          <input type="checkbox" checked={suppressed} onChange={(e) => setSuppressed(e.target.checked)} /> {tr('show suppressed')}
+          <Checkbox checked={suppressed} onChange={(e) => setSuppressed(e.target.checked)} /> {tr('show suppressed')}
         </label>
         <span className="muted">
           {tr('{n} of {total}', { n: g.rows.length, total: view.signals.length })}
         </span>
         {g.count}
       </div>
-      <table className="grid signal-grid">
+      <Table className="signal-grid">
         {g.head}
         <tbody>
           {g.rows.length === 0 && (
@@ -195,7 +195,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </>
   );
 }
@@ -217,37 +217,37 @@ function RequirementModuleForm({ project, run, modules, onDone }: { project: Pro
     <div className="form">
       <label>
         {tr('Item')}
-        <select value={requirementId} onChange={(e) => setRequirementId(e.target.value)}>
+        <Select value={requirementId} onChange={setRequirementId}>
           <option value="">—</option>
           {reqs.map((r) => (
             <option key={r.requirementId} value={r.requirementId}>
               {r.key}: {r.text.slice(0, 80)}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label>
         {tr('Module')}
-        <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
+        <Select value={moduleId} onChange={setModuleId}>
           <option value="">—</option>
           {modules.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="wide">
         {tr('Reason (required)')}
-        <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+        <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
       </label>
       <label>
         {tr('Expires (optional)')}
-        <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
+        <Input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
       </label>
       <div className="row">
-        <IconButton icon="suppress" className="primary" title={tr('Suppress the signals of the item in the module')} label={tr('Suppress')} disabled={!requirementId || !moduleId || !reason.trim()} onClick={() => void save()} />
-        <button onClick={onDone}>{tr('Cancel')}</button>
+        <IconButton icon="suppress" variant="primary" title={tr('Suppress the signals of the item in the module')} label={tr('Suppress')} disabled={!requirementId || !moduleId || !reason.trim()} onClick={() => void save()} />
+        <Button onClick={onDone}>{tr('Cancel')}</Button>
       </div>
     </div>
   );
@@ -276,7 +276,7 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
       <div className="toolbar">
         <IconButton icon="plus" title={tr('Suppress a requirement item in a module')} label={tr('Item × module')} aria-pressed={form} onClick={() => setForm(!form)} />
         <label className="check">
-          <input type="checkbox" checked={revoked} onChange={(e) => setRevoked(e.target.checked)} /> {tr('show revoked')}
+          <Checkbox checked={revoked} onChange={(e) => setRevoked(e.target.checked)} /> {tr('show revoked')}
         </label>
         <span className="muted">{tr('Finding and rule × glob suppressions are created from a signal (right panel). State is at HEAD.')}</span>
         {g.count}
@@ -286,7 +286,7 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
           <RequirementModuleForm project={project} run={run} modules={modules} onDone={() => setForm(false)} />
         </div>
       )}
-      <table className="grid">
+      <Table>
         {g.head}
         <tbody>
           {g.rows.length === 0 && (
@@ -314,7 +314,7 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </>
   );
 }
@@ -335,7 +335,7 @@ function ScansList({ project, revision, run }: Pick<Props, 'project' | 'revision
   return (
     <>
     {g.count && <div className="toolbar">{g.count}</div>}
-    <table className="grid">
+    <Table>
       {g.head}
       <tbody>
         {g.rows.length === 0 && (
@@ -373,7 +373,7 @@ function ScansList({ project, revision, run }: Pick<Props, 'project' | 'revision
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
     </>
   );
 }
@@ -395,9 +395,9 @@ export function SignalsTab(props: Props) {
             ['scans', tr('Scanner runs')],
           ] as const
         ).map(([id, title]) => (
-          <button key={id} className={view === id ? 'tab active' : 'tab'} onClick={() => setView(id)}>
+          <Button key={id} className={view === id ? 'tab active' : 'tab'} onClick={() => setView(id)}>
             {title}
-          </button>
+          </Button>
         ))}
       </nav>
       {view === 'signals' ? (

@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 // Stroke icons on a 24px grid (Lucide shapes, ISC); inline so the renderer CSP needs nothing remote.
 const PATHS = {
@@ -332,17 +332,5 @@ export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
     <svg className="ico" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       {PATHS[name]}
     </svg>
-  );
-}
-
-type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; title: string; label?: ReactNode };
-
-/** A button whose icon carries the meaning; `title` is its tooltip and accessible name, `label` adds visible text. */
-export function IconButton({ icon, title, label, className, ...rest }: BtnProps) {
-  return (
-    <button {...rest} title={title} aria-label={label ? undefined : title} className={`${label ? 'btn-icon-label' : 'btn-icon'} ${className ?? ''}`}>
-      <Icon name={icon} />
-      {label && <span>{label}</span>}
-    </button>
   );
 }

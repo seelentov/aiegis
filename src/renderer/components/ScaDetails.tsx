@@ -8,9 +8,9 @@ import { EvidenceList, parseEvidence } from './AuditDetails';
 import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { confirmSca } from './ScaTab';
-import { IconButton } from './Icon';
 import { Section } from './Section';
 import { tr } from '../i18n';
+import { Button, IconButton, Input, Select, Textarea } from '../ui';
 
 interface Common {
   project: ProjectInfo;
@@ -187,7 +187,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
       <div className="actions">
         <IconButton
           icon="recheck"
-          className="primary"
+          variant="primary"
           title={tr('Recheck reachability')}
           label={tr('Recheck')}
           disabled={Boolean(item.activeJob) || !d.module}
@@ -202,43 +202,43 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
           {form === 'verdict' ? (
             <label>
               {tr('Status')}
-              <select value={status} onChange={(e) => setStatus(e.target.value as ScaVerdictStatus)}>
+              <Select value={status} onChange={setStatus}>
                 {SCA_STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {SCA_STATUS[s]}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           ) : (
             <>
               <label>
                 {tr('Heading')}
-                <input value={fTitle} onChange={(e) => setFTitle(e.target.value)} />
+                <Input value={fTitle} onChange={(e) => setFTitle(e.target.value)} />
               </label>
               <label>
                 Severity
-                <select value={fSeverity} onChange={(e) => setFSeverity(e.target.value as Severity)}>
+                <Select value={fSeverity} onChange={setFSeverity}>
                   {SEVERITIES.map((s) => (
                     <option key={s}>{s}</option>
                   ))}
-                </select>
+                </Select>
               </label>
             </>
           )}
           <label>
             {form === 'verdict' ? tr('Rationale') : tr('Description')}
-            <textarea rows={3} value={form === 'verdict' ? reason : fDesc} onChange={(e) => (form === 'verdict' ? setReason(e.target.value) : setFDesc(e.target.value))} />
+            <Textarea rows={3} value={form === 'verdict' ? reason : fDesc} onChange={(e) => (form === 'verdict' ? setReason(e.target.value) : setFDesc(e.target.value))} />
           </label>
           <label>
             {tr('Code (one per line: path[:line] [note], from the repository root)')}
-            <textarea rows={2} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+            <Textarea rows={2} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
           </label>
           <div className="row">
-            <button className="primary" onClick={() => void (form === 'verdict' ? saveVerdict() : saveFinding())}>
+            <Button variant="primary" onClick={() => void (form === 'verdict' ? saveVerdict() : saveFinding())}>
               {tr('Save')}
-            </button>
-            <button onClick={() => setForm(null)}>{tr('Cancel')}</button>
+            </Button>
+            <Button onClick={() => setForm(null)}>{tr('Cancel')}</Button>
           </div>
         </div>
       )}
@@ -252,7 +252,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
         </div>
       ))}
       <div className="actions">
-        <select value={link} onChange={(e) => setLink(e.target.value)}>
+        <Select value={link} onChange={setLink}>
           <option value="">{tr('link to a finding…')}</option>
           {findings
             .filter((f) => !f.mergedInto && !d.findings.some((x) => x.id === f.id))
@@ -261,7 +261,7 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
                 {f.title}
               </option>
             ))}
-        </select>
+        </Select>
         <IconButton icon="link" title={tr('Link the finding to the item')} disabled={!link} onClick={() => void run(api.linkScaFinding(project.id, link, id)).then(() => setLink(''))} />
       </div>
       </Section>

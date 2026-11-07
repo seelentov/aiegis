@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import YAML, { isMap, isScalar, type Document } from 'yaml';
-import { IconButton } from './Icon';
 import { Section } from './Section';
 import { tr } from '../i18n';
+import { Checkbox, IconButton, Input, Textarea } from '../ui';
 
 type Obj = Record<string, unknown>;
 
@@ -107,10 +107,10 @@ function Field({ name, hint, own, inherited, onSet }: FieldProps) {
   // Empty text in a project config means "inherit"; in the global one it is a value.
   const text = (s: string) => onSet(s === '' && inherits ? undefined : s);
   let input: ReactNode;
-  if (typeof v === 'boolean') input = <input type="checkbox" checked={v} onChange={(e) => onSet(e.target.checked)} />;
+  if (typeof v === 'boolean') input = <Checkbox checked={v} onChange={(e) => onSet(e.target.checked)} />;
   else if (typeof v === 'number')
     input = (
-      <input
+      <Input
         type="number"
         value={typeof own === 'number' ? own : ''}
         placeholder={inherits ? String(inherited) : ''}
@@ -118,8 +118,8 @@ function Field({ name, hint, own, inherited, onSet }: FieldProps) {
       />
     );
   else if (typeof v === 'string' && v.includes('\n'))
-    input = <textarea rows={4} value={typeof own === 'string' ? own : ''} placeholder={inherits ? String(inherited) : ''} onChange={(e) => text(e.target.value)} />;
-  else if (typeof v === 'string') input = <input value={typeof own === 'string' ? own : ''} placeholder={inherits ? String(inherited) : ''} onChange={(e) => text(e.target.value)} />;
+    input = <Textarea rows={4} value={typeof own === 'string' ? own : ''} placeholder={inherits ? String(inherited) : ''} onChange={(e) => text(e.target.value)} />;
+  else if (typeof v === 'string') input = <Input value={typeof own === 'string' ? own : ''} placeholder={inherits ? String(inherited) : ''} onChange={(e) => text(e.target.value)} />;
   // A trailing empty item could not survive one-per-line editing.
   else if (Array.isArray(v) && v.at(-1) !== '' && v.every((x) => typeof x === 'string' || typeof x === 'number'))
     input = <ListField own={own as unknown[] | undefined} inherited={inherited as unknown[] | undefined} numbers={v.length > 0 && v.every((x) => typeof x === 'number')} onSet={onSet} />;
@@ -146,7 +146,7 @@ function ListField({ own, inherited, numbers, onSet }: { own?: unknown[]; inheri
   // Keep the draft (with its trailing empty line while typing) unless the value changed elsewhere.
   useEffect(() => setDraft((d) => (clean(d).join('\n') === joined ? d : joined)), [joined]);
   return (
-    <textarea
+    <Textarea
       rows={Math.min(8, Math.max(2, clean(draft).length + 1))}
       value={draft}
       placeholder={inherited ? `${inherited.join('\n')}` : tr('one value per line')}

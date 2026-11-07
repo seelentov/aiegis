@@ -6,8 +6,8 @@ import type { RunFn } from '../App';
 import { INVENTORY_STATUS, JOB_STATUS, kTokens, SCA_STATUS, SEVERITY, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
-import { IconButton } from './Icon';
 import { tr } from '../i18n';
+import { Checkbox, IconButton, Input, Select, Table } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -126,22 +126,22 @@ function Inputs({ project, run, view }: Pick<Props, 'project' | 'run'> & { view:
         {tr('Lock files, SBOMs, scanner reports: they are passed to the inventory agent of the next run (of the module or the whole project).')}
       </p>
       <div className="toolbar">
-        <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
+        <Select value={moduleId} onChange={setModuleId}>
           <option value="">{tr('whole project')}</option>
           {view.modules.map((m) => (
             <option key={m.module.id} value={m.module.id}>
               {m.module.name}
             </option>
           ))}
-        </select>
-        <input placeholder={tr('comment (what this file is)')} value={note} onChange={(e) => setNote(e.target.value)} />
+        </Select>
+        <Input placeholder={tr('comment (what this file is)')} value={note} onChange={(e) => setNote(e.target.value)} />
         <IconButton icon="upload" title={tr('Upload a lock file, SBOM or report')} label={tr('Upload')} onClick={() => void upload()} />
         <label className="check">
-          <input type="checkbox" checked={removed} onChange={(e) => setRemoved(e.target.checked)} /> {tr('show excluded')}
+          <Checkbox checked={removed} onChange={(e) => setRemoved(e.target.checked)} /> {tr('show excluded')}
         </label>
       </div>
       {shown.length > 0 && (
-        <table className="grid compact">
+        <Table compact>
           <tbody>
             {shown.map((i) => (
               <tr key={i.id} className={i.removedAt ? 'removed' : ''}>
@@ -158,7 +158,7 @@ function Inputs({ project, run, view }: Pick<Props, 'project' | 'run'> & { view:
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       )}
     </details>
   );
@@ -207,14 +207,14 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
   return (
     <div className="signals-tab sca-tab">
       <div className="toolbar">
-        <select aria-label={tr('Run scope')} value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
+        <Select aria-label={tr('Run scope')} value={moduleId} onChange={setModuleId}>
           <option value="">{tr('all modules')}</option>
           {view.modules.map((m) => (
             <option key={m.module.id} value={m.module.id}>
               {m.module.name}
             </option>
           ))}
-        </select>
+        </Select>
         <span className="toolbar-group">
           <IconButton
             icon="package"
@@ -224,7 +224,7 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
           />
           <IconButton
             icon="play"
-            className="primary"
+            variant="primary"
             title={tr('Check the reachability of unchecked items')}
             label={`${tr('Reachability')} ${count((x) => x.status === 'not_checked')}`}
             disabled={!count((x) => x.status === 'not_checked')}
@@ -240,7 +240,7 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
         </span>
       </div>
       {inv.count && <div className="toolbar">{inv.count}</div>}
-      <table className="grid compact">
+      <Table compact>
         {inv.head}
         <tbody>
           {inv.rows.length === 0 && <EmptyRow colSpan={inv.colSpan} filtered={inv.filtered}>—</EmptyRow>}
@@ -248,20 +248,20 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
             <InventoryRow key={m.module.id} m={m} project={project} run={run} onSelect={onSelect} />
           ))}
         </tbody>
-      </table>
+      </Table>
       <Inputs project={project} run={run} view={view} />
 
       <div className="grid-title">
         <h3>{tr('Vulnerable dependencies')}</h3>
         <label className="check">
-          <input type="checkbox" checked={direct} onChange={(e) => setDirect(e.target.checked)} /> {tr('direct only')}
+          <Checkbox checked={direct} onChange={(e) => setDirect(e.target.checked)} /> {tr('direct only')}
         </label>
         <label className="check">
-          <input type="checkbox" checked={stale} onChange={(e) => setStale(e.target.checked)} /> {tr('stale only')}
+          <Checkbox checked={stale} onChange={(e) => setStale(e.target.checked)} /> {tr('stale only')}
         </label>
         {g.count}
       </div>
-      <table className="grid">
+      <Table>
         {g.head}
         <tbody>
           {items.length === 0 && (
@@ -301,7 +301,7 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
             );
           })}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }

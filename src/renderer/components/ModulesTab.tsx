@@ -5,8 +5,8 @@ import type { RunFn } from '../App';
 import { JOB_STATUS, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
-import { IconButton } from './Icon';
 import { tr } from '../i18n';
+import { Button, IconButton, Input, Table, Textarea } from '../ui';
 
 interface FormProps {
   project: ProjectInfo;
@@ -32,20 +32,20 @@ export function ModuleForm({ project, run, module, onDone }: FormProps) {
     <div className="form module-form">
       <label>
         {tr('Name')}
-        <input value={name} onChange={(e) => setName(e.target.value)} />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <label className="wide">
         {tr('Globs (one per line, “!” excludes)')}
-        <textarea rows={3} value={globs} onChange={(e) => (setGlobs(e.target.value), setPreview(null))} placeholder="service-a/**" />
+        <Textarea rows={3} value={globs} onChange={(e) => (setGlobs(e.target.value), setPreview(null))} placeholder="service-a/**" />
       </label>
       <label className="wide">
         {tr('Description')}
-        <input value={description} onChange={(e) => setDescription(e.target.value)} />
+        <Input value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
       <div className="wide row">
-        <button className="primary" disabled={!name.trim() || !list().length} onClick={() => void save()}>
+        <Button variant="primary" disabled={!name.trim() || !list().length} onClick={() => void save()}>
           {tr('Save')}
-        </button>
+        </Button>
         <IconButton
           icon="search"
           title={tr('Show the files the module will contain')}
@@ -53,7 +53,7 @@ export function ModuleForm({ project, run, module, onDone }: FormProps) {
           disabled={!list().length}
           onClick={() => void run(api.previewGlobs(project.id, list())).then((p) => p && setPreview(p))}
         />
-        <button onClick={() => onDone(undefined)}>{tr('Cancel')}</button>
+        <Button onClick={() => onDone(undefined)}>{tr('Cancel')}</Button>
         {preview && <span className="muted">{tr('files: {n}', { n: preview.count })}</span>}
       </div>
       {preview && preview.sample.length > 0 && (
@@ -151,14 +151,14 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
         <div className="form">
           <label className="wide">
             {tr('Hints (optional): which parts of the repository to mark up, how to name them')}
-            <textarea rows={2} value={hint} onChange={(e) => setHint(e.target.value)} />
+            <Textarea rows={2} value={hint} onChange={(e) => setHint(e.target.value)} />
           </label>
-          <IconButton icon="wand" className="primary" title={tr('Mark up modules with AI')} label={tr('Mark up')} disabled={Boolean(markupJob)} onClick={() => void markup()} />
+          <IconButton icon="wand" variant="primary" title={tr('Mark up modules with AI')} label={tr('Mark up')} disabled={Boolean(markupJob)} onClick={() => void markup()} />
         </div>
       </details>
 
       {g.count && <div className="toolbar">{g.count}</div>}
-      <table className="grid">
+      <Table>
         {g.head}
         <tbody>
           {g.rows.length === 0 && (
@@ -206,7 +206,7 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }

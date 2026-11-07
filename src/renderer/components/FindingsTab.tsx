@@ -6,9 +6,9 @@ import type { RunFn } from '../App';
 import { FINDING_STATUS, FINDING_VERIFY_OUTCOME, FIX_OUTCOME, SEVERITY, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
-import { IconButton } from './Icon';
 import { EstimatePanel } from './MatrixTab';
 import { tr } from '../i18n';
+import { Checkbox, IconButton, Table } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -69,7 +69,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
     <div className="findings-tab">
       <div className="toolbar">
         <label className="check">
-          <input type="checkbox" checked={merged} onChange={(e) => setMerged(e.target.checked)} /> {tr('show merged')}
+          <Checkbox checked={merged} onChange={(e) => setMerged(e.target.checked)} /> {tr('show merged')}
         </label>
         <IconButton icon="check" title={tr('Pick the suspected findings shown below')} label={tr('Pick suspected')} onClick={() => setPicked(g.rows.filter(eligible).map((f) => f.id))} />
         <IconButton
@@ -90,7 +90,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
         {g.count}
       </div>
       {estimate && <EstimatePanel estimate={estimate} title={estimateFix ? tr('fix check') : tr('independent verification')} batchSetting="findings.verify_estimate_tokens" perFinding onRun={() => void start()} onCancel={() => setEstimate(null)} />}
-      <table className="grid">
+      <Table>
         {g.head}
         <tbody>
           {g.rows.length === 0 && (
@@ -101,8 +101,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
           {g.rows.map((f) => (
             <tr key={f.id} className={selection?.kind === 'finding' && selection.id === f.id ? 'selected' : f.mergedInto ? 'removed' : ''} onClick={() => onSelect({ kind: 'finding', id: f.id })}>
               <td onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="checkbox"
+                <Checkbox
                   aria-label={tr('Pick for verification')}
                   disabled={!eligible(f) && !stale(f)}
                   checked={picked.includes(f.id)}
@@ -139,7 +138,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }

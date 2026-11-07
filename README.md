@@ -117,6 +117,7 @@ Then continue with [Getting started](docs/getting-started.md).
 ```bash
 npm run typecheck     # TypeScript
 npm test              # unit tests, no AI calls
+npm run kit           # page with every UI control and state (macOS: opens it in the browser)
 npm run dist          # installer for the current OS, in release/
 npm run dist:service  # the Linux service executable, on Node 24
 ```

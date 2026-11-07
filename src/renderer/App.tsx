@@ -14,10 +14,11 @@ import { ScaTab } from './components/ScaTab';
 import { SchedulesTab } from './components/SchedulesTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SignalsTab } from './components/SignalsTab';
-import { Icon, IconButton, type IconName } from './components/Icon';
+import { Icon, type IconName } from './components/Icon';
 import { Splitter, usePersisted } from './components/Splitter';
 import { TerminalPanel } from './components/TerminalPanel';
 import { locale, tr } from './i18n';
+import { Button, IconButton } from './ui';
 
 // Groups read top to bottom: the audit itself, what it is built from, the machinery (pinned to the bottom of the activity bar).
 const TABS = [
@@ -189,7 +190,7 @@ export function App() {
   const running = queue?.running ?? 0;
   const termOpen = !termCollapsed && terminals.length > 0;
   const activityItem = (t: (typeof TABS)[number], i: number) => (
-    <button
+    <Button
       key={t.id}
       className={`activity-item ${t.id === tab ? 'active' : ''} ${i > 0 && TABS[i - 1].group !== t.group && t.group !== 'system' ? 'group-start' : ''}`}
       title={i < 10 ? `${t.title} (${MOD}${(i + 1) % 10})` : t.title}
@@ -199,14 +200,14 @@ export function App() {
     >
       <Icon name={t.icon} size={22} />
       {t.id === 'queue' && running > 0 && <span className="activity-badge">{running}</span>}
-    </button>
+    </Button>
   );
 
   return (
     <div className="app">
       <div className="shell" style={{ gridTemplateColumns: sidebarOpen ? `auto ${sidebarW}px auto minmax(0, 1fr)` : 'auto minmax(0, 1fr)' }}>
         <nav className="activity-bar" aria-label={tr('Sections')}>
-          <button
+          <Button
             className="activity-item projects-toggle"
             title={`${sidebarOpen ? tr('Hide projects') : tr('Show projects')} (${MOD}B)`}
             aria-label={tr('Projects')}
@@ -214,7 +215,7 @@ export function App() {
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >
             <Icon name="folder" size={22} />
-          </button>
+          </Button>
           <span className="activity-rule" />
           {TABS.map((t, i) => t.group !== 'system' && activityItem(t, i))}
           <span className="activity-spacer" />
@@ -226,7 +227,7 @@ export function App() {
             <aside className="sidebar" tabIndex={-1}>
               <div className="pane-header">
                 <span>{tr('Projects')}</span>
-                <IconButton icon="folderPlus" className="ghost" title={tr('Add git repository')} onClick={() => void addProject()} />
+                <IconButton icon="folderPlus" variant="ghost" title={tr('Add git repository')} onClick={() => void addProject()} />
               </div>
               <ul className="project-list">
                 {projects.map((p) => (
@@ -234,7 +235,7 @@ export function App() {
                     <span className="project-name" title={p.root}>
                       {p.name}
                     </span>
-                    <IconButton icon="trash" className="ghost" title={tr('Remove from list')} onClick={(e) => (e.stopPropagation(), void removeProject(p))} />
+                    <IconButton icon="trash" variant="ghost" title={tr('Remove from list')} onClick={(e) => (e.stopPropagation(), void removeProject(p))} />
                   </li>
                 ))}
               </ul>
@@ -248,16 +249,16 @@ export function App() {
             <ol>
               {project && (
                 <li>
-                  <button className="crumb" title={project.root} onClick={() => setSidebarOpen(true)}>
+                  <Button className="crumb" title={project.root} onClick={() => setSidebarOpen(true)}>
                     {project.name}
-                  </button>
+                  </Button>
                 </li>
               )}
               {details ? (
                 <li>
-                  <button className="crumb" onClick={() => setSelection(null)}>
+                  <Button className="crumb" onClick={() => setSelection(null)}>
                     {current.title}
-                  </button>
+                  </Button>
                 </li>
               ) : (
                 <li aria-current="location">{current.title}</li>
@@ -274,7 +275,7 @@ export function App() {
               ) : !project ? (
                 <div className="empty">
                   <p>{tr('No projects.')}</p>
-                  <IconButton icon="folderPlus" className="primary" title={tr('Add git repository')} label={tr('Add project')} onClick={() => void addProject()} />
+                  <IconButton icon="folderPlus" variant="primary" title={tr('Add git repository')} label={tr('Add project')} onClick={() => void addProject()} />
                 </div>
               ) : tab === 'queue' ? (
                 <QueueTab
@@ -327,7 +328,7 @@ export function App() {
             )}
             {details && (
               <div className="details-wrap" tabIndex={-1}>
-                <IconButton icon="close" className="ghost details-close" title={tr('Close details (Esc)')} onClick={() => setSelection(null)} />
+                <IconButton icon="close" variant="ghost" className="details-close" title={tr('Close details (Esc)')} onClick={() => setSelection(null)} />
                 <DetailsPanel
                   project={project}
                   selection={selection}
@@ -356,11 +357,11 @@ export function App() {
       </div>
 
       <footer className="statusbar">
-        <button className="status-item" title={project ? `${project.root} — ${sidebarOpen ? tr('hide projects') : tr('show projects')} (${MOD}B)` : tr('Add project')} onClick={() => (project ? setSidebarOpen(!sidebarOpen) : void addProject())}>
+        <Button className="status-item" title={project ? `${project.root} — ${sidebarOpen ? tr('hide projects') : tr('show projects')} (${MOD}B)` : tr('Add project')} onClick={() => (project ? setSidebarOpen(!sidebarOpen) : void addProject())}>
           <Icon name="folder" size={14} />
           <span>{project?.name ?? tr('no project')}</span>
-        </button>
-        <button className="status-item" title={tr('Open queue')} onClick={() => setTab('queue')}>
+        </Button>
+        <Button className="status-item" title={tr('Open queue')} onClick={() => setTab('queue')}>
           {running > 0 ? (
             <span className="spin">
               <Icon name="recheck" size={14} />
@@ -370,12 +371,12 @@ export function App() {
           )}
           <span>{running > 0 ? tr('running {n} of {total}', { n: running, total: queue?.parallelism ?? running }) : tr('no jobs running')}</span>
           {queue?.pausedUntil && <span className="warn">{tr('paused until {time}', { time: new Date(queue.pausedUntil).toLocaleTimeString(locale) })}</span>}
-        </button>
-        <button className="status-item" title={`${termCollapsed ? tr('Show terminal') : tr('Hide terminal')} (${MOD}J)`} onClick={() => setTermCollapsed(!termCollapsed)}>
+        </Button>
+        <Button className="status-item" title={`${termCollapsed ? tr('Show terminal') : tr('Hide terminal')} (${MOD}J)`} onClick={() => setTermCollapsed(!termCollapsed)}>
           <Icon name="terminal" size={14} />
           <span>{tr('sessions: {n}', { n: terminals.length })}</span>
-        </button>
-        <button
+        </Button>
+        <Button
           className="status-item status-bell"
           title={unread > 0 ? tr('Notifications: {n} unread', { n: unread }) : tr('Notifications')}
           aria-pressed={centerOpen}
@@ -383,15 +384,15 @@ export function App() {
         >
           <Icon name="bell" size={14} />
           {unread > 0 && <span className="status-count">{unread}</span>}
-        </button>
+        </Button>
       </footer>
 
       {centerOpen && (
         <section className="notice-center" aria-label={tr('Notifications')}>
           <div className="pane-header">
             <span>{tr('Notifications')}</span>
-            <IconButton icon="trash" className="ghost" title={tr('Clear')} disabled={history.length === 0} onClick={() => setHistory([])} />
-            <IconButton icon="close" className="ghost" title={tr('Close')} onClick={() => setCenterOpen(false)} />
+            <IconButton icon="trash" variant="ghost" title={tr('Clear')} disabled={history.length === 0} onClick={() => setHistory([])} />
+            <IconButton icon="close" variant="ghost" title={tr('Close')} onClick={() => setCenterOpen(false)} />
           </div>
           {history.length === 0 ? (
             <div className="empty">{tr('No notifications')}</div>
@@ -415,8 +416,8 @@ export function App() {
             {n.recheck && (
               <div className="row">
                 {n.recheck.cells.length > 0 && (
-                  <button
-                    className="primary btn-icon-label"
+                  <Button
+                    variant="primary" className="btn-icon-label"
                     onClick={(e) => {
                       e.stopPropagation();
                       const offer = n.recheck!;
@@ -427,10 +428,10 @@ export function App() {
                   >
                     <Icon name="recheck" />
                     <span>{tr('Recheck ({n})', { n: n.recheck.cells.length })}</span>
-                  </button>
+                  </Button>
                 )}
                 {n.recheck.findings.length > 0 && (
-                  <button
+                  <Button
                     className="btn-icon-label"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -442,9 +443,9 @@ export function App() {
                   >
                     <Icon name="check" />
                     <span>{tr('Check fix ({n})', { n: n.recheck.findings.length })}</span>
-                  </button>
+                  </Button>
                 )}
-                <button>{tr('Close')}</button>
+                <Button>{tr('Close')}</Button>
               </div>
             )}
           </div>

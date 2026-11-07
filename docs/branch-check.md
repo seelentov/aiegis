@@ -6,7 +6,7 @@ A branch check reviews a pull request before it merges: do the branch's changes 
 
 ## Running a check
 
-1. Choose the **Target branch** (for example `main`) and the **Branch to check**.
+1. Choose the **Target branch** (for example `main`) and the **Branch to check**. Type in the list to [search](interface.md#dropdown-lists) by branch name.
 2. Choose a **Set or document**.
 3. Click **Check** to see the estimate, then run it.
 

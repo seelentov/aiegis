@@ -4,9 +4,9 @@ import { api } from '../api';
 import type { RunFn } from '../App';
 import { SCAN_STATUS, SEVERITY, SIGNAL_KIND, SUPPRESSION_SCOPE, SUPPRESSION_STATE, time } from '../format';
 import type { Selection } from './DetailsPanel';
-import { IconButton } from './Icon';
 import { Section } from './Section';
 import { tr } from '../i18n';
+import { Button, IconButton, Input, Radio, Textarea } from '../ui';
 
 interface Common {
   project: ProjectInfo;
@@ -43,32 +43,32 @@ function SuppressForm({ project, run, signal, onDone }: { project: ProjectInfo; 
       <fieldset>
         <legend>{tr('What to suppress')}</legend>
         <label className="check">
-          <input type="radio" checked={scope === 'finding'} onChange={() => setScope('finding')} /> {tr('this signal')} ({signal.file}
+          <Radio checked={scope === 'finding'} onChange={() => setScope('finding')} /> {tr('this signal')} ({signal.file}
           {signal.line ? `:${signal.line}` : ''})
         </label>
         <label className="check">
-          <input type="radio" checked={scope === 'rule_glob'} onChange={() => setScope('rule_glob')} /> {tr('rule')} <span className="mono small">{signal.ruleId}</span> {tr('in files')}
+          <Radio checked={scope === 'rule_glob'} onChange={() => setScope('rule_glob')} /> {tr('rule')} <span className="mono small">{signal.ruleId}</span> {tr('in files')}
         </label>
       </fieldset>
       {scope === 'rule_glob' && (
         <label>
           {tr('Globs (one per line, from the repository root)')}
-          <textarea rows={2} className="mono" value={globs} onChange={(e) => setGlobs(e.target.value)} />
+          <Textarea rows={2} className="mono" value={globs} onChange={(e) => setGlobs(e.target.value)} />
         </label>
       )}
       <label>
         {tr('Reason (required)')}
-        <textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+        <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
       </label>
       <label>
         {tr('Expires (optional)')}
-        <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
+        <Input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
       </label>
       <div className="row">
-        <button className="primary" disabled={!reason.trim() || (scope === 'rule_glob' && !globs.trim())} onClick={() => void save()}>
+        <Button variant="primary" disabled={!reason.trim() || (scope === 'rule_glob' && !globs.trim())} onClick={() => void save()}>
           {tr('Suppress')}
-        </button>
-        <button onClick={onDone}>{tr('Cancel')}</button>
+        </Button>
+        <Button onClick={onDone}>{tr('Cancel')}</Button>
       </div>
     </div>
   );
@@ -147,7 +147,7 @@ export function SignalDetailsView({ project, id, revision, run, onSelect }: Comm
         </details>
       )}
       <div className="actions">
-        <IconButton icon="suppress" className="primary" title={tr('Suppress the signal')} label={tr('Suppress')} disabled={form} onClick={() => setForm(true)} />
+        <IconButton icon="suppress" variant="primary" title={tr('Suppress the signal')} label={tr('Suppress')} disabled={form} onClick={() => setForm(true)} />
       </div>
       {form && <SuppressForm project={project} run={run} signal={s} onDone={() => setForm(false)} />}
       <Section title={tr('Suppressions')}>
@@ -254,12 +254,12 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
       {!s.revokedAt && (
         <>
           <div className="actions">
-            <input type="date" title={tr('new expiry date (optional)')} value={expires} onChange={(e) => setExpires(e.target.value)} />
+            <Input type="date" title={tr('new expiry date (optional)')} value={expires} onChange={(e) => setExpires(e.target.value)} />
             <IconButton icon="check" className={s.state === 'active' ? '' : 'primary'} title={tr('Confirm the suppression at HEAD')} label={tr('Confirm')} onClick={() => void renew()} />
           </div>
           <div className="actions">
-            <input placeholder={tr('reason for revoking')} value={reason} onChange={(e) => setReason(e.target.value)} />
-            <IconButton icon="undo" className="danger" title={tr('Revoke the suppression (a reason is required)')} label={tr('Revoke')} disabled={!reason.trim()} onClick={() => void run(api.revokeSuppression(project.id, s.id, reason))} />
+            <Input placeholder={tr('reason for revoking')} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <IconButton icon="undo" variant="danger" title={tr('Revoke the suppression (a reason is required)')} label={tr('Revoke')} disabled={!reason.trim()} onClick={() => void run(api.revokeSuppression(project.id, s.id, reason))} />
           </div>
         </>
       )}

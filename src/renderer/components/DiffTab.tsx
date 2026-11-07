@@ -6,9 +6,9 @@ import { CELL_STATUS, SEVERITY, time } from '../format';
 import { EvidenceList } from './AuditDetails';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
-import { IconButton } from './Icon';
 import { EstimatePanel } from './MatrixTab';
 import { tr } from '../i18n';
+import { IconButton, Select, Table } from '../ui';
 
 export interface DiffFieldsValue {
   baseRef: string;
@@ -38,7 +38,7 @@ export function DiffFields({ project, run, value, onChange }: { project: Project
   const branch = (title: string, key: 'baseRef' | 'headRef') => (
     <label>
       {title}
-      <select value={value[key]} onChange={(e) => onChange({ ...value, [key]: e.target.value })}>
+      <Select value={value[key]} onChange={(v) => onChange({ ...value, [key]: v })}>
         <option value="" />
         {/* A schedule keeps its branch after the branch is gone: it stays visible, the firing reports the error. */}
         {[...new Set([...branches, ...(value[key] ? [value[key]] : [])])].map((b) => (
@@ -46,7 +46,7 @@ export function DiffFields({ project, run, value, onChange }: { project: Project
             {b}
           </option>
         ))}
-      </select>
+      </Select>
     </label>
   );
   return (
@@ -55,7 +55,7 @@ export function DiffFields({ project, run, value, onChange }: { project: Project
       {branch(tr('Branch to check'), 'headRef')}
       <label>
         {tr('Set or document')}
-        <select value={value.target} onChange={(e) => onChange({ ...value, target: e.target.value })}>
+        <Select value={value.target} onChange={(v) => onChange({ ...value, target: v })}>
           <option value="" />
           <optgroup label={tr('Sets')}>
             {sets.map((d) => (
@@ -71,7 +71,7 @@ export function DiffFields({ project, run, value, onChange }: { project: Project
               </option>
             ))}
           </optgroup>
-        </select>
+        </Select>
       </label>
     </>
   );
@@ -147,7 +147,7 @@ export function DiffTab({ project, revision, run, selection, onSelect }: Props) 
         <DiffFields project={project} run={run} value={form} onChange={(v) => (setForm(v), setEstimate(null))} />
         <IconButton
           icon="play"
-          className="primary"
+          variant="primary"
           title={tr('Estimate the check, then run it')}
           label={tr('Check')}
           disabled={!diffReady(form)}
@@ -155,7 +155,7 @@ export function DiffTab({ project, revision, run, selection, onSelect }: Props) 
         />
       </div>
       {estimate && <EstimatePanel estimate={estimate} title={tr('branch check')} batchSetting="diff_check.batch_size" onRun={() => void start()} onCancel={() => setEstimate(null)} />}
-      <table className="grid">
+      <Table>
         {c.head}
         <tbody>
           {c.rows.length === 0 && (
@@ -181,9 +181,9 @@ export function DiffTab({ project, revision, run, selection, onSelect }: Props) 
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
       {view && (
-        <table className="grid diff-rows">
+        <Table className="diff-rows">
           {r.head}
           <tbody>
             {r.rows.length === 0 && <EmptyRow colSpan={r.colSpan} filtered={r.filtered}>{tr('No requirements')}</EmptyRow>}
@@ -204,7 +204,7 @@ export function DiffTab({ project, revision, run, selection, onSelect }: Props) 
               );
             })}
           </tbody>
-        </table>
+        </Table>
       )}
     </div>
   );

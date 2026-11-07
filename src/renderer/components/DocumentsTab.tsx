@@ -5,8 +5,8 @@ import type { RunFn } from '../App';
 import { JOB_STATUS, kTokens, REVIEW, time, VERSION_STATUS } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
-import { IconButton } from './Icon';
 import { tr } from '../i18n';
+import { Button, Checkbox, IconButton, Input, Select, Table, Textarea } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -30,25 +30,25 @@ function InfoForm({ info, onSave, onCancel }: { info: DocInfo; onSave: (d: DocIn
     <div className="form">
       <label className="wide">
         {tr('Full name')}
-        <input value={d.name} onChange={set('name')} />
+        <Input value={d.name} onChange={set('name')} />
       </label>
       <label>
         {tr('Number')}
-        <input value={d.number} onChange={set('number')} />
+        <Input value={d.number} onChange={set('number')} />
       </label>
       <label>
         {tr('Date')}
-        <input value={d.date} onChange={set('date')} />
+        <Input value={d.date} onChange={set('date')} />
       </label>
       <label className="wide">
         {tr('Edition')}
-        <input value={d.edition} onChange={set('edition')} />
+        <Input value={d.edition} onChange={set('edition')} />
       </label>
       <div className="wide row">
-        <button className="primary" onClick={() => onSave(d)}>
+        <Button variant="primary" onClick={() => onSave(d)}>
           {tr('Save')}
-        </button>
-        <button onClick={onCancel}>{tr('Cancel')}</button>
+        </Button>
+        <Button onClick={onCancel}>{tr('Cancel')}</Button>
       </div>
     </div>
   );
@@ -61,29 +61,29 @@ function ItemForm({ item, onSave, onCancel }: { item?: RequirementItem; onSave: 
     <div className="form">
       <label>
         {tr('Id (empty to generate)')}
-        <input value={d.key} onChange={set('key')} disabled={Boolean(item)} />
+        <Input value={d.key} onChange={set('key')} disabled={Boolean(item)} />
       </label>
       <label>
         {tr('Section')}
-        <input value={d.section} onChange={set('section')} />
+        <Input value={d.section} onChange={set('section')} />
       </label>
       <label>
         {tr('Clause')}
-        <input value={d.clause} onChange={set('clause')} />
+        <Input value={d.clause} onChange={set('clause')} />
       </label>
       <label className="wide">
         {tr('Requirement')}
-        <textarea rows={2} value={d.text} onChange={set('text')} />
+        <Textarea rows={2} value={d.text} onChange={set('text')} />
       </label>
       <label className="wide">
         {tr('Source quote')}
-        <textarea rows={2} value={d.quote} onChange={set('quote')} />
+        <Textarea rows={2} value={d.quote} onChange={set('quote')} />
       </label>
       <div className="wide row">
-        <button className="primary" disabled={!d.text.trim()} onClick={() => onSave(d)}>
+        <Button variant="primary" disabled={!d.text.trim()} onClick={() => onSave(d)}>
           {tr('Save (accepted)')}
-        </button>
-        <button onClick={onCancel}>{tr('Cancel')}</button>
+        </Button>
+        <Button onClick={onCancel}>{tr('Cancel')}</Button>
       </div>
     </div>
   );
@@ -169,7 +169,7 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
             <IconButton icon="plus" title={tr('Add an item manually')} label={tr('Item')} onClick={() => setEditing('new')} />
             <IconButton
               icon="approve"
-              className="primary"
+              variant="primary"
               title={v.pendingCount > 0 ? tr('Review all items first') : tr('Approve the version: its items go to matrices')}
               label={tr('Approve')}
               disabled={v.status !== 'review' || v.pendingCount > 0}
@@ -188,17 +188,17 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
         {v.status !== 'approved' && v.status !== 'discarded' && !active && (
           <IconButton
             icon="reject"
-            className="danger"
+            variant="danger"
             title={tr('Discard the version')}
             onClick={() => confirm(tr('Discard the version? Its items will not go to matrices.')) && void run(api.setVersionState(project.id, v.id, 'discarded'))}
           />
         )}
         {v.status === 'approved' && <IconButton icon="plus" title={tr('Create a matrix with this document')} label={tr('New matrix')} onClick={() => onCreateMatrix(v.documentId)} />}
-        <select aria-label={tr('Items')} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+        <Select aria-label={tr('Items')} value={filter} onChange={setFilter}>
           <option value="all">{tr('all items')}</option>
           <option value="pending">{tr('pending items')}</option>
           <option value="changed">{tr('new and changed')}</option>
-        </select>
+        </Select>
         {g.count}
       </div>
       {editing === 'new' && (
@@ -212,18 +212,18 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
           <div className="form">
             <label className="wide">
               {tr('Reason')}
-              <input value={retiring.reason} onChange={(e) => setRetiring({ ...retiring, reason: e.target.value })} />
+              <Input value={retiring.reason} onChange={(e) => setRetiring({ ...retiring, reason: e.target.value })} />
             </label>
             <div className="wide row">
-              <button className="primary" disabled={!retiring.reason.trim()} onClick={() => void run(api.retireRequirements(project.id, [retiring.item.requirementId], retiring.reason)).then(() => setRetiring(null))}>
+              <Button variant="primary" disabled={!retiring.reason.trim()} onClick={() => void run(api.retireRequirements(project.id, [retiring.item.requirementId], retiring.reason)).then(() => setRetiring(null))}>
                 {tr('Save')}
-              </button>
-              <button onClick={() => setRetiring(null)}>{tr('Cancel')}</button>
+              </Button>
+              <Button onClick={() => setRetiring(null)}>{tr('Cancel')}</Button>
             </div>
           </div>
         </div>
       )}
-      <table className="grid req-grid">
+      <Table className="req-grid">
         {g.head}
         <tbody>
           {g.rows.length === 0 && (
@@ -259,12 +259,12 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
                     (i.retiredAt ? (
                       <IconButton icon="undo" title={tr('Back into force: the item returns to matrices')} onClick={() => void run(api.restoreRequirements(project.id, [i.requirementId]))} />
                     ) : (
-                      <IconButton icon="reject" className="danger" title={tr('Out of force: the item leaves matrices and checks')} onClick={() => setRetiring({ item: i, reason: '' })} />
+                      <IconButton icon="reject" variant="danger" title={tr('Out of force: the item leaves matrices and checks')} onClick={() => setRetiring({ item: i, reason: '' })} />
                     ))}
                   {editable && (
                     <>
-                      <IconButton icon="check" className="ok" title={tr('Accept')} aria-pressed={i.review === 'accepted'} disabled={i.review === 'accepted'} onClick={() => review([i.id], 'accepted')} />
-                      <IconButton icon="reject" className="danger" title={tr('Reject')} aria-pressed={i.review === 'rejected'} disabled={i.review === 'rejected'} onClick={() => review([i.id], 'rejected')} />
+                      <IconButton icon="check" variant="ok" title={tr('Accept')} aria-pressed={i.review === 'accepted'} disabled={i.review === 'accepted'} onClick={() => review([i.id], 'accepted')} />
+                      <IconButton icon="reject" variant="danger" title={tr('Reject')} aria-pressed={i.review === 'rejected'} disabled={i.review === 'rejected'} onClick={() => review([i.id], 'rejected')} />
                       <IconButton icon="edit" title={tr('Edit')} onClick={() => setEditing(i.id)} />
                     </>
                   )}
@@ -286,7 +286,7 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }
@@ -303,9 +303,9 @@ const RESTORED = (p: DocProposal) => tr('The text was rewritten by AI because th
 function LinkFields({ link, onChange, onRemove }: { link: DocLink; onChange: (l: DocLink) => void; onRemove?: () => void }) {
   return (
     <div className="wide row">
-      <input className="grow" value={link.url} placeholder="https://" onChange={(e) => onChange({ ...link, url: e.target.value })} />
+      <Input className="grow" value={link.url} placeholder="https://" onChange={(e) => onChange({ ...link, url: e.target.value })} />
       <label className="check" title={tr('For a site whose certificate cannot be verified. Anyone on the path could change what is downloaded; results get a warning.')}>
-        <input type="checkbox" checked={link.insecure} onChange={(e) => onChange({ ...link, insecure: e.target.checked })} />
+        <Checkbox checked={link.insecure} onChange={(e) => onChange({ ...link, insecure: e.target.checked })} />
         {tr('Do not verify the certificate')}
       </label>
       {onRemove && <IconButton icon="trash" title={tr('Remove the link')} onClick={onRemove} />}
@@ -326,12 +326,12 @@ function DocSetForm({ project, run, set, docs, onDone }: { project: ProjectInfo;
     <div className="form">
       <label>
         {tr('Title')}
-        <input value={name} onChange={(e) => setName(e.target.value)} />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <div />
       <label className="wide">
         {tr('What belongs to this set: AI judges new documents by it')}
-        <textarea rows={2} value={scope} onChange={(e) => setScope(e.target.value)} />
+        <Textarea rows={2} value={scope} onChange={(e) => setScope(e.target.value)} />
       </label>
       <fieldset className="wide">
         <legend>{tr('Links to check')}</legend>
@@ -347,20 +347,20 @@ function DocSetForm({ project, run, set, docs, onDone }: { project: ProjectInfo;
         <legend>{tr('Documents of the set')}</legend>
         {docs.map((d) => (
           <label key={d.id} className="check">
-            <input type="checkbox" checked={ids.includes(d.id)} onChange={(e) => setIds(e.target.checked ? [...ids, d.id] : ids.filter((x) => x !== d.id))} />
+            <Checkbox checked={ids.includes(d.id)} onChange={(e) => setIds(e.target.checked ? [...ids, d.id] : ids.filter((x) => x !== d.id))} />
             {d.title}
           </label>
         ))}
       </fieldset>
       <div className="wide row">
-        <button className="primary" disabled={!name.trim()} onClick={() => void save()}>
+        <Button variant="primary" disabled={!name.trim()} onClick={() => void save()}>
           {tr('Save')}
-        </button>
-        <button onClick={onDone}>{tr('Cancel')}</button>
+        </Button>
+        <Button onClick={onDone}>{tr('Cancel')}</Button>
         {set && (
-          <button onClick={() => confirm(tr('Remove the set? Its documents stay, outside any set.')) && void run(api.removeDocSet(project.id, set.id)).then(onDone)}>
+          <Button onClick={() => confirm(tr('Remove the set? Its documents stay, outside any set.')) && void run(api.removeDocSet(project.id, set.id)).then(onDone)}>
             {tr('Remove the set')}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -438,7 +438,7 @@ export function DocProposalDetailsView({ project, id, revision, run, onSelect }:
               <legend>{tr('Add to matrices (cells appear once it is approved)')}</legend>
               {matrices.map((m) => (
                 <label key={m.id} className="check">
-                  <input type="checkbox" checked={picked.includes(m.id)} onChange={(e) => setChosen(e.target.checked ? [...picked, m.id] : picked.filter((x) => x !== m.id))} />
+                  <Checkbox checked={picked.includes(m.id)} onChange={(e) => setChosen(e.target.checked ? [...picked, m.id] : picked.filter((x) => x !== m.id))} />
                   {m.name}
                 </label>
               ))}
@@ -447,7 +447,7 @@ export function DocProposalDetailsView({ project, id, revision, run, onSelect }:
           <div className="wide row">
             <IconButton
               icon="approve"
-              className="primary"
+              variant="primary"
               disabled={Boolean(blocked)}
               title={tr('Apply: a new document or version goes to extraction and review')}
               label={tr('Apply')}
@@ -539,16 +539,16 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
   return (
     <div className="documents-tab">
       <div className="toolbar">
-        <input placeholder={tr('document title (file name by default)')} value={title} onChange={(e) => setTitle(e.target.value)} size={40} />
-        <select value={uploadSet} title={tr('Set of the uploaded document')} onChange={(e) => setUploadSet(e.target.value)}>
+        <Input placeholder={tr('document title (file name by default)')} value={title} onChange={(e) => setTitle(e.target.value)} size={40} />
+        <Select value={uploadSet} title={tr('Set of the uploaded document')} onChange={setUploadSet}>
           <option value="">{tr('Without a set')}</option>
           {sets.map((x) => (
             <option key={x.id} value={x.id}>
               {x.name}
             </option>
           ))}
-        </select>
-        <IconButton icon="upload" className="primary" title={tr('Upload a document: MD, PDF or DOCX')} label={tr('Upload document')} onClick={() => void importFile()} />
+        </Select>
+        <IconButton icon="upload" variant="primary" title={tr('Upload a document: MD, PDF or DOCX')} label={tr('Upload document')} onClick={() => void importFile()} />
         <IconButton icon="folderPlus" title={tr('Create a document set to check against its links')} label={tr('New set')} onClick={() => setSetForm('new')} />
         {g.count}
       </div>
@@ -564,10 +564,10 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
           <div className="form">
             <LinkFields link={sourceOf.link} onChange={(link) => setSourceOf({ ...sourceOf, link })} />
             <div className="wide row">
-              <button className="primary" onClick={() => void run(api.setDocumentSource(project.id, sourceOf.doc.id, sourceOf.link.url.trim() ? sourceOf.link : null)).then(() => setSourceOf(null))}>
+              <Button variant="primary" onClick={() => void run(api.setDocumentSource(project.id, sourceOf.doc.id, sourceOf.link.url.trim() ? sourceOf.link : null)).then(() => setSourceOf(null))}>
                 {tr('Save')}
-              </button>
-              <button onClick={() => setSourceOf(null)}>{tr('Cancel')}</button>
+              </Button>
+              <Button onClick={() => setSourceOf(null)}>{tr('Cancel')}</Button>
             </div>
           </div>
         </div>
@@ -578,13 +578,13 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
           <div className="form">
             <label className="wide">
               {tr('Reason')}
-              <input value={retiring.reason} onChange={(e) => setRetiring({ ...retiring, reason: e.target.value })} />
+              <Input value={retiring.reason} onChange={(e) => setRetiring({ ...retiring, reason: e.target.value })} />
             </label>
             <div className="wide row">
-              <button className="primary" disabled={!retiring.reason.trim()} onClick={() => void run(api.retireDocument(project.id, retiring.doc.id, retiring.reason)).then(() => setRetiring(null))}>
+              <Button variant="primary" disabled={!retiring.reason.trim()} onClick={() => void run(api.retireDocument(project.id, retiring.doc.id, retiring.reason)).then(() => setRetiring(null))}>
                 {tr('Save')}
-              </button>
-              <button onClick={() => setRetiring(null)}>{tr('Cancel')}</button>
+              </Button>
+              <Button onClick={() => setRetiring(null)}>{tr('Cancel')}</Button>
             </div>
           </div>
         </div>
@@ -603,9 +603,9 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
           </div>
           <div className="muted">{tr('If the sources did not change since the last check, no AI is used and no tokens are spent.')}</div>
           <div className="row">
-            <IconButton icon="play" className="primary" title={tr('Compare the sources first; the agent runs only if they changed')} label={tr('Run')} onClick={() => void startCheck(false)} />
+            <IconButton icon="play" variant="primary" title={tr('Compare the sources first; the agent runs only if they changed')} label={tr('Run')} onClick={() => void startCheck(false)} />
             <IconButton icon="wand" title={tr('Run the agent even if the sources look unchanged')} label={tr('Run with AI anyway')} onClick={() => void startCheck(true)} />
-            <button onClick={() => setPendingCheck(null)}>{tr('Cancel')}</button>
+            <Button onClick={() => setPendingCheck(null)}>{tr('Cancel')}</Button>
           </div>
         </div>
       )}
@@ -657,18 +657,18 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
         <div className="form">
           <label className="wide">
             {tr('Hints (optional): focus, standards to follow, document language; also used by “Rewrite”')}
-            <textarea rows={2} value={hint} onChange={(e) => setHint(e.target.value)} />
+            <Textarea rows={2} value={hint} onChange={(e) => setHint(e.target.value)} />
           </label>
           <IconButton
             icon="wand"
-            className="primary"
+            variant="primary"
             title={tr('AI plans documents that cover the whole application, then writes each one; every document goes to review')}
             label={tr('Write documents')}
             onClick={() => void generate()}
           />
         </div>
       </details>
-      <table className="grid compact">
+      <Table compact>
         {g.head}
         <tbody>
           {g.rows.length === 0 && !sets.length && (
@@ -689,9 +689,9 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
                     {own.length > 0 && <span> · {tr('proposals {n}', { n: own.length })}</span>}
                     {set && (
                       <>
-                        <IconButton icon="recheck" className="ghost row-run" disabled={!set.links.length} title={set.links.length ? tr('Check the set against its links') : tr('The set has no links')} onClick={() => void askCheck({ setId: set.id }, set.name)} />
-                        {!members.length && own.some((p) => p.kind === 'add') && <IconButton icon="checkAll" className="ghost row-run" title={tr('First filling of an empty set: apply all additions')} onClick={() => void run(api.acceptAllDocAdditions(project.id, set.id))} />}
-                        <IconButton icon="sliders" className="ghost row-run" title={tr('Set: name, links, documents')} onClick={() => setSetForm(set)} />
+                        <IconButton icon="recheck" variant="ghost" className="row-run" disabled={!set.links.length} title={set.links.length ? tr('Check the set against its links') : tr('The set has no links')} onClick={() => void askCheck({ setId: set.id }, set.name)} />
+                        {!members.length && own.some((p) => p.kind === 'add') && <IconButton icon="checkAll" variant="ghost" className="row-run" title={tr('First filling of an empty set: apply all additions')} onClick={() => void run(api.acceptAllDocAdditions(project.id, set.id))} />}
+                        <IconButton icon="sliders" variant="ghost" className="row-run" title={tr('Set: name, links, documents')} onClick={() => setSetForm(set)} />
                       </>
                     )}
                   </td>
@@ -757,7 +757,7 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
             );
           })}
         </tbody>
-      </table>
+      </Table>
       {view && <VersionReview project={project} view={view} run={run} onTerminal={onTerminal} onCreateMatrix={onCreateMatrix} />}
     </div>
   );

@@ -27,6 +27,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
+    "kit": "npm run build && open dist/kit/index.html",
     "typecheck": "tsc --noEmit -p .",
     "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "e2e": "npm run build && ELECTRON_RUN_AS_NODE=1 electron dist/e2e.js",
@@ -44,6 +45,7 @@
       "dist/**/*",
       "!dist/e2e.js*",
       "!dist/cli.js*",
+      "!dist/kit/**",
       "!dist/sea/**",
       "defaults/**/*",
       "build/icon.png",

@@ -5,8 +5,9 @@ import type { RunFn } from '../App';
 import { CELL_STATUS, JOB_STATUS, kTokens, STALE_REASON } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid, type Col } from './Grid';
-import { Icon, IconButton } from './Icon';
+import { Icon } from './Icon';
 import { tr } from '../i18n';
+import { Button, Checkbox, IconButton, Input, Select, Table } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -37,14 +38,14 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
     <div className="form">
       <label>
         {tr('Title')}
-        <input value={name} onChange={(e) => setName(e.target.value)} />
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <div />
       <fieldset>
         <legend>{tr('Documents (approved versions)')}</legend>
         {allDocs.map((d) => (
           <label key={d.id} className="check">
-            <input type="checkbox" checked={docs.includes(d.id)} disabled={!d.current} onChange={() => toggle(docs, setDocs, d.id)} />
+            <Checkbox checked={docs.includes(d.id)} disabled={!d.current} onChange={() => toggle(docs, setDocs, d.id)} />
             {d.title} {d.current ? <span className="muted">v{d.current.n}</span> : <span className="muted">{tr('(no approved version)')}</span>}
           </label>
         ))}
@@ -53,16 +54,16 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
         <legend>{tr('Modules (none selected means all)')}</legend>
         {allMods.map((m) => (
           <label key={m.id} className="check">
-            <input type="checkbox" checked={mods.includes(m.id)} onChange={() => toggle(mods, setMods, m.id)} />
+            <Checkbox checked={mods.includes(m.id)} onChange={() => toggle(mods, setMods, m.id)} />
             {m.name}
           </label>
         ))}
       </fieldset>
       <div className="wide row">
-        <button className="primary" disabled={!name.trim() || !docs.length} onClick={() => void save()}>
+        <Button variant="primary" disabled={!name.trim() || !docs.length} onClick={() => void save()}>
           {tr('Save')}
-        </button>
-        <button onClick={() => onDone()}>{tr('Cancel')}</button>
+        </Button>
+        <Button onClick={() => onDone()}>{tr('Cancel')}</Button>
       </div>
     </div>
   );
@@ -97,7 +98,7 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
       )}
       <details>
         <summary>{tr('Sessions')}</summary>
-        <table className="grid compact">
+        <Table compact>
           <tbody>
             {estimate.batches.map((b, i) => (
               <tr key={i}>
@@ -108,7 +109,7 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </details>
       {estimate.alternative && (
         <div className="row">
@@ -117,12 +118,12 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
               ? tr('Merged sessions: cheaper, but they miss more and their verdicts are preliminary. As usual: {sessions} sessions, {tokens} tokens.', { sessions: estimate.alternative.sessions, tokens: kTokens(estimate.alternative.tokens) })
               : tr('Usual sessions. Merged: {sessions} sessions, {tokens} tokens, with preliminary verdicts.', { sessions: estimate.alternative.sessions, tokens: kTokens(estimate.alternative.tokens) })}
           </span>
-          <button onClick={onSwitch}>{estimate.mode === 'economy' ? tr('Run as usual') : tr('Use merged sessions')}</button>
+          <Button onClick={onSwitch}>{estimate.mode === 'economy' ? tr('Run as usual') : tr('Use merged sessions')}</Button>
         </div>
       )}
       <div className="row">
-        <IconButton icon="play" className="primary" title={tr('Enqueue the sessions')} label={tr('Run')} disabled={!estimate.cells} onClick={onRun} />
-        <button onClick={onCancel}>{tr('Cancel')}</button>
+        <IconButton icon="play" variant="primary" title={tr('Enqueue the sessions')} label={tr('Run')} disabled={!estimate.cells} onClick={onRun} />
+        <Button onClick={onCancel}>{tr('Cancel')}</Button>
       </div>
     </div>
   );
@@ -245,7 +246,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
         extra: (
           <IconButton
             icon="play"
-            className="ghost col-run"
+            variant="ghost" className="col-run"
             title={tr('Verdicts for module {name}: unchecked and stale cells', { name: m.name })}
             onClick={() => void runSlice(tr('module {name}', { name: m.name }), { modules: [m.id] })}
           />
@@ -274,14 +275,14 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
   return (
     <div className="matrix-tab">
       <div className="toolbar">
-        <select aria-label={tr('Matrix')} value={matrixId ?? ''} onChange={(e) => (setMatrixId(e.target.value), setPending(null))}>
+        <Select aria-label={tr('Matrix')} value={matrixId ?? ''} onChange={(v) => (setMatrixId(v), setPending(null))}>
           {matrices.length === 0 && <option value="">{tr('no matrices')}</option>}
           {matrices.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
             </option>
           ))}
-        </select>
+        </Select>
         <IconButton
           icon="plus"
           title={tr('New matrix')}
@@ -297,7 +298,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
             <IconButton icon="triage" title={tr('Stage 1: filter out inapplicable cells (cheap model)')} label={tr('n/a triage')} onClick={() => void estimate('triage', 'pending')} />
             <IconButton
               icon="play"
-              className="primary"
+              variant="primary"
               title={tr('Stage 2: verdicts for all unchecked cells of the matrix')}
               label={tr('Verdicts')}
               onClick={() => void estimate('verdicts', 'pending')}
@@ -355,27 +356,27 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
                 </>
               );
               return f ? (
-                <button key={k} className="chip" aria-pressed={filter === f} title={tr('Show rows with such cells')} onClick={() => setFilter(filter === f ? 'all' : f)}>
+                <Button key={k} className="chip" aria-pressed={filter === f} title={tr('Show rows with such cells')} onClick={() => setFilter(filter === f ? 'all' : f)}>
                   {chip}
-                </button>
+                </Button>
               ) : (
                 <span key={k} className="chip static">
                   {chip}
                 </span>
               );
             })}
-            <button className="chip" aria-pressed={filter === 'stale'} title={tr('Show rows with stale cells')} onClick={() => setFilter(filter === 'stale' ? 'all' : 'stale')}>
+            <Button className="chip" aria-pressed={filter === 'stale'} title={tr('Show rows with stale cells')} onClick={() => setFilter(filter === 'stale' ? 'all' : 'stale')}>
               <span className="status stale">{tr('stale')}</span> {counts!.stale}
-            </button>
+            </Button>
             {counts!.preliminary > 0 && (
-              <button className="chip" aria-pressed={filter === 'preliminary'} title={tr('Show rows with verdicts of merged sessions')} onClick={() => setFilter(filter === 'preliminary' ? 'all' : 'preliminary')}>
+              <Button className="chip" aria-pressed={filter === 'preliminary'} title={tr('Show rows with verdicts of merged sessions')} onClick={() => setFilter(filter === 'preliminary' ? 'all' : 'preliminary')}>
                 <span className="status stale">{tr('preliminary')}</span> {counts!.preliminary}
-              </button>
+              </Button>
             )}
             {g.count}
           </div>
           <div className="matrix-scroll">
-            <table className="grid matrix-grid">
+            <Table className="matrix-grid">
               {g.head}
               <tbody>
                 {g.rows.length === 0 && (
@@ -390,7 +391,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
                         <span>{sec.key}</span>
                         <IconButton
                           icon="play"
-                          className="ghost row-run"
+                          variant="ghost" className="row-run"
                           title={tr('Verdicts for the section: {n} requirements', { n: sec.items.length })}
                           onClick={() => void runSlice(tr('section {key}', { key: sec.key }), { requirements: sec.items.map((r) => r.requirementId) })}
                         />
@@ -403,7 +404,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
                             <span>
                               <span className="mono">{r.key}</span> {r.text}
                             </span>
-                            <IconButton icon="play" className="ghost row-run" title={tr('Verdicts for requirement {key}', { key: r.key })} onClick={() => void runSlice(tr('requirement {key}', { key: r.key }), { requirements: [r.requirementId] })} />
+                            <IconButton icon="play" variant="ghost" className="row-run" title={tr('Verdicts for requirement {key}', { key: r.key })} onClick={() => void runSlice(tr('requirement {key}', { key: r.key }), { requirements: [r.requirementId] })} />
                           </div>
                         </td>
                         {modules.map((m) => {
@@ -426,7 +427,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
                   </Fragment>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </div>
         </>
       )}
