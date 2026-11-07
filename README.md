@@ -15,6 +15,10 @@
 </p>
 
 <p align="center">
+[![M8ven Verified](https://m8ven.ai/badge/mcp/seelentov-aiegis-10at62?variant=verified&v=c03837f47c8c0df5cf4d8febe564f19f)](https://m8ven.ai/mcp/seelentov-aiegis-10at62?s=readme)
+</p>
+
+<p align="center">
   <a href="docs/getting-started.md"><b>Getting started</b></a> ·
   <a href="docs/README.md"><b>Documentation</b></a> ·
   <a href="docs/cli.md"><b>CLI reference</b></a> ·
