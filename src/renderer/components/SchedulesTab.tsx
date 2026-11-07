@@ -354,7 +354,6 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
   const [editing, setEditing] = useState(false);
   const [names, setNames] = useState(new Map<string, string>());
 
-  useEffect(() => setEditing(false), [id]);
   useEffect(() => {
     void Promise.all([api.listMatrices(project.id), api.listModules(project.id), api.listDocSets(project.id), api.listDocuments(project.id)]).then(([ms, mods, sets, docs]) =>
       setNames(new Map([...ms, ...mods, ...sets, ...docs.map((d) => ({ id: d.id, name: d.title }))].map((x) => [x.id, x.name]))),

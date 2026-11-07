@@ -32,8 +32,6 @@ export function ScaItemDetailsView({ project, id, revision, run, onSelect, onTer
   const [fDesc, setFDesc] = useState('');
   const [link, setLink] = useState('');
 
-  useEffect(() => setForm(null), [id]);
-
   useEffect(() => {
     void run(api.scaItemDetails(project.id, id)).then((x) => setD(x ?? null));
     void api.listFindings(project.id).then(setFindings);

@@ -67,6 +67,15 @@ describe('pages of a list', () => {
   });
 });
 
+describe('details panel', () => {
+  it('starts anew for each item, so actions never go to an item other than the one shown', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../src/renderer/components/DetailsPanel.tsx'), 'utf8');
+    const views = [...source.matchAll(/<(\w+Details(?:View)?)\b([^>]*)>/g)];
+    expect(views.length).toBeGreaterThanOrEqual(9);
+    expect(views.filter((m) => !m[2].includes('key=')).map((m) => m[1])).toEqual([]);
+  });
+});
+
 describe('tables of the renderer', () => {
   it('all go through a grid', () => {
     const dir = path.join(__dirname, '../src/renderer/components');

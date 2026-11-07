@@ -126,11 +126,6 @@ export function CellDetailsView({ project, id, matrixId, revision, run, onSelect
   const [compare, setCompare] = useState<string[]>([]);
 
   useEffect(() => {
-    setForm(null);
-    setCompare([]);
-  }, [id]);
-
-  useEffect(() => {
     void run(api.cellDetails(project.id, id, matrixId)).then((x) => setD(x ?? null));
     void api.listFindings(project.id).then(setFindings);
   }, [project.id, id, matrixId, revision, run]);
@@ -361,7 +356,6 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
   const [reason, setReason] = useState('');
 
   useEffect(() => {
-    setReason('');
     void run(api.findingDetails(project.id, id)).then((x) => setD(x ?? null));
     void run(api.findingsFixState(project.id)).then((x) => setFixState(x?.[id] ?? null));
   }, [project.id, id, revision, run]);
