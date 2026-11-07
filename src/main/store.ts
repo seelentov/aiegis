@@ -31,12 +31,14 @@ type Row = Record<string, unknown>;
 /** A column a page can sort and filter by; only these reach SQL. `match` is absent on a column that only sorts. */
 interface PageColumn {
   sql: string;
+  /** Sort expression when it differs from `sql`. */
+  order?: string;
   match?: 'exact' | 'like';
 }
 
 const JOB_COLUMNS: Record<string, PageColumn> = {
   status: { sql: 'status', match: 'exact' },
-  title: { sql: 'title COLLATE NOCASE', match: 'like' },
+  title: { sql: 'title', order: 'unicode_lower(title)', match: 'like' },
   role: { sql: 'role', match: 'exact' },
   created: { sql: 'created_at', match: 'like' },
 };
@@ -249,15 +251,15 @@ export class ProjectStore {
     for (const [key, value] of Object.entries(q.filters ?? {})) {
       const c = column(key);
       if (!c.match) throw new Error(`column ${key} cannot be filtered`);
-      // shortcut: SQLite LIKE ignores case for ASCII only, a Cyrillic filter is case-sensitive; a custom function if that matters.
-      clauses.push(c.match === 'exact' ? `${c.sql} = ?` : `${c.sql} LIKE ? ESCAPE '\\'`);
-      params.push(c.match === 'exact' ? value : `%${value.replace(/[\\%_]/g, '\\$&')}%`);
+      clauses.push(c.match === 'exact' ? `${c.sql} = ?` : `instr(unicode_lower(${c.sql}), ?) > 0`);
+      params.push(c.match === 'exact' ? value : value.toLowerCase());
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const total = count(where, params);
     const served = total ? Math.min(offset, Math.floor((total - 1) / limit) * limit) : 0;
     const dir = q.sort?.dir === 1 ? 'ASC' : 'DESC';
-    const order = q.sort ? column(q.sort.key).sql : first;
+    const sorted = q.sort && column(q.sort.key);
+    const order = sorted ? (sorted.order ?? sorted.sql) : first;
     const rows = this.db.prepare(`SELECT * FROM ${table} ${where} ORDER BY ${order} ${dir}, rowid ${dir} LIMIT ? OFFSET ?`).all(...params, limit, served) as Row[];
     const options = Object.fromEntries(
       Object.entries(columns)

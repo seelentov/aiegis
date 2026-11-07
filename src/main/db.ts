@@ -6,6 +6,12 @@ import { DatabaseSync } from 'node:sqlite';
 const BUSY_TIMEOUT_MS = 5000;
 
 export class DB extends DatabaseSync {
+  constructor(...args: ConstructorParameters<typeof DatabaseSync>) {
+    super(...args);
+    // SQLite's own lower() and LIKE fold ASCII only: Cyrillic text would stay case-sensitive.
+    this.function('unicode_lower', { deterministic: true }, (text) => String(text).toLowerCase());
+  }
+
   /** Wraps `fn` in a transaction, or in a savepoint when one is already open. */
   transaction<T>(fn: () => T): () => T {
     return () => {
