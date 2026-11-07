@@ -7,7 +7,7 @@ The layout follows VS Code:
 - **Activity bar** (far left): the project list toggle, then the tabs by group. A badge on **Queue** shows how many jobs are running.
 - **Project list**: can be hidden.
 - **Breadcrumbs** above the content: project › tab › selected item. A progress line runs along their lower edge while jobs are running.
-- **Details panel** (right): opens when you select a row. Close it with the cross or `Esc`. Its sections collapse, and the app remembers their state by section name.
+- **Details panel** (right): opens when you select a row. Close it with the cross or `Esc`. Its sections collapse, and the app remembers their state by section name. Selecting another row clears the panel at once, along with any unsaved form in it.
 - **Terminal panel** (bottom): tabs with read-only output streams and interactive sessions. See [Queue and sessions](queue-and-sessions.md#terminal-panel).
 - **Status bar**: the project, jobs in progress or a paused queue (opens **Queue**), the number of sessions (opens the terminal), and the notification bell.
 

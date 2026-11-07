@@ -94,7 +94,6 @@ export function SignalDetailsView({ project, id, revision, run, onSelect }: Comm
   const [modules, setModules] = useState<ModuleSummary[]>([]);
   const [form, setForm] = useState(false);
 
-  useEffect(() => setForm(false), [id]);
   useEffect(() => {
     void run(api.signalDetails(project.id, id)).then((x) => setD(x ?? null));
     void api.listModules(project.id).then(setModules);
@@ -162,10 +161,6 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
   const [reason, setReason] = useState('');
   const [expires, setExpires] = useState('');
 
-  useEffect(() => {
-    setReason('');
-    setExpires('');
-  }, [id]);
   useEffect(() => {
     void run(api.listSuppressions(project.id)).then((l) => l && setList(l));
   }, [project.id, id, revision, run]);
