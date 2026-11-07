@@ -72,7 +72,7 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
 const STAGE_TITLE: Record<MatrixStage, string> = { triage: tr('n/a triage'), verdicts: tr('Verdicts') };
 
 /** Dry-run estimate shown before queuing a matrix stage (SPEC §7). */
-export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', perFinding, onSwitch, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; perFinding?: boolean; onSwitch?: () => void; onRun: () => void; onCancel: () => void }) {
+export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', perFinding, onSwitch, onBuildMaps, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; perFinding?: boolean; onSwitch?: () => void; onBuildMaps?: () => void; onRun: () => void; onCancel: () => void }) {
   const over = estimate.batches.filter((b) => b.tokens > estimate.maxTokensPerRun);
   return (
     <div className="card estimate">
@@ -94,6 +94,12 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
       {over.length > 0 && (
         <div className="warn">
           {tr('{n} sessions may exceed the limit of {limit} tokens per run: lower {setting} or raise limits.max_tokens_per_run.', { n: over.length, limit: kTokens(estimate.maxTokensPerRun), setting: batchSetting })}
+        </div>
+      )}
+      {!!estimate.modulesWithoutMap?.length && (
+        <div className="row">
+          <span className="warn">{tr('No entry point map: {modules}. Sessions of these modules will search the code without it.', { modules: estimate.modulesWithoutMap.map((m) => m.name).join(', ') })}</span>
+          {onBuildMaps && <Button onClick={onBuildMaps}>{tr('Build maps')}</Button>}
         </div>
       )}
       <details>
@@ -200,6 +206,11 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
     if (!pending) return;
     if (pending.kind === 'stage') void estimate(pending.stage, pending.scope, !pending.force);
     else void estimateCells(pending.cells, pending.title, !pending.force);
+  };
+  const buildMaps = async () => {
+    if (!pending) return;
+    await run(Promise.all((pending.estimate.modulesWithoutMap ?? []).map((m) => api.enqueueEntryPoints(project.id, m.id))));
+    setPending(null);
   };
   const start = async () => {
     if (!pending || !matrixId) return;
@@ -342,7 +353,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
         </div>
       )}
       {pending && (
-        <EstimatePanel estimate={pending.estimate} title={pending.kind === 'cells' ? pending.title : undefined} onSwitch={switchMode} onRun={() => void start()} onCancel={() => setPending(null)} />
+        <EstimatePanel estimate={pending.estimate} title={pending.kind === 'cells' ? pending.title : undefined} onSwitch={switchMode} onBuildMaps={() => void buildMaps()} onRun={() => void start()} onCancel={() => setPending(null)} />
       )}
       {!matrix ? (
         <div className="empty">{tr('No matrices. Upload and approve a document on the “Documents” tab, then create a matrix.')}</div>

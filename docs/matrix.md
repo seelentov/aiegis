@@ -48,7 +48,7 @@ With `signals.auto_scan` on, missing scans of the batch's modules are queued fir
 
 ![The estimate before a verdict run](screenshots/matrix-estimate.png)
 
-The estimate shows sessions, cells and tokens (cells × tokens per cell). The per-cell figure is the average billable tokens over the last `matrix.estimate_history_runs` successful runs of the role, or `matrix.estimate_tokens_per_cell` when there is no history. A warning appears when a session may exceed `limits.max_tokens_per_run`; lower `matrix.batch_size` or raise that limit.
+The estimate shows sessions, cells and tokens (cells × tokens per cell). The per-cell figure is the average billable tokens over the last `matrix.estimate_history_runs` successful runs of the role, or `matrix.estimate_tokens_per_cell` when there is no history. A warning appears when a session may exceed `limits.max_tokens_per_run`; lower `matrix.batch_size` or raise that limit. Another one names the modules with no complete entry point map, an interrupted map included: their sessions search the code without it. **Build maps** queues those maps; on the command line the same list is `modulesWithoutMap` of the estimate, and `entry-points build <module>` builds a map.
 
 The token limit counts input, cache creation and output tokens, not cache reads. A run over the limit is stopped with the status `token_limit`.
 

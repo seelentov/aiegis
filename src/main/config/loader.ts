@@ -99,7 +99,7 @@ export interface Settings {
   claude: { binary: string; background_args: string[]; interactive_args: string[] };
   pi: { binary: string; background_args: string[]; interactive_args: string[]; tools: Record<string, string[]> };
   queue: { parallelism: number; rate_limit_fallback_pause_sec: number };
-  limits: { max_tokens_per_run: number; max_tokens_per_document_run: number };
+  limits: { max_tokens_per_run: number; max_tokens_per_document_run: number; entry_points_inline_chars: number };
   terminal: {
     external_app: string;
     /** Ended output streams kept in memory. */
@@ -233,6 +233,7 @@ const REQUIRED_SETTINGS: string[] = [
   'queue.rate_limit_fallback_pause_sec',
   'limits.max_tokens_per_run',
   'limits.max_tokens_per_document_run',
+  'limits.entry_points_inline_chars',
   'terminal.external_app',
   'sessions.free_role',
   'sessions.default_task_role',

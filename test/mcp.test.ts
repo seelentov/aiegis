@@ -9,6 +9,8 @@ import { TokenRegistry } from '../src/main/mcp/tokens';
 import { ProjectStore } from '../src/main/store';
 import { tmpDir, write } from './helpers';
 
+let inlineChars = 100000;
+
 const tokens = new TokenRegistry();
 const store = new ProjectStore('p1', openDb(':memory:'));
 const enqueued: string[] = [];
@@ -29,6 +31,7 @@ const server = new AiegisMcpServer(tokens, {
   cellDetails: () => Promise.reject(new Error('n/a')),
   recheckCells: () => Promise.resolve([]),
   similarLimit: () => 5,
+  entryPointsInlineChars: () => inlineChars,
   signals: (_pid, q) => {
     signalQueries.push(q);
     return Promise.resolve({ signals: [{ rule: 'r1' }] });
@@ -196,6 +199,16 @@ describe('MCP module and entry point tools', () => {
     const read = JSON.parse(text(await c.callTool({ name: 'get_entry_points', arguments: { module_id: mod.id } })));
     expect(read.snapshot.id).toBe(snap.id);
     expect(read.entry_points).toHaveLength(1);
+    expect(read.brief).toBeUndefined();
+    inlineChars = 10;
+    const brief = JSON.parse(text(await c.callTool({ name: 'get_entry_points', arguments: { module_id: mod.id } })));
+    expect(brief.brief).toBe(true);
+    expect(brief.entry_points[0].callChain).toBeUndefined();
+    const key = brief.entry_points[0].key;
+    const chosen = JSON.parse(text(await c.callTool({ name: 'get_entry_points', arguments: { module_id: mod.id, keys: [key, 'nope'] } })));
+    expect(chosen.entry_points.map((e: { key: string }) => e.key)).toEqual([key]);
+    expect(chosen.entry_points[0].callChain).toHaveLength(1);
+    inlineChars = 100000;
     await c.close();
   });
 });

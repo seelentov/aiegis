@@ -134,6 +134,7 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 | `queue.rate_limit_fallback_pause_sec` | `900` | Pause when the reset time is unknown. Global only |
 | `limits.max_tokens_per_run` | `300000` | Stops a run above this |
 | `limits.max_tokens_per_document_run` | `1000000` | The same for reading documents, extraction and document checks |
+| `limits.entry_points_inline_chars` | `60000` | A larger entry point map reaches agents as a brief list, with details on request |
 | `terminal.external_app` | `Terminal` | macOS application for an external terminal |
 | `terminal.keep_ended_streams` | `50` | Ended output streams kept in memory |
 | `sessions.free_role` | `assistant` | Role of **New session** and fix sessions |

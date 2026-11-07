@@ -360,6 +360,8 @@ export const RU: Record<string, string> = {
   'n/a triage': 'Отсев n/a',
   'Verdicts': 'Вердикты',
   'Estimate: {title} (role {role})': 'Оценка: {title} (роль {role})',
+  'No entry point map: {modules}. Sessions of these modules will search the code without it.': 'Нет карты точек входа: {modules}. Сессии этих модулей будут искать по коду без неё.',
+  'Build maps': 'Построить карты',
   'Sessions: {sessions} · cells: {cells} · ≈{tokens} tokens ({perCell} per cell, {source})': 'Сессий: {sessions} · ячеек: {cells} · ≈{tokens} токенов ({perCell} на ячейку, {source})',
   'from run history': 'по истории прогонов',
   'from config': 'по конфигу',

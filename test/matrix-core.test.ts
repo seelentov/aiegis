@@ -119,6 +119,10 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
 
     const est = await core.estimateMatrix(pid, matrixId, 'triage', 'pending');
     expect(est).toMatchObject({ stage: 'triage', role: 'matrix-triage', sessions: 1, cells: 5, tokensPerCell: 4500, tokensPerCellSource: 'config', tokens: 22500 });
+    expect(est.modulesWithoutMap).toEqual([{ id: moduleId, name: 'svc' }]);
+    const mapJob = await core.enqueueEntryPoints(pid, moduleId);
+    expect((await core.estimateMatrix(pid, matrixId, 'triage', 'pending')).modulesWithoutMap).toEqual([]);
+    await settled(mapJob);
     const [tj] = await core.runMatrix(pid, matrixId, 'triage', 'pending');
     expect(tj.title).toBe('n/a triage: mini × svc');
     expect((await core.matrixView(pid, matrixId)).cells.every((c) => c.activeJob?.id === tj.id)).toBe(true);

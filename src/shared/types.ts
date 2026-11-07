@@ -488,6 +488,8 @@ export interface MatrixEstimate {
   mode?: MatrixRunMode;
   /** The other way to run these cells; set above `matrix.economy_above_tokens`. */
   alternative?: { mode: MatrixRunMode; sessions: number; tokens: number };
+  /** Matrix runs only: modules whose sessions would run without an entry point map. */
+  modulesWithoutMap?: { id: string; name: string }[];
 }
 
 export const FINDING_STATUSES = ['suspected', 'verified', 'false_positive', 'accepted_risk', 'fixed'] as const;
