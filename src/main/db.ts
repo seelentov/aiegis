@@ -721,6 +721,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE findings ADD COLUMN commit_sha TEXT;
   ALTER TABLE finding_verifications ADD COLUMN mode TEXT NOT NULL DEFAULT 'refute';
   `,
+  `
+  -- Pages of the queue: the default order without sorting the whole table.
+  CREATE INDEX jobs_created ON jobs(created_at);
+  CREATE INDEX runs_started ON runs(started_at);
+  `,
 ];
 
 export function migrate(db: DB): void {

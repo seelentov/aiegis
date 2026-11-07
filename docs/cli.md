@@ -45,7 +45,9 @@ Jobs. See [Queue and sessions](queue-and-sessions.md).
 
 | Command | What it does |
 |---|---|
-| `job list` | List jobs |
+| `job list` | List the latest 500 jobs |
+| `job page [--offset <n>] [--limit <n>] [--sort <column>] [--desc] [--status <status>] [--role <role>] [--title <text>] [--created <text>]` | List a page of all jobs, newest first. `--limit` defaults to `ui.page_size`; `--sort` takes `status`, `title`, `role` or `created` |
+| `job show <job>` | Show a job |
 | `job add <prompt> [--role <role>] [--title <text>]` | Queue a free-form agent task |
 | `job cancel <job>` | Cancel a job |
 | `job retry <job>` | Retry a job |
@@ -65,7 +67,8 @@ Runs. See [Queue and sessions](queue-and-sessions.md).
 
 | Command | What it does |
 |---|---|
-| `run list` | List runs |
+| `run list` | List the latest 500 runs |
+| `run page [--offset <n>] [--limit <n>] [--sort <column>] [--desc] [--status <status>] [--role <role>] [--kind <kind>] [--session <text>] [--started <text>]` | List a page of all runs, newest first. `--sort` takes `started`, `kind`, `role`, `status`, `session`, `tokens` or `cost` |
 | `run show <run>` | Show a run with its results and log |
 
 ## module

@@ -8,6 +8,7 @@ import { ConfigView } from './ConfigView';
 import type { Selection } from './DetailsPanel';
 import { Section } from './Section';
 import { tr } from '../i18n';
+import { useGrid } from './Grid';
 import { Button, Checkbox, IconButton, Input, Paged, Select, Table, Textarea } from '../ui';
 
 interface Common {
@@ -88,10 +89,16 @@ function VerdictCompare({ a, b }: { a: Verdict & { run: unknown }; b: Verdict & 
     [tr('Rationale'), (v) => v.reason],
     [tr('Evidence'), (v) => v.evidence.map((e) => `${e.file}${e.line ? `:${e.line}` : ''}`).join('\n') || '—'],
   ];
+  const g = useGrid('verdict.compare', rows, [
+    { key: 'field', title: tr('Field') },
+    { key: 'a', title: time(a.createdAt) },
+    { key: 'b', title: time(b.createdAt) },
+  ]);
   return (
     <Table compact className="compare">
+      {g.head}
       <tbody>
-        {rows.map(([label, f]) => (
+        {g.rows.map(([label, f]) => (
           <tr key={label} className={f(a) !== f(b) ? 'diff' : ''}>
             <td className="muted">{label}</td>
             <td>{f(a)}</td>
