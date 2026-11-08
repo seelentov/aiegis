@@ -39,14 +39,14 @@ macOS is the main platform. Windows and Linux builds are produced automatically 
 ## First start
 
 1. Start aiegis.
-2. Click **Add project** and choose the root of a git repository.
+2. The [setup guide](interface.md#setup-guide) opens. Click **Add project** and choose the root of a git repository. The guide then shows each step below with its state and next action, and it opens again for every project you add later.
 3. The default settings are copied to `~/.aiegis/` (`config.yaml` and the prompts of roles and tasks). You can edit them on the **Settings** tab. See [Configuration](configuration.md).
 
 The interface is in English by default. To switch to Russian, set `ui.language: ru` in **Settings → Global → Interface**. The window reloads after you save.
 
 ## A first audit
 
-The steps below are the usual order. Each one links to its full description.
+The steps below are the usual order; the setup guide follows the same path. Each one links to its full description.
 
 1. **Choose cheap models while you try it.** Create `<repo>/.aiegis/config.yaml`:
 

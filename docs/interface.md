@@ -4,12 +4,12 @@
 
 The layout follows VS Code:
 
-- **Activity bar** (far left): the project list toggle, then the tabs by group. A badge on **Queue** shows how many jobs are running.
-- **Project list**: can be hidden.
-- **Breadcrumbs** above the content: project › tab › selected item. A progress line runs along their lower edge while jobs are running.
+- **Activity bar** (far left): the tabs by group, and the [setup guide](#setup-guide) on top while it is open. A badge on **Queue** shows how many jobs are running.
+- **Header** above the content: the project picker with **Add git repository** and **Remove the project from the list**, then the breadcrumbs: tab › selected item. A progress line runs along its lower edge while jobs are running.
+- **Session list** (left of the content): shown only on the [Sessions](queue-and-sessions.md#sessions-tab) tab, and can be hidden.
 - **Details panel** (right): opens when you select a row. Close it with the cross or `Esc`. Its sections collapse, and the app remembers their state by section name. Selecting another row clears the panel at once, along with any unsaved form in it.
 - **Terminal panel** (bottom): tabs with read-only output streams and interactive sessions. See [Queue and sessions](queue-and-sessions.md#terminal-panel).
-- **Status bar**: the project, jobs in progress or a paused queue (opens **Queue**), the number of sessions (opens the terminal), and the notification bell.
+- **Status bar**: the project (opens **Sessions**), jobs in progress or a paused queue (opens **Queue**), the number of sessions (opens the terminal), and the notification bell.
 
 ## Tabs and keyboard shortcuts
 
@@ -25,21 +25,30 @@ The layout follows VS Code:
 | `⌘6` | [Branch check](branch-check.md) | Audit |
 | `⌘7` | [Modules](modules.md) | Sources |
 | `⌘8` | [Documents](documents.md) | Sources |
-| `⌘9` | [Queue](queue-and-sessions.md) | System |
-| `⌘0` | [Schedules](schedules.md) | System |
+| `⌘9` | [Sessions](queue-and-sessions.md#sessions-tab) | System |
+| `⌘0` | [Queue](queue-and-sessions.md) | System |
+| none | [Schedules](schedules.md) | System |
 | none | [Settings](configuration.md#the-settings-tab) | System |
 
 | Shortcut | Action |
 |---|---|
-| `⌘B` | Show or hide the project list |
+| `⌘B` | Show or hide the session list on **Sessions** |
 | `⌘J` | Show or hide the terminal |
 | `Esc` | Close the details panel (not while typing in a field or in the terminal) |
 
 ## Projects
 
-**Add project** opens a folder dialog; the folder must be a git repository. A project's id is derived from the real path of its root, so moving a repository makes it a new project.
+The project picker in the header switches between projects; type in it to search. **Add git repository** opens a folder dialog; the folder must be a git repository. A project's id is derived from the real path of its root, so moving a repository makes it a new project.
 
-**Remove from list** forgets the project in the app. Its audit data stays on disk, and adding the same path again brings it back. See [Data and logs](data-and-logs.md).
+**Remove the project from the list** forgets the project in the app. Its audit data stays on disk, and adding the same path again brings it back. See [Data and logs](data-and-logs.md).
+
+## Setup guide
+
+![The setup guide after the first audit pass](screenshots/home.png)
+
+A setup guide opens in place of a tab on the first launch with no projects, and again each time you add a project; then it starts without the step of choosing one. It walks from an empty project to the first findings: choose a project, split it into modules, run the scanners, add security documents, map entry points, create and run the matrix, and check dependencies. Each step reads its state from the project, shows what is done or running, and offers its next action; **Open** goes to the step's tab for the full controls. Optional steps can be skipped.
+
+The guide stays on top of the activity bar until **Close guide**.
 
 ## Tables
 
@@ -70,7 +79,7 @@ Every dropdown can be searched:
 
 ## Resizing
 
-Drag a divider to resize the project list, the details panel or the terminal. With the keyboard, focus a divider and use the arrow keys. Double-click a divider to restore its default. Sizes and the last open tab are remembered on this machine.
+Drag a divider to resize the session list, the details panel or the terminal. With the keyboard, focus a divider and use the arrow keys. Double-click a divider to restore its default. Sizes and the last open tab are remembered on this machine.
 
 The terminal can also fill the whole work area: use its button or double-click its tab bar.
 
