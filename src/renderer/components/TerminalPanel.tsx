@@ -53,7 +53,7 @@ export function TerminalPanel({ terminals, active, onActivate, run, height, onHe
           onClick={() => onCollapsed(!collapsed)}
         />
         <Icon name="terminal" />
-        {terminals.length === 0 && <span className="muted small">{tr('No sessions: open one from the queue or details')}</span>}
+        {terminals.length === 0 && <span className="muted small">{tr('No sessions: open one from Sessions or details')}</span>}
         {terminals.map((t) => (
           <div
             key={t.id}
@@ -85,7 +85,7 @@ export function TerminalPanel({ terminals, active, onActivate, run, height, onHe
   );
 }
 
-function TerminalView({ info, visible }: { info: TerminalInfo; visible: boolean }) {
+export function TerminalView({ info, visible }: { info: TerminalInfo; visible: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
 

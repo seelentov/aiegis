@@ -60,7 +60,6 @@ a:hover { text-decoration-color: currentColor; }
 .activity-item.active { box-shadow: inset 2px 0 0 var(--color-accent); }
 .activity-item:focus-visible { outline-offset: -4px; }
 .activity-item.group-start { margin-top: var(--space-xs); }
-.activity-rule { height: 1px; margin: var(--space-2xs) var(--space-sm); background: var(--color-rule); }
 .activity-spacer { flex: 1; }
 .activity-badge {
   position: absolute; right: 7px; bottom: 7px; min-width: 16px; padding: 0 var(--space-3xs); border-radius: 8px;
@@ -97,6 +96,25 @@ body.resizing-y { cursor: row-resize; }
 .project-list li .btn-icon { opacity: 0; width: var(--control-h-s); min-height: var(--control-h-s); }
 .project-list li:hover .btn-icon, .project-list li .btn-icon:focus-visible { opacity: 1; }
 .project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-none { padding: var(--space-2xs) var(--space-xs); }
+.session-list li { justify-content: flex-start; align-items: flex-start; padding-top: var(--space-2xs); padding-bottom: var(--space-2xs); }
+.session-list li > svg { flex-shrink: 0; margin-top: 2px; color: var(--color-muted); }
+.session-list li.live > svg { color: var(--color-accent); }
+.session-item { display: flex; flex-direction: column; min-width: 0; }
+.session-sub { display: flex; gap: var(--space-xs); color: var(--color-muted); font-size: var(--text-xs); white-space: nowrap; }
+
+/* The project picker leads the header; the crumbs follow it. */
+.project-picker { display: flex; align-items: center; gap: var(--space-3xs); min-width: 0; margin-right: var(--space-2xs); }
+.project-picker .select-trigger { max-width: 240px; }
+.project-picker + ol li:first-child::before { content: "›"; padding: 0 var(--space-2xs) 0 0; color: var(--color-rule-2); }
+
+/* Sessions tab: the agent terminal fills the content area. */
+.content.flush { padding: 0; overflow: hidden; }
+.session-view { display: flex; flex-direction: column; height: 100%; }
+.session-head { flex-shrink: 0; display: flex; align-items: center; gap: var(--space-sm); min-height: var(--header-h); padding: 0 var(--space-xs) 0 var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); white-space: nowrap; }
+.session-title { color: var(--color-ink); font-weight: 600; }
+.session-cwd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.session-terminal { flex: 1; min-height: 0; position: relative; background: var(--color-term); }
 
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .main.terminal-max .workspace { display: none; }

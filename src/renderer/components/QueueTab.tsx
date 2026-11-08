@@ -69,13 +69,6 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
   return (
     <div className="queue-tab">
       <div className="toolbar">
-        <IconButton
-          icon="terminal"
-          variant="primary"
-          title={tr('Interactive claude session in the terminal')}
-          label={tr('New session')}
-          onClick={() => void run(api.newSession(project.id)).then(onTerminal)}
-        />
         {queue && (
           <span className="muted">
             {tr('Parallelism {n} · running {running}', { n: queue.parallelism, running: queue.running })}
