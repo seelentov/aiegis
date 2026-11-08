@@ -211,7 +211,7 @@ describe('service and CLI over the socket', () => {
     await expect(cli(['matrix', 'run', 'mini', '--preliminary', '--force', '--yes'])).rejects.toThrow(/no cells/);
 
     await expect(cli(['matrix', 'run', 'mini', '--stage', 'triage'])).rejects.toThrow(/confirmation needed/);
-    await expect(cli(['matrix', 'run', 'mini', '--stage', 'triage', '--section', 'Output', '--yes'])).rejects.toThrow(/whole matrix/);
+    await expect(cli(['matrix', 'run', 'mini', '--stage', 'triage', '--section', 'Output'])).rejects.toThrow(/confirmation needed/);
     await expect(cli(['matrix', 'run', 'mini', '--module', 'nope', '--yes'])).rejects.toThrow(/no cells/);
     expect(await json('job', 'list')).toHaveLength(2);
 

@@ -288,6 +288,8 @@ a.version.active { color: var(--color-ink); text-decoration-color: var(--color-a
 .req-grid td .status { margin-top: var(--space-3xs); }
 .quote { margin-top: var(--space-3xs); font-style: italic; color: var(--color-muted); }
 .form fieldset { border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-pill); padding: var(--space-2xs) var(--space-xs); display: flex; flex-direction: column; gap: var(--space-3xs); }
+.matrix-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm) var(--space-md); align-items: start; }
+.matrix-pick fieldset { max-height: 360px; overflow: auto; }
 .form fieldset legend { color: var(--color-muted); padding: 0 var(--space-2xs); }
 label.check { display: flex; flex-direction: row; align-items: center; gap: var(--space-xs); color: var(--color-ink-2); }
 .estimate { display: flex; flex-direction: column; gap: var(--space-xs); }

@@ -156,7 +156,7 @@ Matrix. See [Matrix](matrix.md).
 | `matrix show <matrix>` | Show a matrix |
 | `matrix slice <matrix> [--module <name>...] [--requirement <key>...] [--section <name>] [--preliminary]` | List the cells a slice run would cover |
 | `matrix estimate <matrix> [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--force]` | Estimate a stage of a matrix; `--force` estimates the usual sessions of a large run |
-| `matrix run <matrix> [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--preliminary] [--force]` | Run a stage of a whole matrix, or verdicts of a module, requirement, section or preliminary cells; `--force` keeps the usual sessions of a large run |
+| `matrix run <matrix> [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--preliminary] [--force]` | Run a stage of a whole matrix or of a module, requirement or section (verdicts also of preliminary cells); `--force` keeps the usual sessions of a large run |
 
 ## cell
 
@@ -168,6 +168,7 @@ Cells. See [Matrix](matrix.md).
 | `cell run <cell...> [--matrix <matrix>] [--force]` | Run verdicts of cells (<module id>/<requirement id>) |
 | `cell show <cell> [--matrix <matrix>]` | Show a cell |
 | `cell verdict <cell> <status> <reason> [--evidence <file[:line]>...]` | Set a human verdict |
+| `cell bulk-verdict <status> <reason> <cell...> [--evidence <file[:line]>...]` | Set one human verdict for several cells, all or none |
 
 ## finding
 

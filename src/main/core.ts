@@ -2123,7 +2123,7 @@ export class Core extends EventEmitter {
     return (todo.length && !slice.preliminary ? todo : cells).map((c) => cellId(c));
   }
 
-  private sliceCells(view: MatrixView, slice: MatrixSlice) {
+  private sliceCells(view: MatrixView, slice: MatrixSlice, withBusy = false) {
     const modules = view.modules.filter((m) => !slice.modules || slice.modules.includes(m.id) || slice.modules.includes(m.name));
     const requirements = view.requirements.filter(
       (r) =>
@@ -2132,7 +2132,7 @@ export class Core extends EventEmitter {
     );
     const moduleIds = new Set(modules.map((m) => m.id));
     const requirementIds = new Set(requirements.map((r) => r.requirementId));
-    return view.cells.filter((c) => moduleIds.has(c.moduleId) && requirementIds.has(c.requirementId) && !c.activeJob && (!slice.preliminary || c.preliminary));
+    return view.cells.filter((c) => moduleIds.has(c.moduleId) && requirementIds.has(c.requirementId) && (withBusy || !c.activeJob) && (!slice.preliminary || c.preliminary));
   }
 
   async matrixView(projectId: string, matrixId: string): Promise<MatrixView> {
@@ -2184,10 +2184,10 @@ export class Core extends EventEmitter {
     };
   }
 
-  /** Cells of a matrix a stage would cover: triage — never triaged and not checked; verdicts — not checked or stale. */
-  private async stageCells(projectId: string, matrix: Matrix, stage: MatrixStage, scope: MatrixScope): Promise<{ free: CellRef[]; busy: number }> {
+  /** Cells of a matrix (or of its slice) a stage would cover: triage — never triaged and not checked; verdicts — not checked or stale. */
+  private async stageCells(projectId: string, matrix: Matrix, stage: MatrixStage, scope: MatrixScope, slice?: MatrixSlice): Promise<{ free: CellRef[]; busy: number }> {
     const view = await this.matrixView(projectId, matrix.id);
-    const want = view.cells.filter((c) =>
+    const want = (slice ? this.sliceCells(view, slice, true) : view.cells).filter((c) =>
       stage === 'triage' ? c.status === 'not_checked' && !c.triaged : scope === 'stale' ? c.stale : c.status === 'not_checked',
     );
     return {
@@ -2287,9 +2287,9 @@ export class Core extends EventEmitter {
   }
 
   /** Dry-run estimate of a matrix stage (SPEC §7): sessions, cells and tokens, nothing is queued. */
-  async estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force = false): Promise<MatrixEstimate> {
+  async estimateMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force = false, slice?: MatrixSlice): Promise<MatrixEstimate> {
     const matrix = this.matrixOf(this.store(projectId), matrixId);
-    const { free, busy } = await this.stageCells(projectId, matrix, stage, scope);
+    const { free, busy } = await this.stageCells(projectId, matrix, stage, scope, slice);
     return { ...this.estimateRun(projectId, stage, free, busy, force), modulesWithoutMap: this.modulesWithoutMap(projectId, free) };
   }
 
@@ -2302,9 +2302,9 @@ export class Core extends EventEmitter {
   }
 
   /** Queues a matrix stage: one job per batch; cells already covered by queued/running jobs are skipped. */
-  async runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force = false): Promise<Job[]> {
+  async runMatrix(projectId: string, matrixId: string, stage: MatrixStage, scope: MatrixScope, force = false, slice?: MatrixSlice): Promise<Job[]> {
     const matrix = this.matrixOf(this.store(projectId), matrixId);
-    const { free } = await this.stageCells(projectId, matrix, stage, scope);
+    const { free } = await this.stageCells(projectId, matrix, stage, scope, slice);
     if (!free.length) throw new NothingToDo('no cells to check');
     return this.enqueueBatches(projectId, matrix, stage, this.runBatches(projectId, stage, free, force));
   }
@@ -2432,38 +2432,35 @@ export class Core extends EventEmitter {
 
   /** Manual verdict (SPEC §6): a record authored by human at the working copy's HEAD. */
   async setVerdict(projectId: string, id: string, v: { status: VerdictStatus; reason: string; evidence: Evidence[] }): Promise<Verdict> {
+    return (await this.setVerdicts(projectId, [id], v))[0];
+  }
+
+  /** One human verdict for several cells; a cell that fails the checks fails the whole batch. */
+  async setVerdicts(projectId: string, ids: string[], v: { status: VerdictStatus; reason: string; evidence: Evidence[] }): Promise<Verdict[]> {
     const p = this.project(projectId);
     const s = this.store(projectId);
-    const ref = parseCellId(id);
     if (!VERDICT_STATUSES.includes(v.status)) throw new Error(`unknown status ${v.status}`);
     const reason = v.reason.trim();
     if (!reason) throw new Error('specify the rationale');
-    const item = s.audit.currentItem(ref.requirementId);
-    const mod = s.getModule(ref.moduleId);
-    if (!item || !mod) throw new Error('cell not found: the module was deleted or the requirement removed');
+    if (!ids.length) throw new Error('pick at least one cell');
     const evidence = v.evidence.filter((e) => e.file.trim());
     if ((v.status === 'pass' || v.status === 'finding') && !evidence.length) throw new Error('pass/finding requires code references');
     for (const e of evidence) {
       const err = repoFileError(p.root, e.file);
       if (err) throw new Error(err);
     }
-    const findings = s.audit.findingsOfCell(ref);
-    if (v.status === 'finding' && !findings.length) throw new Error('create or link a finding for this cell first');
-    const touched = uniq([...evidence.map((e) => e.file), ...(v.status === 'finding' ? findings.flatMap((f) => f.files.map((x) => x.file)) : [])]).sort();
-    const saved = s.audit.addVerdict(
-      {
-        ...ref,
-        itemId: item.id,
-        reqHash: reqHash(item.text),
-        status: v.status,
-        reason,
-        evidence,
-        commitSha: await headSha(p.root),
-        touchedFiles: touched,
-        moduleGlobs: mod.globs,
-      },
-      { author: 'human', runId: null },
-    );
+    const commitSha = await headSha(p.root);
+    const rows = uniq(ids).map((id) => {
+      const ref = parseCellId(id);
+      const item = s.audit.currentItem(ref.requirementId);
+      const mod = s.getModule(ref.moduleId);
+      if (!item || !mod) throw new Error(`cell ${id} not found: the module was deleted or the requirement removed`);
+      const findings = s.audit.findingsOfCell(ref);
+      if (v.status === 'finding' && !findings.length) throw new Error(`create or link a finding for cell ${id} first`);
+      const touched = uniq([...evidence.map((e) => e.file), ...(v.status === 'finding' ? findings.flatMap((f) => f.files.map((x) => x.file)) : [])]).sort();
+      return { ...ref, itemId: item.id, reqHash: reqHash(item.text), status: v.status, reason, evidence, commitSha, touchedFiles: touched, moduleGlobs: mod.globs };
+    });
+    const saved = s.audit.addVerdicts(rows, { author: 'human', runId: null });
     this.auditChanged(projectId);
     return saved;
   }

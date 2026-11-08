@@ -115,8 +115,12 @@ async function runMatrix(a: Input, c: Ctx): Promise<unknown> {
     preliminary: a.has('preliminary') || undefined,
   };
   const force = a.has('force');
-  if (slice.modules || slice.requirements || slice.section !== undefined || slice.preliminary) {
-    if (stage === 'triage') throw new Error('triage runs on the whole matrix');
+  const sliced = slice.modules || slice.requirements || slice.section !== undefined || slice.preliminary;
+  if (sliced && stage === 'triage') {
+    await c.confirm(await c.call('estimateMatrix', pid, matrix, stage, 'pending', force, slice));
+    return c.call('runMatrix', pid, matrix, stage, 'pending', force, slice);
+  }
+  if (sliced) {
     const cells = await c.call('matrixSlice', pid, matrix, slice);
     if (!cells.length) throw new Error('no cells in this slice');
     await c.confirm(await c.call('estimateRecheck', pid, cells, matrix, force));
@@ -346,7 +350,7 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   runMatrix: {
     name: 'matrix run',
     usage: '<matrix> [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--preliminary] [--force]',
-    help: 'Run a stage of a whole matrix, or verdicts of a module, requirement, section or preliminary cells; --force keeps the usual sessions of a large run',
+    help: 'Run a stage of a whole matrix or of a module, requirement or section (verdicts also of preliminary cells); --force keeps the usual sessions of a large run',
     run: runMatrix,
   },
   estimateRecheck: { name: 'cell estimate', usage: '<cell...> [--matrix <matrix>] [--force]', help: 'Estimate a recheck of cells', run: async (a, c) => c.call('estimateRecheck', c.pid(), a.pos, a.has('matrix') ? await matrixId(c, a.one('matrix')!) : undefined, a.has('force')) },
@@ -366,6 +370,12 @@ export const COMMANDS: Record<CoreMethod, Command> = {
     usage: '<cell> <status> <reason> [--evidence <file[:line]>...]',
     help: 'Set a human verdict',
     run: (a, c) => c.call('setVerdict', c.pid(), a.pos[0], { status: oneOf(a.pos[1], VERDICT_STATUSES, 'status'), reason: a.pos[2], evidence: evidence(a) }),
+  },
+  setVerdicts: {
+    name: 'cell bulk-verdict',
+    usage: '<status> <reason> <cell...> [--evidence <file[:line]>...]',
+    help: 'Set one human verdict for several cells, all or none',
+    run: (a, c) => c.call('setVerdicts', c.pid(), a.pos.slice(2), { status: oneOf(a.pos[0], VERDICT_STATUSES, 'status'), reason: a.pos[1], evidence: evidence(a) }),
   },
 
   listFindings: { name: 'finding list', usage: '', help: 'List findings', columns: ['id', 'status', 'severity', 'title'], run: (_a, c) => c.call('listFindings', c.pid()) },

@@ -698,6 +698,11 @@ export class AuditStore {
     return toVerdict(this.db.prepare('SELECT * FROM verdicts WHERE id = ?').get(id) as Row);
   }
 
+  /** Several verdicts, all or none. */
+  addVerdicts(vs: NewVerdict[], by: Authorship): Verdict[] {
+    return this.db.transaction(() => vs.map((v) => this.addVerdict(v, by)))();
+  }
+
   /** Newest first. */
   verdictHistory(c: CellRef): Verdict[] {
     return (

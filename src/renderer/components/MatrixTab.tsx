@@ -1,14 +1,17 @@
 import { Fragment, useEffect, useState } from 'react';
-import type { Cell, DocumentSummary, Matrix, MatrixEstimate, MatrixScope, MatrixSlice, MatrixStage, MatrixView, ModuleSummary, ProjectInfo } from '../../shared/types';
+import { VERDICT_STATUSES, type VerdictStatus } from '../../shared/types';
+import type { Cell, DocSet, DocumentSummary, Matrix, MatrixEstimate, MatrixScope, MatrixSlice, MatrixStage, MatrixView, ModuleSummary, ProjectInfo } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { CELL_STATUS, JOB_STATUS, kTokens, STALE_REASON } from '../format';
+import { parseEvidence } from './AuditDetails';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid, type Col } from './Grid';
 import { Icon } from './Icon';
+import { showMenu, type MenuEntry } from '../menu';
 import { useReveal } from '../reveal';
 import { tr } from '../i18n';
-import { Button, Checkbox, IconButton, Input, Select, Table } from '../ui';
+import { Button, Checkbox, IconButton, Input, Select, Table, Textarea } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -26,11 +29,14 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
   const [mods, setMods] = useState<string[]>(matrix?.moduleIds ?? []);
   const [allDocs, setAllDocs] = useState<DocumentSummary[]>([]);
   const [allMods, setAllMods] = useState<ModuleSummary[]>([]);
+  const [sets, setSets] = useState<DocSet[]>([]);
   useEffect(() => {
     void api.listDocuments(project.id).then(setAllDocs);
+    void api.listDocSets(project.id).then(setSets);
     void api.listModules(project.id).then(setAllMods);
   }, [project.id]);
   const toggle = (list: string[], set: (x: string[]) => void, id: string) => set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  const setDocsOf = (id: string) => allDocs.filter((d) => d.setId === id && d.current).map((d) => d.id);
   const save = async () => {
     const m = await run(api.saveMatrix(project.id, { id: matrix?.id, name, documentIds: docs, moduleIds: mods }));
     if (m) onDone(m);
@@ -42,24 +48,36 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
         <Input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <div />
-      <fieldset>
-        <legend>{tr('Documents (approved versions)')}</legend>
-        {allDocs.map((d) => (
-          <label key={d.id} className="check">
-            <Checkbox checked={docs.includes(d.id)} disabled={!d.current} onChange={() => toggle(docs, setDocs, d.id)} />
-            {d.title} {d.current ? <span className="muted">v{d.current.n}</span> : <span className="muted">{tr('(no approved version)')}</span>}
-          </label>
-        ))}
-      </fieldset>
-      <fieldset>
-        <legend>{tr('Modules (none selected means all)')}</legend>
-        {allMods.map((m) => (
-          <label key={m.id} className="check">
-            <Checkbox checked={mods.includes(m.id)} onChange={() => toggle(mods, setMods, m.id)} />
-            {m.name}
-          </label>
-        ))}
-      </fieldset>
+      <div className="wide matrix-pick">
+        <fieldset>
+          <legend>{tr('Documents (approved versions)')}</legend>
+          {sets.map((set) => {
+            const ids = setDocsOf(set.id);
+            const all = ids.length > 0 && ids.every((id) => docs.includes(id));
+            return (
+              <label key={set.id} className="check">
+                <Checkbox checked={all} disabled={!ids.length} onChange={() => setDocs(all ? docs.filter((id) => !ids.includes(id)) : [...new Set([...docs, ...ids])])} />
+                <strong>{tr('Set: {name}', { name: set.name })}</strong> <span className="muted">{ids.length}</span>
+              </label>
+            );
+          })}
+          {allDocs.map((d) => (
+            <label key={d.id} className="check">
+              <Checkbox checked={docs.includes(d.id)} disabled={!d.current} onChange={() => toggle(docs, setDocs, d.id)} />
+              {d.title} {d.current ? <span className="muted">v{d.current.n}</span> : <span className="muted">{tr('(no approved version)')}</span>}
+            </label>
+          ))}
+        </fieldset>
+        <fieldset>
+          <legend>{tr('Modules (none selected means all)')}</legend>
+          {allMods.map((m) => (
+            <label key={m.id} className="check">
+              <Checkbox checked={mods.includes(m.id)} onChange={() => toggle(mods, setMods, m.id)} />
+              {m.name}
+            </label>
+          ))}
+        </fieldset>
+      </div>
       <div className="wide row">
         <Button variant="primary" disabled={!name.trim() || !docs.length} onClick={() => void save()}>
           {tr('Save')}
@@ -166,8 +184,50 @@ function CellBadge({ c }: { c: Cell }) {
   );
 }
 
+/** One manual verdict for every cell of a slice, all or none. */
+function BulkVerdictForm({ project, run, title, cells, onDone }: { project: ProjectInfo; run: RunFn; title: string; cells: string[]; onDone: () => void }) {
+  const [status, setStatus] = useState<VerdictStatus>('n/a');
+  const [reason, setReason] = useState('');
+  const [evidence, setEvidence] = useState('');
+  const save = async () => {
+    if (await run(api.setVerdicts(project.id, cells, { status, reason, evidence: parseEvidence(evidence) }))) onDone();
+  };
+  return (
+    <div className="card">
+      <strong>{tr('Verdict for {n} cells: {scope}', { n: cells.length, scope: title })}</strong>
+      <div className="form">
+        <label>
+          {tr('Status')}
+          <Select value={status} onChange={setStatus}>
+            {VERDICT_STATUSES.map((x) => (
+              <option key={x} value={x}>
+                {CELL_STATUS[x]}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <div />
+        <label className="wide">
+          {tr('Rationale')}
+          <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </label>
+        <label className="wide">
+          {tr('Code (one per line: path[:line] [note], from the repository root)')}
+          <Textarea rows={2} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+        </label>
+        <div className="wide row">
+          <Button variant="primary" disabled={!reason.trim() || !cells.length} onClick={() => void save()}>
+            {tr('Save')}
+          </Button>
+          <Button onClick={onDone}>{tr('Cancel')}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type Pending =
-  | { kind: 'stage'; stage: MatrixStage; scope: MatrixScope; estimate: MatrixEstimate; force: boolean }
+  | { kind: 'stage'; stage: MatrixStage; scope: MatrixScope; estimate: MatrixEstimate; force: boolean; slice?: MatrixSlice; title?: string }
   | { kind: 'cells'; cells: string[]; title: string; estimate: MatrixEstimate; force: boolean };
 
 type RowFilter = 'all' | 'stale' | 'finding' | 'not_checked' | 'preliminary';
@@ -188,6 +248,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
   }, [draftDocument, onDraftTaken]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [filter, setFilter] = useState<RowFilter>('all');
+  const [bulk, setBulk] = useState<{ title: string; cells: string[] } | null>(null);
   useReveal(
     (key) => {
       const id = key.startsWith('matrix:') ? key.slice('matrix:'.length) : null;
@@ -211,10 +272,10 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
     void run(api.matrixView(project.id, matrixId)).then((v) => setView(v ?? null));
   }, [project.id, matrixId, revision, run]);
 
-  const estimate = async (stage: MatrixStage, scope: MatrixScope, force = false) => {
+  const estimate = async (stage: MatrixStage, scope: MatrixScope, force = false, slice?: MatrixSlice, title?: string) => {
     if (!matrixId) return;
-    const e = await run(api.estimateMatrix(project.id, matrixId, stage, scope, force));
-    if (e) setPending({ kind: 'stage', stage, scope, estimate: e, force });
+    const e = await run(api.estimateMatrix(project.id, matrixId, stage, scope, force, slice));
+    if (e) setPending({ kind: 'stage', stage, scope, estimate: e, force, slice, title });
   };
   const estimateCells = async (cells: string[], title: string, force: boolean) => {
     const e = await run(api.estimateRecheck(project.id, cells, matrixId ?? undefined, force));
@@ -222,7 +283,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
   };
   const switchMode = () => {
     if (!pending) return;
-    if (pending.kind === 'stage') void estimate(pending.stage, pending.scope, !pending.force);
+    if (pending.kind === 'stage') void estimate(pending.stage, pending.scope, !pending.force, pending.slice, pending.title);
     else void estimateCells(pending.cells, pending.title, !pending.force);
   };
   const buildMaps = async () => {
@@ -233,7 +294,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
   const start = async () => {
     if (!pending || !matrixId) return;
     await run(
-      pending.kind === 'stage' ? api.runMatrix(project.id, matrixId, pending.stage, pending.scope, pending.force) : api.recheckCells(project.id, pending.cells, matrixId, pending.force),
+      pending.kind === 'stage' ? api.runMatrix(project.id, matrixId, pending.stage, pending.scope, pending.force, pending.slice) : api.recheckCells(project.id, pending.cells, matrixId, pending.force),
     );
     setPending(null);
   };
@@ -250,6 +311,29 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
     await estimateCells(ids, tr('verdicts, {scope}', { scope: title }), force);
   };
 
+  /** Actions of a slice: the right-click menu and the ⋯ button show the same list. */
+  const actions = (title: string, slice: MatrixSlice, cells: () => string[]): MenuEntry[] => [
+    { label: tr('Verdicts'), run: () => void runSlice(title, slice) },
+    { label: tr('n/a triage'), run: () => void estimate('triage', 'pending', false, slice, tr('n/a triage, {scope}', { scope: title })) },
+    null,
+    { label: tr('Set a verdict…'), run: () => setBulk({ title, cells: cells() }) },
+  ];
+  const cellsOf = (moduleIds: string[] | null, requirementIds: string[] | null) =>
+    (view?.cells ?? []).filter((c) => (!moduleIds || moduleIds.includes(c.moduleId)) && (!requirementIds || requirementIds.includes(c.requirementId))).map((c) => `${c.moduleId}/${c.requirementId}`);
+  const moduleActions = (m: MatrixView['modules'][number]) => actions(tr('module {name}', { name: m.name }), { modules: [m.id] }, () => cellsOf([m.id], null));
+  const reqActions = (r: Req) => actions(tr('requirement {key}', { key: r.key }), { requirements: [r.requirementId] }, () => cellsOf(null, [r.requirementId]));
+  const sectionActions = (key: string) => {
+    const ids = (wholeSection.get(key) ?? []).map((r) => r.requirementId);
+    return actions(tr('section {key}', { key }), { requirements: ids }, () => cellsOf(null, ids));
+  };
+  const cellActions = (moduleId: string, r: Req) => {
+    const m = view?.modules.find((x) => x.id === moduleId);
+    return actions(tr('cell {key} × {name}', { key: r.key, name: m?.name ?? moduleId }), { modules: [moduleId], requirements: [r.requirementId] }, () => [`${moduleId}/${r.requirementId}`]);
+  };
+  const actionsButton = (className: string, title: string, entries: () => MenuEntry[]) => (
+    <IconButton icon="more" variant="ghost" className={className} title={tr('Actions: {scope}', { scope: title })} onClick={(e) => showMenu(e, entries())} />
+  );
+
   const modules = view?.modules ?? [];
   const rowShown = (r: Req) =>
     filter === 'all' ||
@@ -258,7 +342,8 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
       return c && (filter === 'stale' ? c.stale : filter === 'preliminary' ? c.preliminary : filter === 'finding' ? c.findingCount > 0 || c.status === 'finding' : c.status === 'not_checked');
     });
   const cols: Col<Req>[] = [
-    { key: 'req', title: tr('Requirement'), text: (r) => `${r.key} ${r.text}`, sort: (r) => r.key, className: 'req-col' },
+    // The text filter also matches the document title and section.
+    { key: 'req', title: tr('Requirement'), text: (r) => `${r.key} ${r.text} ${r.documentTitle} ${r.section}`, sort: (r) => r.key, className: 'req-col' },
     ...modules.map(
       (m): Col<Req> => ({
         key: m.id,
@@ -272,18 +357,21 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
           return c ? (c.stale ? -1 : (CELL_RANK[c.status] ?? 9)) : 99;
         },
         filter: 'enum',
-        extra: (
-          <IconButton
-            icon="play"
-            variant="ghost" className="col-run"
-            title={tr('Verdicts for module {name}: unchecked and stale cells', { name: m.name })}
-            onClick={() => void runSlice(tr('module {name}', { name: m.name }), { modules: [m.id] })}
-          />
-        ),
+        menu: () => moduleActions(m),
+        extra: actionsButton('col-run', tr('module {name}', { name: m.name }), () => moduleActions(m)),
       }),
     ),
   ];
-  const g = useGrid(`matrix.${matrixId}`, (view?.requirements ?? []).filter(rowShown), cols);
+  const reqs = view?.requirements ?? [];
+  const g = useGrid(`matrix.${matrixId}`, reqs.filter(rowShown), cols, {
+    menu: (target) => {
+      const el = target.closest<HTMLElement>('[data-cell], [data-req], [data-section]');
+      if (el?.dataset.section !== undefined) return sectionActions(el.dataset.section);
+      const r = reqs.find((x) => x.requirementId === (el?.closest<HTMLElement>('[data-req]')?.dataset.req));
+      if (!r) return [];
+      return el?.dataset.cell ? cellActions(el.dataset.cell, r) : reqActions(r);
+    },
+  });
 
   const sectionOf = (r: Req) => `${r.documentTitle} · ${r.section || '—'}`;
   // The run button of a section covers all of it, also the rows on other pages.
@@ -370,8 +458,9 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
           />
         </div>
       )}
+      {bulk && <BulkVerdictForm key={bulk.title} project={project} run={run} {...bulk} onDone={() => setBulk(null)} />}
       {pending && (
-        <EstimatePanel estimate={pending.estimate} title={pending.kind === 'cells' ? pending.title : undefined} onSwitch={switchMode} onBuildMaps={() => void buildMaps()} onRun={() => void start()} onCancel={() => setPending(null)} />
+        <EstimatePanel estimate={pending.estimate} title={pending.title} onSwitch={switchMode} onBuildMaps={() => void buildMaps()} onRun={() => void start()} onCancel={() => setPending(null)} />
       )}
       {!matrix ? (
         <div className="empty">{tr('No matrices. Upload and approve a document on the “Documents” tab, then create a matrix.')}</div>
@@ -419,25 +508,20 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
                 )}
                 {sections.map((sec) => (
                   <Fragment key={sec.key}>
-                    <tr className="section-row">
+                    <tr className="section-row" data-section={sec.key}>
                       <td colSpan={g.colSpan}>
                         <span>{sec.key}</span>
-                        <IconButton
-                          icon="play"
-                          variant="ghost" className="row-run"
-                          title={tr('Verdicts for the section: {n} requirements', { n: wholeSection.get(sec.key)!.length })}
-                          onClick={() => void runSlice(tr('section {key}', { key: sec.key }), { requirements: wholeSection.get(sec.key)!.map((r) => r.requirementId) })}
-                        />
+                        {actionsButton('row-run', tr('section {key}', { key: sec.key }), () => sectionActions(sec.key))}
                       </td>
                     </tr>
                     {sec.items.map((r) => (
-                      <tr key={r.requirementId}>
+                      <tr key={r.requirementId} data-req={r.requirementId}>
                         <td className="req-cell">
                           <div className="req-line">
                             <span>
                               <span className="mono">{r.key}</span> {r.text}
                             </span>
-                            <IconButton icon="play" variant="ghost" className="row-run" title={tr('Verdicts for requirement {key}', { key: r.key })} onClick={() => void runSlice(tr('requirement {key}', { key: r.key }), { requirements: [r.requirementId] })} />
+                            {actionsButton('row-run', tr('requirement {key}', { key: r.key }), () => reqActions(r))}
                           </div>
                         </td>
                         {modules.map((m) => {
@@ -446,6 +530,7 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
                           return (
                             <td
                               key={m.id}
+                              data-cell={m.id}
                               tabIndex={0}
                               className={selection?.kind === 'cell' && selection.id === id ? 'selected matrix-cell' : 'matrix-cell'}
                               onClick={() => onSelect({ kind: 'cell', id, matrixId: matrix.id })}

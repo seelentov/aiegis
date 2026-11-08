@@ -6,7 +6,7 @@ A matrix crosses requirements with modules. Each cell gets its own verdict with 
 
 ## Creating a matrix
 
-A matrix has a name, documents (their approved versions) and modules. With no modules selected, it means all current modules. Click **+** to create one and the pencil to edit it.
+A matrix has a name, documents (their approved versions) and modules. With no modules selected, it means all current modules. Click **+** to create one and the pencil to edit it. Ticking a document set takes all its approved documents.
 
 A cell is global: a verdict for a module and a requirement is shared by every matrix that contains that cell.
 
@@ -24,7 +24,7 @@ A `pass` must cite the code that meets the requirement. The agent checks every p
 
 `stale` is a separate flag on top of a status: the code or the requirement changed after the verdict. See [freshness](concepts.md#freshness-stale). `applicable` marks a cell the triage left for the verdict stage; the cell stays `not checked`.
 
-The counters above the grid filter the rows. The grid is grouped by document and section, and the header shows which commit the verdicts are displayed for.
+The counters above the grid filter the rows, and the filter of the requirement column also matches the document title. The grid is grouped by document and section, and the header shows which commit the verdicts are displayed for.
 
 ## Running checks
 
@@ -35,8 +35,11 @@ Every run opens an [estimate](#estimates) first.
 | **n/a triage** | Stage 1 (role `matrix-triage`, a cheap model) | `not checked` without a triage mark. One session per module, up to `matrix.triage_batch_size` cells |
 | **Verdicts** | Stage 2 (role `matrix`) | All `not checked`. One session per module × section, up to `matrix.batch_size` cells |
 | **Stale** | Stage 2 | All `stale` cells, in any status |
-| ▷ on a column, row or section | Stage 2 | The `not checked` and `stale` cells of that slice, or all of them if there are none |
+| **Verdicts** in the actions of a column, row, section or cell | Stage 2 | The `not checked` and `stale` cells of that slice, or all of them if there are none |
+| **n/a triage** in the same actions | Stage 1 | The cells of that slice the whole-matrix triage would take |
 | **Recheck** in the details | Stage 2 | The selected cell |
+
+The actions open with a right-click on a column header, a row, a section or a cell, or with **⋯** beside them. **Set a verdict…** there gives every cell of the slice one manual verdict with one rationale and evidence: all cells change or none does.
 
 Cells already covered by a queued or running job are skipped. A cell with its own `requirements.<key>` configuration level gets a separate session so that the level applies.
 
@@ -86,11 +89,13 @@ aiegis matrix estimate <matrix> --stage verdicts --scope pending
 aiegis matrix run <matrix> --stage triage
 aiegis matrix run <matrix> --stage verdicts --scope stale
 aiegis matrix run <matrix> --module api            # also --requirement, --section
+aiegis matrix run <matrix> --stage triage --module api
 aiegis matrix slice <matrix> --module api
 aiegis cell show <module id>/<requirement id>
 aiegis cell estimate <cell>...
 aiegis cell run <cell>...
 aiegis cell verdict <cell> pass 'Checked by the middleware' --evidence lib/auth.js:12
+aiegis cell bulk-verdict n/a 'No HTTP in this module' <cell>...
 ```
 
 Run commands show the estimate and ask for confirmation; `--yes` skips this. See the [CLI reference](cli.md#matrix).

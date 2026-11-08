@@ -3,7 +3,7 @@ import { Icon } from './Icon';
 import { usePersisted } from './Splitter';
 import { api } from '../api';
 import { lang, tr } from '../i18n';
-import { copyText, FILE_LINE, ProjectIdContext, showMenu } from '../menu';
+import { copyText, FILE_LINE, ProjectIdContext, showMenu, type MenuEntry } from '../menu';
 import { useReveal } from '../reveal';
 import type { Page, PageQuery } from '../../shared/types';
 import { Button, IconButton, Input, Pager, pageSizes, pageSlice, Select } from '../ui';
@@ -23,6 +23,8 @@ export interface Col<T> {
   className?: string;
   /** Controls placed in the header cell beside the title (a column action). */
   extra?: ReactNode;
+  /** Actions of the column, leading its header menu. */
+  menu?: () => MenuEntry[];
 }
 
 interface GridState {
@@ -75,10 +77,10 @@ function setHiddenCols(id: string, idx: number[]) {
 }
 
 /** Menus of the header and the rows, column hiding: wired on the table that holds the grid's head. */
-function useGridTable<T>(g: GridHandle, cols: Col<T>[], options: (c: Col<T>) => string[]) {
+function useGridTable<T>(g: GridHandle, cols: Col<T>[], options: (c: Col<T>) => string[], menu?: (target: HTMLElement) => MenuEntry[]) {
   const pid = useContext(ProjectIdContext);
-  const latest = useRef({ cols, options, g, pid });
-  latest.current = { cols, options, g, pid };
+  const latest = useRef({ cols, options, g, pid, menu });
+  latest.current = { cols, options, g, pid, menu };
 
   const hiddenIdx = cols.flatMap((c, i) => (g.hidden.includes(c.key) ? [i] : []));
   useEffect(() => {
@@ -91,7 +93,7 @@ function useGridTable<T>(g: GridHandle, cols: Col<T>[], options: (c: Col<T>) => 
     if (!table) return;
     table.dataset.grid = g.id;
     const onMenu = (e: MouseEvent) => {
-      const { cols, options, g, pid } = latest.current;
+      const { cols, options, g, pid, menu } = latest.current;
       const target = e.target as HTMLElement;
       if (target.closest('input, textarea, select, button, a')) return;
       if (target.closest('thead')) return headMenu(e, cols, g);
@@ -106,6 +108,8 @@ function useGridTable<T>(g: GridHandle, cols: Col<T>[], options: (c: Col<T>) => 
       const file = [...value.matchAll(FILE_LINE)][0];
       const rowText = (r: HTMLTableRowElement) => [...r.cells].filter((c) => c.offsetParent !== null).map((c) => c.innerText.trim().replace(/\s+/g, ' ')).join('\t');
       showMenu(e, [
+        ...(menu?.(target) ?? []),
+        null,
         { label: tr('Open'), run: () => row.click() },
         file && { label: tr('Open {file} in the editor', { file: file[0].slice(file[1].length) }), run: () => void api.openInEditor(file[2], Number(file[3]), pid ?? undefined) },
         null,
@@ -130,6 +134,8 @@ function headMenu<T>(e: MouseEvent, cols: Col<T>[], g: GridHandle) {
   const col = th && th.parentElement === g.head.current?.rows[0] ? cols[th.cellIndex] : undefined;
   const shown = cols.filter((c) => !g.hidden.includes(c.key));
   showMenu(e, [
+    ...(col?.menu?.() ?? []),
+    null,
     col?.text && { label: tr('Sort ascending'), checked: g.state.sort?.key === col.key && g.state.sort.dir === 1, run: () => g.setSort({ key: col.key, dir: 1 }) },
     col?.text && { label: tr('Sort descending'), checked: g.state.sort?.key === col.key && g.state.sort.dir === -1, run: () => g.setSort({ key: col.key, dir: -1 }) },
     { label: tr('Reset filters and sorting'), enabled: g.filtered || g.state.sort !== null, run: g.reset },
@@ -195,10 +201,12 @@ interface GridOptions<T> {
   group?: (r: T) => number;
   /** Key of the row for `reveal` (`kind:id`): search and history bring it into view. */
   revealKey?: (r: T) => string;
+  /** Actions for the right-clicked element of a row, leading its menu. */
+  menu?: (target: HTMLElement) => MenuEntry[];
 }
 
 /** `rows` is the current page, `all` every row that passes the filters. */
-export function useGrid<T>(id: string, rows: T[], cols: Col<T>[], { order, group, revealKey }: GridOptions<T> = {}) {
+export function useGrid<T>(id: string, rows: T[], cols: Col<T>[], { order, group, revealKey, menu }: GridOptions<T> = {}) {
   const g = useGridState(id);
   const { state } = g;
 
@@ -228,7 +236,7 @@ export function useGrid<T>(id: string, rows: T[], cols: Col<T>[], { order, group
 
   const { rows: pageRows, page } = pageSlice(shown, state.page, pageSizes.table);
   const options = (c: Col<T>) => [...new Set(rows.map(c.text!))].filter(Boolean).sort(collator.compare);
-  useGridTable(g, cols, options);
+  useGridTable(g, cols, options, menu);
 
   // Reveal: the row's page, with the filters dropped when they hide it, then the scroll once that page renders.
   const [flash, setFlash] = useState<string | null>(null);

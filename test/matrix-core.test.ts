@@ -117,6 +117,7 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     expect(view.cells).toHaveLength(5);
     expect(view.cells.every((c) => c.status === 'not_checked' && !c.stale)).toBe(true);
 
+    expect((await core.estimateMatrix(pid, matrixId, 'triage', 'pending', false, { section: 'Output' })).cells).toBe(2);
     const est = await core.estimateMatrix(pid, matrixId, 'triage', 'pending');
     expect(est).toMatchObject({ stage: 'triage', role: 'matrix-triage', sessions: 1, cells: 5, tokensPerCell: 4500, tokensPerCellSource: 'config', tokens: 22500 });
     expect(est.modulesWithoutMap).toEqual([{ id: moduleId, name: 'svc' }]);
@@ -175,6 +176,9 @@ describe('documents -> requirements -> matrix with a fake claude', () => {
     const auth1 = v.requirements.find((r) => r.key === 'AUTH-1')!;
     const id = `${moduleId}/${auth1.requirementId}`;
     await expect(core.setVerdict(pid, id, { status: 'pass', reason: 'ok', evidence: [] })).rejects.toThrow(/code references/);
+    // A bulk verdict is all or none: one bad cell keeps the others unchanged.
+    await expect(core.setVerdicts(pid, [id, `${moduleId}/nope`], { status: 'n/a', reason: 'bulk', evidence: [] })).rejects.toThrow(/not found/);
+    expect((await core.cellDetails(pid, id)).verdicts.map((x) => x.author)).toEqual(['ai:matrix']);
     await core.setVerdict(pid, id, { status: 'needs_human', reason: 'role model is in the gateway', evidence: [] });
     const d = await core.cellDetails(pid, id, matrixId);
     expect(d.verdicts[0]).toMatchObject({ author: 'human', status: 'needs_human', run: null });
