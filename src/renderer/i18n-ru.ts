@@ -877,4 +877,13 @@ export const RU: Record<string, string> = {
   'Find in the terminal': 'Найти в терминале',
   'Previous match (Shift+Enter)': 'Предыдущее совпадение (Shift+Enter)',
   'Next match (Enter)': 'Следующее совпадение (Enter)',
+  // bulk status of findings
+  'Pick': 'Выбрать',
+  'Pick all': 'Выбрать все',
+  'Clear the picks': 'Снять выбор',
+  'Picked: {n}': 'Выбрано: {n}',
+  'reason, one for all': 'причина, одна на все',
+  'Set status {n}': 'Задать статус: {n}',
+  'Pick every finding that passes the filters, on every page': 'Выбрать все находки под фильтрами, на всех страницах',
+  'Give the picked findings this status and reason, all or none': 'Задать выбранным находкам этот статус и причину: всем или ни одной',
 };

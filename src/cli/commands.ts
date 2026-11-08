@@ -371,6 +371,13 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   listFindings: { name: 'finding list', usage: '', help: 'List findings', columns: ['id', 'status', 'severity', 'title'], run: (_a, c) => c.call('listFindings', c.pid()) },
   findingDetails: { name: 'finding show', usage: '<finding>', help: 'Show a finding', run: (a, c) => c.call('findingDetails', c.pid(), a.pos[0]) },
   setFindingStatus: { name: 'finding status', usage: '<finding> <status> <reason>', help: 'Change the status of a finding', run: (a, c) => c.call('setFindingStatus', c.pid(), a.pos[0], oneOf(a.pos[1], FINDING_STATUSES, 'status'), a.pos[2]) },
+  setFindingsStatus: {
+    name: 'finding bulk-status',
+    usage: '<status> <reason> <finding...>',
+    help: 'Give several findings one status and one reason, all or none',
+    columns: ['id', 'status', 'title'],
+    run: (a, c) => c.call('setFindingsStatus', c.pid(), a.pos.slice(2), oneOf(a.pos[0], FINDING_STATUSES, 'status'), a.pos[1]),
+  },
   mergeFinding: { name: 'finding merge', usage: '<source> <target>', help: 'Merge a finding into another', run: (a, c) => c.call('mergeFinding', c.pid(), a.pos[0], a.pos[1]) },
   createFinding: { name: 'finding create', usage: `<cell> ${FINDING_FLAGS}`, help: 'Create a finding on a cell', run: (a, c) => c.call('createFinding', c.pid(), a.pos[0], findingInput(a)) },
   linkFinding: { name: 'finding link', usage: '<finding> <cell>', help: 'Link a finding to a cell', run: (a, c) => c.call('linkFinding', c.pid(), a.pos[0], a.pos[1]) },

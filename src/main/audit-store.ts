@@ -844,6 +844,11 @@ export class AuditStore {
     return this.getFinding(id)!;
   }
 
+  /** One status for several findings, all or none. */
+  setFindingsStatus(ids: string[], status: FindingStatus, reason: string | null, by: Authorship): Finding[] {
+    return this.db.transaction(() => ids.map((id) => this.setFindingStatus(id, status, reason, by)))();
+  }
+
   /** Links a finding to a cell (M:N); merged findings resolve to their target. */
   linkFinding(id: string, c: CellRef, by: Authorship): Finding {
     let f = this.getFinding(id);

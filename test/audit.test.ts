@@ -135,6 +135,9 @@ describe('verdicts, triage and findings', () => {
     expect(merged.cells).toEqual([c1, c2, c3]);
     expect(a.getFinding(f2.id)!.mergedInto).toBe(f1.id);
     expect(() => a.setFindingStatus(f2.id, 'fixed', null, human)).toThrow(/merged into/);
+    // A batch is all or none: the merged finding fails it and f1 keeps its status.
+    expect(() => a.setFindingsStatus([f1.id, f2.id], 'fixed', 'patched', human)).toThrow(/merged into/);
+    expect(a.getFinding(f1.id)!.status).toBe('verified');
     expect(() => a.mergeFinding(f1.id, f1.id, human)).toThrow(/into itself/);
     // Linking to a merged finding resolves to its target.
     expect(a.linkFinding(f2.id, { moduleId: 'm3', requirementId: 'r9' }, human).id).toBe(f1.id);

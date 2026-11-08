@@ -34,6 +34,8 @@ You can also merge by hand. The **Similar (manual merge)** section offers **Into
 
 Columns: picker, finding, severity, status, verification, CWE, module, document, links (the number of cells) and created. The filters work like all [table filters](interface.md#tables). The document filter goes through the requirements of the linked cells.
 
+Any finding that is not merged can be ticked; **Pick all** ticks every one the filters show, on every page, and **Clear the picks** unticks them. While findings are ticked, a second toolbar sets one status with one reason for all of them: all change or, if one of them cannot (it was merged meanwhile, or a required reason is missing), none does. Each action takes only the ticked findings it applies to: **Verify** the suspected ones, **Check fix** the stale ones.
+
 ## Details
 
 ![The details of a finding with its independent verification](screenshots/finding.png)
@@ -101,6 +103,7 @@ Model, effort and permissions come from the role, the prompt from the task `fix_
 aiegis finding list
 aiegis finding show <finding>
 aiegis finding status <finding> false_positive 'Only reachable by administrators'
+aiegis finding bulk-status accepted_risk 'Internal tool, behind VPN' <finding...>
 aiegis finding verify-estimate <finding...>
 aiegis finding verify <finding...>
 aiegis finding fix-state

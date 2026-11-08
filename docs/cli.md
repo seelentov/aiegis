@@ -178,6 +178,7 @@ Findings. See [Findings](findings.md).
 | `finding list` | List findings |
 | `finding show <finding>` | Show a finding |
 | `finding status <finding> <status> <reason>` | Change the status of a finding |
+| `finding bulk-status <status> <reason> <finding...>` | Give several findings one status and one reason, all or none |
 | `finding merge <source> <target>` | Merge a finding into another |
 | `finding create <cell> --title <text> --description <text> --severity <level> [--cwe <id>] [--entry-point <text>] [--recommendation <text>] [--evidence <file[:line]>...]` | Create a finding on a cell |
 | `finding link <finding> <cell>` | Link a finding to a cell |

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { Finding, FindingFixState, MatrixEstimate, ModuleSummary, ProjectInfo } from '../../shared/types';
-import { SEVERITIES } from '../../shared/types';
+import type { Finding, FindingFixState, FindingStatus, MatrixEstimate, ModuleSummary, ProjectInfo } from '../../shared/types';
+import { FINDING_STATUSES, SEVERITIES } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { FINDING_STATUS, FINDING_VERIFY_OUTCOME, FIX_OUTCOME, SEVERITY, time } from '../format';
@@ -8,7 +8,7 @@ import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
 import { EstimatePanel } from './MatrixTab';
 import { tr } from '../i18n';
-import { Checkbox, IconButton, Table } from '../ui';
+import { Checkbox, IconButton, Input, Select, Table } from '../ui';
 
 interface Props {
   project: ProjectInfo;
@@ -27,6 +27,8 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
   const [estimate, setEstimate] = useState<MatrixEstimate | null>(null);
   const [estimateFix, setEstimateFix] = useState(false);
   const [fixStates, setFixStates] = useState<Record<string, FindingFixState>>({});
+  const [bulkStatus, setBulkStatus] = useState<FindingStatus>('verified');
+  const [bulkReason, setBulkReason] = useState('');
 
   useEffect(() => {
     void run(api.listFindings(project.id)).then((f) => f && setFindings(f));
@@ -61,6 +63,12 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
   const chosen = findings.filter((f) => picked.includes(f.id) && eligible(f)).map((f) => f.id);
   const stale = (f: Finding) => Boolean(fixStates[f.id]?.stale);
   const chosenFix = findings.filter((f) => picked.includes(f.id) && stale(f)).map((f) => f.id);
+  // Any live finding can be picked; each action takes the picks it applies to.
+  const pickable = (f: Finding) => !f.mergedInto;
+  const chosenAny = findings.filter((f) => picked.includes(f.id) && pickable(f)).map((f) => f.id);
+  const setStatus = async () => {
+    if (await run(api.setFindingsStatus(project.id, chosenAny, bulkStatus, bulkReason))) (setPicked([]), setBulkReason(''));
+  };
   const start = async () => {
     setEstimate(null);
     if (await run(estimateFix ? api.runFixVerify(project.id, chosenFix) : api.runFindingVerify(project.id, chosen))) setPicked([]);
@@ -72,6 +80,8 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
         <label className="check">
           <Checkbox checked={merged} onChange={(e) => setMerged(e.target.checked)} /> {tr('show merged')}
         </label>
+        <IconButton icon="checkAll" title={tr('Pick every finding that passes the filters, on every page')} label={tr('Pick all')} onClick={() => setPicked(g.all.filter(pickable).map((f) => f.id))} />
+        <IconButton icon="clearFilter" title={tr('Clear the picks')} disabled={!picked.length} onClick={() => setPicked([])} />
         <IconButton icon="check" title={tr('Pick the suspected findings that pass the filters, on every page')} label={tr('Pick suspected')} onClick={() => setPicked(g.all.filter(eligible).map((f) => f.id))} />
         <IconButton
           icon="play"
@@ -90,6 +100,20 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
         />
         {g.count}
       </div>
+      {chosenAny.length > 0 && (
+        <div className="toolbar">
+          <span>{tr('Picked: {n}', { n: chosenAny.length })}</span>
+          <Select value={bulkStatus} onChange={(v) => setBulkStatus(v as FindingStatus)} aria-label={tr('Status')}>
+            {FINDING_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {FINDING_STATUS[s]}
+              </option>
+            ))}
+          </Select>
+          <Input placeholder={tr('reason, one for all')} value={bulkReason} onChange={(e) => setBulkReason(e.target.value)} />
+          <IconButton icon="check" title={tr('Give the picked findings this status and reason, all or none')} label={tr('Set status {n}', { n: chosenAny.length })} onClick={() => void setStatus()} />
+        </div>
+      )}
       {estimate && <EstimatePanel estimate={estimate} title={estimateFix ? tr('fix check') : tr('independent verification')} batchSetting="findings.verify_estimate_tokens" perFinding onRun={() => void start()} onCancel={() => setEstimate(null)} />}
       <Table>
         {g.head}
@@ -103,8 +127,8 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
             <tr key={f.id} className={selection?.kind === 'finding' && selection.id === f.id ? 'selected' : f.mergedInto ? 'removed' : ''} onClick={() => onSelect({ kind: 'finding', id: f.id })}>
               <td onClick={(e) => e.stopPropagation()}>
                 <Checkbox
-                  aria-label={tr('Pick for verification')}
-                  disabled={!eligible(f) && !stale(f)}
+                  aria-label={tr('Pick')}
+                  disabled={!pickable(f)}
                   checked={picked.includes(f.id)}
                   onChange={(e) => setPicked(e.target.checked ? [...picked, f.id] : picked.filter((id) => id !== f.id))}
                 />

@@ -71,6 +71,7 @@ export function coreApi(core: Core): CoreApi {
     listFindings: (pid) => core.listFindings(pid),
     findingDetails: (pid, id) => core.findingDetails(pid, id),
     setFindingStatus: (pid, id, st, reason) => core.setFindingStatus(pid, id, st, reason),
+    setFindingsStatus: (pid, ids, st, reason) => core.setFindingsStatus(pid, ids, st, reason),
     mergeFinding: (pid, src, dst) => core.mergeFinding(pid, src, dst),
     createFinding: (pid, cell, input) => core.createFinding(pid, cell, input),
     linkFinding: (pid, id, cell) => core.linkFinding(pid, id, cell),

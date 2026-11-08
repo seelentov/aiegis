@@ -158,6 +158,8 @@ export interface AiegisApi {
   listFindings(projectId: string): Finding[];
   findingDetails(projectId: string, findingId: string): FindingDetails;
   setFindingStatus(projectId: string, findingId: string, status: FindingStatus, reason: string): Finding;
+  /** One status and one reason for several findings, all or none. */
+  setFindingsStatus(projectId: string, findingIds: string[], status: FindingStatus, reason: string): Finding[];
   mergeFinding(projectId: string, sourceId: string, targetId: string): Finding;
   createFinding(projectId: string, cellId: string, input: Omit<FindingInput, 'moduleId'>): Finding;
   linkFinding(projectId: string, findingId: string, cellId: string): Finding;

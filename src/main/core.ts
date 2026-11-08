@@ -2809,11 +2809,17 @@ export class Core extends EventEmitter {
   }
 
   setFindingStatus(projectId: string, id: string, status: FindingStatus, reason: string): Finding {
+    return this.setFindingsStatus(projectId, [id], status, reason)[0];
+  }
+
+  /** One status and one reason for several findings; a missing or merged one fails the whole batch. */
+  setFindingsStatus(projectId: string, ids: string[], status: FindingStatus, reason: string): Finding[] {
     if (!FINDING_STATUSES.includes(status)) throw new Error(`unknown status ${status}`);
     if ((status === 'false_positive' || status === 'accepted_risk') && !reason.trim()) throw new Error('specify the reason');
-    const f = this.store(projectId).audit.setFindingStatus(id, status, reason.trim() || null, { author: 'human', runId: null });
+    if (!ids.length) throw new Error('pick at least one finding');
+    const out = this.store(projectId).audit.setFindingsStatus(ids, status, reason.trim() || null, { author: 'human', runId: null });
     this.auditChanged(projectId);
-    return f;
+    return out;
   }
 
   mergeFinding(projectId: string, sourceId: string, targetId: string): Finding {
