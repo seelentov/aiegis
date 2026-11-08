@@ -13,7 +13,8 @@ interface Props {
   project: ProjectInfo | null;
   revision: number;
   run: RunFn;
-  onAddProject: () => void;
+  /** Set on the first launch: the path then starts with choosing a project. */
+  onAddProject?: () => void;
   onOpen: (tab: Tab) => void;
   onCreateMatrix: (documentId: string) => void;
   onTerminal: (id: string | undefined) => void;
@@ -93,16 +94,18 @@ export function HomeTab({ project, revision, run, onAddProject, onOpen, onCreate
     </span>
   );
 
-  const steps: Step[] = [
-    project
-      ? { id: 'project', title: tr('Choose a project'), done: true, fact: <span className="mono">{project.root}</span> }
-      : {
-          id: 'project',
-          title: tr('Choose a project'),
-          why: tr('Pick a git repository on this machine. Every verdict is tied to the commit it was checked on.'),
-          actions: <IconButton icon="folderPlus" variant="primary" title={tr('Add git repository')} label={tr('Add project')} onClick={onAddProject} />,
-        },
-  ];
+  const steps: Step[] = !onAddProject
+    ? []
+    : [
+        project
+          ? { id: 'project', title: tr('Choose a project'), done: true, fact: <span className="mono">{project.root}</span> }
+          : {
+              id: 'project',
+              title: tr('Choose a project'),
+              why: tr('Pick a git repository on this machine. Every verdict is tied to the commit it was checked on.'),
+              actions: <IconButton icon="folderPlus" variant="primary" title={tr('Add git repository')} label={tr('Add project')} onClick={onAddProject} />,
+            },
+      ];
   const loading = Boolean(project && !data);
 
   if (!loading) {
@@ -328,7 +331,7 @@ export function HomeTab({ project, revision, run, onAddProject, onOpen, onCreate
       <div className="home-head">
         <div>
           <h1>{finished ? tr('The first audit pass is done') : tr('Set up the audit')}</h1>
-          <p>{finished ? tr('Results are in Findings. This guide opens only on the first launch.') : tr('From an empty project to the first findings. Steps update as work finishes.')}</p>
+          <p>{finished ? tr('Results are in Findings.') : tr('From an empty project to the first findings. Steps update as work finishes.')}</p>
         </div>
         {finished ? (
           <IconButton icon="finding" variant="primary" title={tr('Open findings')} label={tr('Open findings')} onClick={() => onOpen('findings')} />

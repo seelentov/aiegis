@@ -755,7 +755,7 @@ export const RU: Record<string, string> = {
   'Set up the audit': 'Подготовка аудита',
   'The first audit pass is done': 'Первый проход аудита завершён',
   'From an empty project to the first findings. Steps update as work finishes.': 'От пустого проекта до первых находок. Шаги обновляются по мере выполнения.',
-  'Results are in Findings. This guide opens only on the first launch.': 'Результаты — в «Находках». Это руководство открывается только при первом запуске.',
+  'Results are in Findings.': 'Результаты — в «Находках».',
   'Open findings': 'Открыть находки',
   '{n} of {total} done': 'готово {n} из {total}',
   'Each step opens its own section for the full controls.': 'Все возможности шага — в его разделе.',

@@ -93,8 +93,9 @@ export function App() {
   const [mapModule, setMapModule] = useState<string | null>(null);
   const [matrixDraft, setMatrixDraft] = useState<string | null>(null);
   const [onboarded, setOnboarded] = usePersisted('onboarded', false);
-  // The setup guide: offered once, on the first launch with no projects; stays in the activity bar until closed.
-  const [guide, setGuide] = useState(false);
+  // The setup guide: on the first launch with no projects (from choosing one) and after adding a project (without that step);
+  // stays in the activity bar until closed.
+  const [guide, setGuide] = useState<'first' | 'project' | null>(null);
   const [homeOpen, setHomeOpen] = useState(false);
   const [sessions, setSessions] = useState<FreeSession[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -158,7 +159,7 @@ export function App() {
       setProjects(ps);
       if (ps[0]) setProjectId((cur) => cur ?? ps[0].id);
       if (!onboarded) {
-        if (!ps.length) (setGuide(true), setHomeOpen(true));
+        if (!ps.length) (setGuide('first'), setHomeOpen(true));
         setOnboarded(true);
       }
     });
@@ -210,6 +211,8 @@ export function App() {
     if (!p) return;
     setProjects(await api.listProjects());
     setProjectId(p.id);
+    setGuide((g) => g ?? 'project');
+    setHomeOpen(true);
   };
 
   const removeProject = async (p: ProjectInfo) => {
@@ -314,11 +317,11 @@ export function App() {
                   project={project}
                   revision={revision}
                   run={run}
-                  onAddProject={() => void addProject()}
+                  onAddProject={guide === 'first' ? () => void addProject() : undefined}
                   onOpen={go}
                   onCreateMatrix={createMatrix}
                   onTerminal={showTerminal}
-                  onClose={() => (setGuide(false), setHomeOpen(false))}
+                  onClose={() => (setGuide(null), setHomeOpen(false))}
                 />
               ) : tab === 'settings' ? (
                 <SettingsTab project={project} run={run} notify={notify} />
