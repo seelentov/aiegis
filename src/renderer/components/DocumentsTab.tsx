@@ -111,7 +111,8 @@ function VersionReview({ project, view, run, onTerminal, onCreateMatrix }: { pro
       { key: 'key', title: 'Id', text: (i) => `${i.key} ${CHANGE[i.change]}`, sort: (i) => i.key },
       { key: 'section', title: tr('Section'), text: (i) => i.section, filter: 'enum' },
       { key: 'text', title: tr('Requirement / quote'), text: (i) => `${i.text} ${i.quote ?? ''} ${i.clause}`, sort: (i) => i.text },
-      { key: 'review', title: tr('Review'), text: (i) => REVIEW[i.review], filter: 'enum' },
+      // Same text as the cell: an item out of force is a separate filter value, not "accepted".
+      { key: 'review', title: tr('Review'), text: (i) => (i.retiredAt ? tr('out of force') : REVIEW[i.review]), filter: 'enum' },
       { key: 'actions', title: '', className: 'actions' },
     ],
   );
