@@ -81,7 +81,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
           <Checkbox checked={merged} onChange={(e) => setMerged(e.target.checked)} /> {tr('show merged')}
         </label>
         <IconButton icon="checkAll" title={tr('Pick every finding that passes the filters, on every page')} label={tr('Pick all')} onClick={() => setPicked(g.all.filter(pickable).map((f) => f.id))} />
-        <IconButton icon="clearFilter" title={tr('Clear the picks')} disabled={!picked.length} onClick={() => setPicked([])} />
+        <IconButton icon="close" title={tr('Clear the picks')} disabled={!picked.length} onClick={() => setPicked([])} />
         <IconButton icon="check" title={tr('Pick the suspected findings that pass the filters, on every page')} label={tr('Pick suspected')} onClick={() => setPicked(g.all.filter(eligible).map((f) => f.id))} />
         <IconButton
           icon="play"
