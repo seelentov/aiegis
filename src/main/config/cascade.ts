@@ -98,8 +98,10 @@ export function mergeSettings(
 ): { value: Record<string, unknown>; sources: SourceMap } {
   const value: Record<string, unknown> = {};
   const sources: SourceMap = {};
+  const blockedKeys = new Set(['__proto__', 'constructor', 'prototype']);
   const walk = (target: Record<string, unknown>, src: Record<string, unknown>, prefix: string, source: string) => {
     for (const [k, v] of Object.entries(src)) {
+      if (blockedKeys.has(k)) continue;
       const key = prefix ? `${prefix}.${k}` : k;
       if (isPlainObject(v)) {
         if (!isPlainObject(target[k])) target[k] = {};
