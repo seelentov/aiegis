@@ -7,6 +7,7 @@ import { DiffTab } from './components/DiffTab';
 import { DocumentsTab } from './components/DocumentsTab';
 import { EntryPointsTab } from './components/EntryPointsTab';
 import { FindingsTab } from './components/FindingsTab';
+import { HomeTab } from './components/HomeTab';
 import { MatrixTab } from './components/MatrixTab';
 import { ModulesTab } from './components/ModulesTab';
 import { QueueTab } from './components/QueueTab';
@@ -89,6 +90,15 @@ export function App() {
   const [revision, setRevision] = useState(0);
   const [mapModule, setMapModule] = useState<string | null>(null);
   const [matrixDraft, setMatrixDraft] = useState<string | null>(null);
+  const [onboarded, setOnboarded] = usePersisted('onboarded', false);
+  // The setup guide: offered once, on the first launch with no projects; stays in the activity bar until closed.
+  const [guide, setGuide] = useState(false);
+  const [homeOpen, setHomeOpen] = useState(false);
+
+  const go = (id: TabId) => {
+    setHomeOpen(false);
+    setTab(id);
+  };
 
   const notify = useCallback((level: Notice['level'], text: string, recheck?: Notice['recheck']) => {
     const id = ++noticeSeq;
@@ -124,7 +134,7 @@ export function App() {
       if (!(MAC ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;
       // The tenth tab is on the 0 key, as the digits are laid out.
       const n = e.key === '0' ? 10 : Number(e.key);
-      if (n >= 1 && n <= TABS.length) setTab(TABS[n - 1].id);
+      if (n >= 1 && n <= TABS.length) go(TABS[n - 1].id);
       else if (e.code === 'KeyB') setSidebarOpen(!sidebarOpen);
       else if (e.code === 'KeyJ') setTermCollapsed(!termCollapsed);
       else return;
@@ -141,6 +151,10 @@ export function App() {
     void api.listProjects().then((ps) => {
       setProjects(ps);
       if (ps[0]) setProjectId((cur) => cur ?? ps[0].id);
+      if (!onboarded) {
+        if (!ps.length) (setGuide(true), setHomeOpen(true));
+        setOnboarded(true);
+      }
     });
     void refreshTerminals();
     return bridge.onEvent((ev: AppEvent) => {
@@ -175,28 +189,28 @@ export function App() {
 
   const openMap = useCallback((moduleId: string) => {
     setMapModule(moduleId);
-    setTab('entry-points');
+    go('entry-points');
   }, []);
 
   const createMatrix = useCallback((documentId: string) => {
     setMatrixDraft(documentId);
-    setTab('matrix');
+    go('matrix');
   }, []);
 
   const project = projects.find((p) => p.id === projectId) ?? null;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const details = tab !== 'settings' && selection !== null;
+  const details = !homeOpen && tab !== 'settings' && selection !== null;
 
   const running = queue?.running ?? 0;
   const termOpen = !termCollapsed && terminals.length > 0;
   const activityItem = (t: (typeof TABS)[number], i: number) => (
     <Button
       key={t.id}
-      className={`activity-item ${t.id === tab ? 'active' : ''} ${i > 0 && TABS[i - 1].group !== t.group && t.group !== 'system' ? 'group-start' : ''}`}
+      className={`activity-item ${t.id === tab && !homeOpen ? 'active' : ''} ${i > 0 && TABS[i - 1].group !== t.group && t.group !== 'system' ? 'group-start' : ''}`}
       title={i < 10 ? `${t.title} (${MOD}${(i + 1) % 10})` : t.title}
       aria-label={t.title}
-      aria-current={t.id === tab ? 'page' : undefined}
-      onClick={() => setTab(t.id)}
+      aria-current={t.id === tab && !homeOpen ? 'page' : undefined}
+      onClick={() => go(t.id)}
     >
       <Icon name={t.icon} size={22} />
       {t.id === 'queue' && running > 0 && <span className="activity-badge">{running}</span>}
@@ -217,6 +231,11 @@ export function App() {
             <Icon name="folder" size={22} />
           </Button>
           <span className="activity-rule" />
+          {guide && (
+            <Button className={`activity-item ${homeOpen ? 'active' : ''}`} title={tr('Setup guide')} aria-label={tr('Setup guide')} aria-current={homeOpen ? 'page' : undefined} onClick={() => setHomeOpen(true)}>
+              <Icon name="home" size={22} />
+            </Button>
+          )}
           {TABS.map((t, i) => t.group !== 'system' && activityItem(t, i))}
           <span className="activity-spacer" />
           {TABS.map((t, i) => t.group === 'system' && activityItem(t, i))}
@@ -261,7 +280,7 @@ export function App() {
                   </Button>
                 </li>
               ) : (
-                <li aria-current="location">{current.title}</li>
+                <li aria-current="location">{homeOpen ? tr('Setup guide') : current.title}</li>
               )}
               {details && selection && <li aria-current="location">{SELECTION_KIND[selection.kind]}</li>}
             </ol>
@@ -270,7 +289,19 @@ export function App() {
           <div className="workspace" style={{ gridTemplateColumns: details ? `minmax(0, 1fr) auto ${detailsW}px` : 'minmax(0, 1fr)' }}>
             {/* Remount per project: tabs keep project-scoped ids (e.g. the selected matrix) in local state. */}
             <section key={project?.id} className="content" tabIndex={-1}>
-              {tab === 'settings' ? (
+              {homeOpen ? (
+                <HomeTab
+                  project={project}
+                  revision={revision}
+                  run={run}
+                  onAddProject={() => void addProject()}
+                  onShowProjects={() => setSidebarOpen(true)}
+                  onOpen={go}
+                  onCreateMatrix={createMatrix}
+                  onTerminal={showTerminal}
+                  onClose={() => (setGuide(false), setHomeOpen(false))}
+                />
+              ) : tab === 'settings' ? (
                 <SettingsTab project={project} run={run} notify={notify} />
               ) : !project ? (
                 <div className="empty">
@@ -361,7 +392,7 @@ export function App() {
           <Icon name="folder" size={14} />
           <span>{project?.name ?? tr('no project')}</span>
         </Button>
-        <Button className="status-item" title={tr('Open queue')} onClick={() => setTab('queue')}>
+        <Button className="status-item" title={tr('Open queue')} onClick={() => go('queue')}>
           {running > 0 ? (
             <span className="spin">
               <Icon name="recheck" size={14} />
