@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import type { Run, TerminalInfo } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { time } from '../format';
 import { locale, tr } from '../i18n';
+import { copyText, showMenu } from '../menu';
 import { IconButton } from '../ui';
 import { Icon } from './Icon';
-import { TerminalView } from './TerminalPanel';
+import { usePersisted } from './Splitter';
+import { confirmClose, RenameInput, TerminalView } from './TerminalPanel';
 
 /** List titles drop the seconds: the session id tells same-minute sessions apart. */
 const started = (iso: string) => new Date(iso).toLocaleString(locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -40,13 +43,36 @@ export function terminalOf(session: FreeSession | undefined, terminals: Terminal
   return mine.find((t) => t.alive) ?? mine[mine.length - 1];
 }
 
-export function SessionList({ sessions, active, terminals, onSelect, onNew }: {
+/** Names given to sessions in the list; they live in this viewer's browser only. */
+export const useSessionNames = () => usePersisted<Record<string, string>>('sessionNames', {});
+
+export function SessionList({ projectId, sessions, active, terminals, run, onSelect, onNew, onTerminal }: {
+  projectId: string;
   sessions: FreeSession[];
   active: string | null;
   terminals: TerminalInfo[];
+  run: RunFn;
   onSelect: (sessionId: string) => void;
   onNew: () => void;
+  onTerminal: (id: string | undefined) => void;
 }) {
+  const [names, setNames] = useSessionNames();
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const menu = (e: React.MouseEvent, s: FreeSession) => {
+    const t = terminalOf(s, terminals);
+    const last = s.runs[0];
+    showMenu(e, [
+      t?.alive
+        ? { label: tr('Stop the session'), run: () => confirmClose([t]) && void run(api.terminalClose(t.id)) }
+        : { label: tr('Continue'), run: () => (onSelect(s.sessionId), void run(api.openRun(projectId, last.id)).then(onTerminal)) },
+      !t?.alive && { label: tr('Open in an external terminal'), run: () => void run(api.openExternal(projectId, last.id)) },
+      null,
+      { label: tr('Rename'), run: () => setRenaming(s.sessionId) },
+      names[s.sessionId] !== undefined && { label: tr('Reset the name'), run: () => setNames(Object.fromEntries(Object.entries(names).filter(([k]) => k !== s.sessionId))) },
+      { label: tr('Copy the session id'), run: () => copyText(s.sessionId) },
+      { label: tr('Copy the working directory'), run: () => copyText(last.cwd) },
+    ]);
+  };
   return (
     <>
       <div className="pane-header">
@@ -58,10 +84,27 @@ export function SessionList({ sessions, active, terminals, onSelect, onNew }: {
         {sessions.map((s) => {
           const live = terminalOf(s, terminals)?.alive === true;
           return (
-            <li key={s.sessionId} className={`${s.sessionId === active ? 'active' : ''} ${live ? 'live' : ''}`} onClick={() => onSelect(s.sessionId)}>
+            <li
+              key={s.sessionId}
+              className={`${s.sessionId === active ? 'active' : ''} ${live ? 'live' : ''}`}
+              onClick={() => onSelect(s.sessionId)}
+              onContextMenu={(e) => menu(e, s)}
+            >
               <Icon name="terminal" size={14} />
               <span className="session-item">
-                <span className="project-name">{started(s.startedAt)}</span>
+                {renaming === s.sessionId ? (
+                  <RenameInput
+                    value={names[s.sessionId] ?? started(s.startedAt)}
+                    onDone={(v) => {
+                      setRenaming(null);
+                      if (v?.trim()) setNames({ ...names, [s.sessionId]: v.trim() });
+                    }}
+                  />
+                ) : (
+                  <span className="project-name" title={names[s.sessionId] ? started(s.startedAt) : undefined}>
+                    {names[s.sessionId] ?? started(s.startedAt)}
+                  </span>
+                )}
                 <span className="session-sub">
                   <span>{live ? tr('active|session') : tr('closed|session')}</span>
                   <span className="mono">{s.sessionId.slice(0, 8)}</span>
@@ -93,7 +136,7 @@ export function SessionView({ projectId, session, terminal, run, onTerminal, onN
   const last = session.runs[0];
   const live = terminal?.alive === true;
   const resume = () => void run(api.openRun(projectId, last.id)).then(onTerminal);
-  const stop = () => terminal && confirm(tr('Close the tab and terminate the claude process?')) && void run(api.terminalClose(terminal.id));
+  const stop = () => terminal && confirmClose([terminal]) && void run(api.terminalClose(terminal.id));
   return (
     <div className="session-view">
       <div className="session-head">

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import * as pty from 'node-pty';
 import { EVENT_CHANNEL, invokeChannel, type ApiImpl, type ApiMethod } from '../shared/api';
 import type { AppEvent } from '../shared/types';
@@ -56,6 +56,14 @@ function api(): ApiImpl {
     terminalResize: (id, cols, rows) => core.terminals.resize(id, cols, rows),
     uiLanguage: () => core.uiLanguage(),
     uiPageSizes: () => core.uiPageSizes(),
+    contextMenu: (items) =>
+      new Promise<string | null>((resolve) => {
+        const menu = Menu.buildFromTemplate(
+          items.map(({ id, ...i }) => ({ ...i, registerAccelerator: false, click: id ? () => resolve(id) : undefined })),
+        );
+        // The close callback may run before the picked item's click; the first resolve wins.
+        menu.popup({ window: win ?? undefined, callback: () => setTimeout(() => resolve(null), 100) });
+      }),
   };
 }
 
@@ -91,6 +99,11 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  // Links (terminal output, documents) open in the browser, never in a new app window.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
   });
   void win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.on('closed', () => (win = null));

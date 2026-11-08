@@ -38,6 +38,7 @@ Projects. See [Interface](interface.md#projects).
 | `project list` | List projects |
 | `project add <path>` | Register a git repository |
 | `project remove` | Forget the project |
+| `project search <query...> [--limit <n>]` | Search everywhere: items whose id, title, details or `file:line` hold every word |
 
 ## job
 

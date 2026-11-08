@@ -6,6 +6,7 @@ import { CELL_STATUS, SEVERITY, time } from '../format';
 import { EvidenceList } from './AuditDetails';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
+import { useReveal } from '../reveal';
 import { EstimatePanel } from './MatrixTab';
 import { tr } from '../i18n';
 import { IconButton, Select, Table } from '../ui';
@@ -123,6 +124,16 @@ export function DiffTab({ project, revision, run, selection, onSelect }: Props) 
     if (r) setCheckId(r.check.id);
   };
 
+  useReveal(
+    (key) => {
+      const id = key.startsWith('diff-check:') ? key.slice('diff-check:'.length) : null;
+      if (!id || !checks.some((x) => x.id === id)) return false;
+      setCheckId(id);
+      // Not taken: the checks grid, whose effect runs after this one, brings the row into view.
+      return false;
+    },
+    [checks],
+  );
   const c = useGrid('diff-checks', checks, [
     { key: 'branch', title: tr('Branches'), text: (x) => `${x.headRef} → ${x.baseRef}` },
     { key: 'target', title: tr('Set or document'), text: (x) => x.title, filter: 'enum' },
@@ -130,7 +141,7 @@ export function DiffTab({ project, revision, run, selection, onSelect }: Props) 
     { key: 'files', title: tr('Files'), text: (x) => String(x.files.length), sort: (x) => x.files.length },
     { key: 'result', title: tr('Result') },
     { key: 'created', title: tr('Created'), text: (x) => `${time(x.createdAt)} ${x.author}`, sort: (x) => x.createdAt },
-  ]);
+  ], { revealKey: (x) => `diff-check:${x.id}` });
   type Row = DiffCheckView['rows'][number];
   const status = (r: Row): CellStatus => r.verdict?.status ?? 'not_checked';
   const r = useGrid('diff-rows', view?.rows ?? [], [

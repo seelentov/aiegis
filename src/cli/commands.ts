@@ -523,6 +523,13 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   runSchedule: { name: 'schedule run', usage: '<schedule>', help: 'Fire a schedule now, with the same checks as a planned firing', run: async (a, c) => c.call('runSchedule', c.pid(), await scheduleId(c, a.pos[0])) },
   cronPreview: { name: 'schedule preview', usage: '<cron>', help: 'Show the next times of a cron expression', run: (a, c) => c.call('cronPreview', c.pid(), a.pos[0]) },
 
+  search: {
+    name: 'project search',
+    usage: '<query...> [--limit <n>]',
+    help: 'Search everywhere: findings, signals, SCA, modules, documents, schedules, jobs and sessions whose id, title or location match every word',
+    columns: ['kind', 'id', 'title', 'detail'],
+    run: (a, c) => c.call('search', c.pid(), a.pos.join(' '), a.has('limit') ? Number(a.one('limit')) : undefined),
+  },
   listTerminals: { name: 'terminal list', usage: '', help: 'List output streams', columns: ['id', 'alive', 'runId', 'title'], run: (_a, c) => c.call('listTerminals') },
   terminalSnapshot: { name: 'terminal show', usage: '<terminal>', help: 'Print the scrollback of a stream', run: (a, c) => c.call('terminalSnapshot', a.pos[0]) },
   terminalClose: { name: 'terminal close', usage: '<terminal>', help: 'Close a stream', run: (a, c) => c.call('terminalClose', a.pos[0]) },

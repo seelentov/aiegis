@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { AppEvent, ProjectInfo, QueueState, RecheckOffer, TerminalInfo } from '../shared/types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AppEvent, ProjectInfo, QueueState, RecheckOffer, SearchHit, SearchKind, TerminalInfo } from '../shared/types';
 import { api, bridge, errorText } from './api';
 import { confirmFixVerify, confirmRecheck } from './components/AuditDetails';
 import { DetailsPanel, type Selection } from './components/DetailsPanel';
@@ -7,19 +7,24 @@ import { DiffTab } from './components/DiffTab';
 import { DocumentsTab } from './components/DocumentsTab';
 import { EntryPointsTab } from './components/EntryPointsTab';
 import { FindingsTab } from './components/FindingsTab';
+import { moveRowSelection } from './components/Grid';
 import { HomeTab } from './components/HomeTab';
 import { MatrixTab } from './components/MatrixTab';
 import { ModulesTab } from './components/ModulesTab';
 import { QueueTab } from './components/QueueTab';
 import { ScaTab } from './components/ScaTab';
 import { SchedulesTab } from './components/SchedulesTab';
+import { SearchPalette, type PaletteCommand } from './components/SearchPalette';
+import { setAllSections } from './components/Section';
 import { SessionList, SessionView, loadSessions, terminalOf, type FreeSession } from './components/SessionsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SignalsTab } from './components/SignalsTab';
 import { Icon, type IconName } from './components/Icon';
 import { Splitter, usePersisted } from './components/Splitter';
-import { TerminalPanel } from './components/TerminalPanel';
+import { confirmClose, TerminalPanel, type TerminalPosition } from './components/TerminalPanel';
 import { locale, tr } from './i18n';
+import { cmdKey, copyText, MAC, MOD, ProjectIdContext, showMenu } from './menu';
+import { reveal } from './reveal';
 import { Button, IconButton, Select } from './ui';
 
 // Groups read top to bottom: the audit itself, what it is built from, the machinery (pinned to the bottom of the activity bar).
@@ -54,8 +59,6 @@ const SELECTION_KIND: Record<Selection['kind'], string> = {
   schedule: tr('schedule'),
 };
 
-const MAC = navigator.platform.startsWith('Mac');
-const MOD = MAC ? '⌘' : 'Ctrl+';
 
 interface Notice {
   id: number;
@@ -71,6 +74,44 @@ const NOTICE_HISTORY = 50;
 
 let noticeSeq = 0;
 
+/** Section of each kind search everywhere finds. */
+const HIT_TAB: Record<SearchKind, TabId> = {
+  finding: 'findings',
+  signal: 'signals',
+  suppression: 'signals',
+  sca: 'sca',
+  module: 'modules',
+  document: 'documents',
+  'doc-proposal': 'documents',
+  matrix: 'matrix',
+  'diff-check': 'diff',
+  schedule: 'schedules',
+  job: 'queue',
+  session: 'sessions',
+};
+
+/** Kinds whose hit opens the details panel. */
+const HIT_SELECTION: Partial<Record<SearchKind, Selection['kind']>> = {
+  finding: 'finding',
+  signal: 'signal',
+  suppression: 'suppression',
+  sca: 'sca',
+  module: 'module',
+  'doc-proposal': 'doc-proposal',
+  schedule: 'schedule',
+  job: 'job',
+};
+
+/** A place in the history of back/forward navigation. */
+interface Place {
+  tab: TabId;
+  selection: Selection | null;
+}
+const samePlace = (a: Place, b: Place) => a.tab === b.tab && a.selection?.kind === b.selection?.kind && a.selection?.id === b.selection?.id;
+const HISTORY = 50;
+// Shift pressed twice within this time, with no other key between, opens search everywhere (as in IDEA).
+const DOUBLE_SHIFT_MS = 350;
+
 export function App() {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -81,6 +122,9 @@ export function App() {
   const [termH, setTermH] = usePersisted('terminalHeight', 320);
   const [queue, setQueue] = useState<QueueState | null>(null);
   const [termCollapsed, setTermCollapsed] = usePersisted('terminalCollapsed', false);
+  const [termPos, setTermPos] = usePersisted<TerminalPosition>('terminalPosition', 'bottom');
+  const [termW, setTermW] = usePersisted('terminalWidth', 560);
+  const [palette, setPalette] = useState<string | null>(null);
   const [termMax, setTermMax] = useState(false);
   const [history, setHistory] = useState<Notice[]>([]);
   const [unread, setUnread] = useState(0);
@@ -106,6 +150,34 @@ export function App() {
     setHomeOpen(false);
     setTab(id);
   };
+
+  // Back/forward over sections and selected entities, as in VS Code.
+  const trail = useRef<{ list: Place[]; i: number }>({ list: [], i: -1 });
+  useEffect(() => {
+    const h = trail.current;
+    const here = { tab, selection };
+    if (h.list[h.i] && samePlace(h.list[h.i], here)) return;
+    // Closing the details is not a step: the next selection replaces it.
+    if (!selection && h.list[h.i]?.tab === tab) return;
+    h.list = [...h.list.slice(0, h.i + 1), here].slice(-HISTORY);
+    h.i = h.list.length - 1;
+  }, [tab, selection]);
+  const navigate = (d: 1 | -1) => {
+    const h = trail.current;
+    const p = h.list[h.i + d];
+    if (!p) return;
+    h.i += d;
+    go(p.tab);
+    setSelection(p.selection);
+    if (p.selection) reveal(`${p.selection.kind}:${p.selection.id}`);
+  };
+
+  // Ctrl+Tab walks the sections most recently used first; the order updates when Ctrl is released.
+  const mru = useRef<TabId[]>([tab]);
+  const cycle = useRef<{ list: TabId[]; i: number } | null>(null);
+  useEffect(() => {
+    if (!cycle.current) mru.current = [tab, ...mru.current.filter((t) => t !== tab)];
+  }, [tab]);
 
   const notify = useCallback((level: Notice['level'], text: string, recheck?: Notice['recheck']) => {
     const id = ++noticeSeq;
@@ -133,24 +205,69 @@ export function App() {
     void api.queueState().then(setQueue);
   }, [revision]);
 
+  // Latest state for the window listeners, which are installed once.
+  const keys = useRef({ sidebarOpen, termCollapsed, palette, navigate, go });
+  keys.current = { sidebarOpen, termCollapsed, palette, navigate, go };
   useEffect(() => {
+    let lastShift = 0;
     const onKey = (e: KeyboardEvent) => {
+      const k = keys.current;
       const t = e.target as HTMLElement;
-      if (e.key === 'Escape' && !t.closest('input, textarea, select, .terminal-panel')) return setSelection(null);
-      // VS Code bindings; capture phase so the terminal does not swallow them.
-      if (!(MAC ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;
-      // The tenth tab is on the 0 key, as the digits are laid out.
-      const n = e.key === '0' ? 10 : Number(e.key);
-      if (n >= 1 && n <= TABS.length) go(TABS[n - 1].id);
-      else if (e.code === 'KeyB') setSidebarOpen(!sidebarOpen);
-      else if (e.code === 'KeyJ') setTermCollapsed(!termCollapsed);
-      else return;
+      const inField = !!t.closest('input, textarea, select, [contenteditable="true"], [role="listbox"]');
+      const inTerminal = !!t.closest('.terminal-panel, .terminal-view');
+      if (e.key === 'Shift') {
+        const now = Date.now();
+        if (!e.repeat && now - lastShift < DOUBLE_SHIFT_MS && !inTerminal && !k.palette) (setPalette(''), (lastShift = 0));
+        else if (!e.repeat) lastShift = now;
+        return;
+      }
+      lastShift = 0;
+      if (k.palette !== null) return;
+      if (e.key === 'Escape' && !inField && !inTerminal) return setSelection(null);
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !inField && !inTerminal) {
+        if (moveRowSelection(e.key === 'ArrowDown' ? 1 : -1)) e.preventDefault();
+        return;
+      }
+      if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Tab') {
+        cycle.current ??= { list: mru.current.slice(), i: 0 };
+        const c = cycle.current;
+        c.i = (c.i + (e.shiftKey ? c.list.length - 1 : 1)) % c.list.length;
+        k.go(c.list[c.i]);
+      } else if (MAC ? e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Minus' : e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        // VS Code: Ctrl+- / Ctrl+Shift+- on macOS, Alt+←/→ elsewhere.
+        k.navigate(MAC ? (e.shiftKey ? 1 : -1) : e.key === 'ArrowRight' ? 1 : -1);
+      } else if (cmdKey(e) && !e.altKey && e.code === 'KeyP') {
+        setPalette(e.shiftKey ? '>' : '');
+      } else {
+        // VS Code bindings; capture phase so the terminal does not swallow them.
+        if (!cmdKey(e) || e.altKey || e.shiftKey) return;
+        // The tenth tab is on the 0 key, as the digits are laid out.
+        const n = e.key === '0' ? 10 : Number(e.key);
+        if (n >= 1 && n <= TABS.length) k.go(TABS[n - 1].id);
+        else if (e.code === 'KeyB') setSidebarOpen(!k.sidebarOpen);
+        else if (e.code === 'KeyJ') setTermCollapsed(!k.termCollapsed);
+        else return;
+      }
       e.preventDefault();
       e.stopPropagation();
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== 'Control' || !cycle.current) return;
+      const c = cycle.current;
+      cycle.current = null;
+      mru.current = [c.list[c.i], ...mru.current.filter((x) => x !== c.list[c.i])];
+    };
+    // Mouse back/forward buttons.
+    const onMouse = (e: MouseEvent) => (e.button === 3 || e.button === 4) && keys.current.navigate(e.button === 3 ? -1 : 1);
     window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [sidebarOpen, termCollapsed]);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('mouseup', onMouse);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('mouseup', onMouse);
+    };
+  }, []);
 
   const refreshTerminals = useCallback(async () => setTerminals(await api.listTerminals()), []);
 
@@ -233,6 +350,55 @@ export function App() {
     go('matrix');
   }, []);
 
+  const openHit = (h: SearchHit, inEditor: boolean) => {
+    if (inEditor && h.location) return void run(api.openInEditor(h.location.file, h.location.line ?? undefined, projectId ?? undefined));
+    go(HIT_TAB[h.kind]);
+    if (h.kind === 'session') return setSessionId(h.id);
+    const kind = HIT_SELECTION[h.kind];
+    setSelection(kind ? { kind, id: h.id } : null);
+    reveal(`${h.kind}:${h.id}`);
+  };
+
+  const closeTerminals = (list: TerminalInfo[]) => {
+    if (!list.length || !confirmClose(list)) return;
+    for (const t of list) void run(api.terminalClose(t.id));
+  };
+
+  const commands = (): PaletteCommand[] => [
+    ...TABS.map((t, i) => ({ id: `go.${t.id}`, title: tr('Go to: {section}', { section: t.title }), keys: i < 10 ? `${MOD}${(i + 1) % 10}` : undefined, run: () => go(t.id) })),
+    { id: 'back', title: tr('Go back'), keys: MAC ? '⌃-' : 'Alt+←', run: () => navigate(-1) },
+    { id: 'forward', title: tr('Go forward'), keys: MAC ? '⌃⇧-' : 'Alt+→', run: () => navigate(1) },
+    ...(projectId ? [{ id: 'session.new', title: tr('New session'), run: newSession }] : []),
+    { id: 'sidebar', title: tr('Toggle the session list'), keys: `${MOD}B`, run: () => setSidebarOpen(!sidebarOpen) },
+    { id: 'terminal', title: tr('Toggle the terminal'), keys: `${MOD}J`, run: () => setTermCollapsed(!termCollapsed) },
+    { id: 'terminal.max', title: termMax ? tr('Restore terminal size') : tr('Maximize terminal'), run: () => (setTermCollapsed(false), setTermMax(!termMax)) },
+    {
+      id: 'terminal.move',
+      title: termPos === 'bottom' ? tr('Move the panel to the right') : tr('Move the panel to the bottom'),
+      run: () => setTermPos(termPos === 'bottom' ? 'right' : 'bottom'),
+    },
+    { id: 'terminal.close-finished', title: tr('Terminal: close finished'), run: () => closeTerminals(terminals.filter((t) => !t.alive)) },
+    { id: 'terminal.close-all', title: tr('Terminal: close all'), run: () => closeTerminals(terminals) },
+    ...terminals.map((t) => ({ id: `terminal.${t.id}`, title: tr('Terminal: {title}', { title: t.title }), run: () => (setTermCollapsed(false), setActiveTerminal(t.id)) })),
+    { id: 'sections.collapse', title: tr('Details: collapse all sections'), run: () => setAllSections(false) },
+    { id: 'sections.expand', title: tr('Details: expand all sections'), run: () => setAllSections(true) },
+    { id: 'notifications', title: tr('Show notifications'), run: () => (setCenterOpen(true), setUnread(0)) },
+    { id: 'notifications.clear', title: tr('Clear notifications'), run: () => setHistory([]) },
+    { id: 'project.add', title: tr('Add project'), run: () => void addProject() },
+    ...projects.filter((p) => p.id !== projectId).map((p) => ({ id: `project.${p.id}`, title: tr('Switch project: {name}', { name: p.name }), run: () => pickProject(p.id) })),
+  ];
+
+  const detailsMenu = (e: React.MouseEvent) => {
+    if (!(e.target as HTMLElement).closest('summary') || !selection) return;
+    showMenu(e, [
+      { label: tr('Collapse all sections'), run: () => setAllSections(false) },
+      { label: tr('Expand all sections'), run: () => setAllSections(true) },
+      null,
+      { label: tr('Copy the id'), run: () => copyText(selection.id) },
+      { label: tr('Close details'), run: () => setSelection(null) },
+    ]);
+  };
+
   const project = projects.find((p) => p.id === projectId) ?? null;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const onSessions = tab === 'sessions' && !homeOpen;
@@ -274,13 +440,22 @@ export function App() {
         {sidebar && (
           <>
             <aside className="sidebar" tabIndex={-1}>
-              <SessionList sessions={sessions} active={sessionId} terminals={terminals} onSelect={setSessionId} onNew={newSession} />
+              <SessionList
+                projectId={project.id}
+                sessions={sessions}
+                active={sessionId}
+                terminals={terminals}
+                run={run}
+                onSelect={setSessionId}
+                onNew={newSession}
+                onTerminal={showTerminal}
+              />
             </aside>
             <Splitter axis="x" value={sidebarW} onChange={setSidebarW} min={180} max={480} reset={232} label={tr('Session list width')} />
           </>
         )}
 
-        <main className={termOpen && termMax ? 'main terminal-max' : 'main'}>
+        <main className={['main', termOpen && termMax && 'terminal-max', termPos === 'right' && 'terminal-right'].filter(Boolean).join(' ')}>
           <header className="crumbs">
             {project && (
               <div className="project-picker" title={project.root}>
@@ -311,6 +486,7 @@ export function App() {
           </header>
           <div className="workspace" style={{ gridTemplateColumns: details ? `minmax(0, 1fr) auto ${detailsW}px` : 'minmax(0, 1fr)' }}>
             {/* Remount per project: tabs keep project-scoped ids (e.g. the selected matrix) in local state. */}
+            <ProjectIdContext value={project?.id ?? null}>
             <section key={project?.id} className={onSessions && project ? 'content flush' : 'content'} tabIndex={-1}>
               {homeOpen ? (
                 <HomeTab
@@ -378,11 +554,12 @@ export function App() {
                 <div className="empty">{tr('Section “{title}” arrives at stage {stage}.', { title: current.title, stage: current.stage })}</div>
               )}
             </section>
+            </ProjectIdContext>
             {details && (
               <Splitter axis="x" invert value={detailsW} onChange={setDetailsW} min={300} max={900} reset={420} label={tr('Details panel width')} />
             )}
             {details && (
-              <div className="details-wrap" tabIndex={-1}>
+              <div className="details-wrap" tabIndex={-1} onContextMenu={detailsMenu}>
                 <IconButton icon="close" variant="ghost" className="details-close" title={tr('Close details (Esc)')} onClick={() => setSelection(null)} />
                 <DetailsPanel
                   project={project}
@@ -401,8 +578,12 @@ export function App() {
             active={activeTerminal}
             onActivate={setActiveTerminal}
             run={run}
-            height={termH}
-            onHeight={setTermH}
+            size={termPos === 'right' ? termW : termH}
+            onSize={termPos === 'right' ? setTermW : setTermH}
+            position={termPos}
+            onPosition={setTermPos}
+            onNewSession={project ? newSession : undefined}
+            onShowRun={(id) => (go('queue'), setSelection({ kind: 'run', id }))}
             collapsed={termCollapsed}
             onCollapsed={setTermCollapsed}
             maximized={termMax}
@@ -462,6 +643,10 @@ export function App() {
             </ul>
           )}
         </section>
+      )}
+
+      {palette !== null && (
+        <SearchPalette projectId={projectId} initial={palette} commands={commands()} onOpen={openHit} onClose={() => setPalette(null)} />
       )}
 
       <div className="notices">

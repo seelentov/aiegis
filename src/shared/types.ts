@@ -1163,3 +1163,40 @@ export type AppEvent =
   | { type: 'terminals-changed' }
   | { type: 'terminal-data'; terminalId: string; data: string }
   | { type: 'notice'; level: 'info' | 'warn' | 'error'; text: string; projectId?: string; recheck?: RecheckOffer };
+
+/** One entry of a native context menu; `role` items (edit commands) run in the main process and return no id. */
+export interface MenuItemSpec {
+  id?: string;
+  label?: string;
+  type?: 'normal' | 'separator' | 'checkbox';
+  checked?: boolean;
+  enabled?: boolean;
+  /** Shown only, e.g. `CmdOrCtrl+K`: the renderer binds the keys itself. */
+  accelerator?: string;
+  role?: 'cut' | 'copy' | 'paste' | 'selectAll';
+}
+
+/** What search everywhere finds; the renderer maps a kind to its section. */
+export type SearchKind =
+  | 'finding'
+  | 'signal'
+  | 'suppression'
+  | 'sca'
+  | 'module'
+  | 'document'
+  | 'doc-proposal'
+  | 'matrix'
+  | 'diff-check'
+  | 'schedule'
+  | 'job'
+  | 'session';
+
+export interface SearchHit {
+  kind: SearchKind;
+  id: string;
+  title: string;
+  /** Secondary line: severity, file:line, package, status. */
+  detail: string;
+  /** Workspace-relative `file:line` the hit points at, when it has one. */
+  location?: { file: string; line: number | null };
+}

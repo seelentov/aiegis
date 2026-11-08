@@ -101,7 +101,7 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
       filter: 'enum',
     },
     { key: 'actions', title: '', className: 'actions' },
-  ]);
+  ], { revealKey: (m) => `module:${m.id}` });
 
   const markup = async () => {
     const job = await run(api.enqueueModuleMarkup(project.id, hint));

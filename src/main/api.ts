@@ -124,6 +124,7 @@ export function coreApi(core: Core): CoreApi {
     runSchedule: (pid, id) => core.runSchedule(pid, id),
     cronPreview: (pid, cron) => core.cronPreview(pid, cron),
 
+    search: (pid, q, limit) => core.search(pid, q, limit),
     listTerminals: () => core.terminals.list(),
     terminalSnapshot: (id) => core.terminals.snapshot(id),
     terminalClose: (id) => core.terminals.close(id),

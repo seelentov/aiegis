@@ -126,6 +126,7 @@ function SignalsList({ project, revision, run, selection, onSelect, modules }: P
       { key: 'module', title: tr('Module'), text: (s) => s.moduleIds.map(moduleName).join(', ') || tr('outside modules'), filter: 'enum' },
       { key: 'scanner', title: tr('Scanner'), text: (s) => s.scanner, filter: 'enum' },
     ],
+    { revealKey: (s) => `signal:${s.id}` },
   );
 
   if (!view) return null;
@@ -271,6 +272,7 @@ function SuppressionsList({ project, revision, run, selection, onSelect, modules
       { key: 'author', title: tr('Author, commit'), text: (s) => `${s.author} ${s.commitSha.slice(0, 8)}`, sort: (s) => s.createdAt },
       { key: 'expires', title: tr('Expires'), text: (s) => s.expiresAt ?? '—' },
     ],
+    { revealKey: (s) => `suppression:${s.id}` },
   );
   return (
     <>

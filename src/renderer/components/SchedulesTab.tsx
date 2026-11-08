@@ -446,7 +446,7 @@ export function SchedulesTab({ project, revision, run, selection, onSelect }: Pr
     { key: 'next', title: tr('Next'), text: (s) => (s.enabled ? time(s.nextAt) : tr('disabled')), sort: (s) => s.nextAt ?? '' },
     { key: 'last', title: tr('Last firing'), text: (s) => (s.lastFiring ? SCHEDULE_OUTCOME[s.lastFiring.outcome] : '—'), filter: 'enum' },
     { key: 'actions', title: '', className: 'actions' },
-  ]);
+  ], { revealKey: (s) => `schedule:${s.id}` });
 
   return (
     <div className="schedules-tab">

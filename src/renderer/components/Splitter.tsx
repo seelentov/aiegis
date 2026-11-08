@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { tr } from '../i18n';
+import { showMenu, type MenuEntry } from '../menu';
 
 /** A layout size remembered in this viewer's browser; storage may be unavailable, the default then holds. */
 export function usePersisted<T>(key: string, def: T): [T, (v: T) => void] {
@@ -32,10 +33,12 @@ interface Props {
   invert?: boolean;
   /** Double-click restores this size. */
   reset: number;
+  /** Entries after "Reset size" in the splitter's context menu. */
+  menu?: MenuEntry[];
   label: string;
 }
 
-export function Splitter({ axis, value, onChange, min, max, invert, reset, label }: Props) {
+export function Splitter({ axis, value, onChange, min, max, invert, reset, label, menu }: Props) {
   const clamp = (v: number) => Math.round(Math.min(max, Math.max(min, v)));
   const start = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -77,6 +80,7 @@ export function Splitter({ axis, value, onChange, min, max, invert, reset, label
       tabIndex={0}
       onPointerDown={start}
       onDoubleClick={() => onChange(reset)}
+      onContextMenu={(e) => showMenu(e, [{ label: tr('Reset size'), enabled: value !== reset, run: () => onChange(reset) }, null, ...(menu ?? [])])}
       onKeyDown={key}
     />
   );

@@ -54,6 +54,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
       { key: 'links', title: tr('Links') },
       { key: 'created', title: tr('Created'), text: (f) => `${time(f.createdAt)} ${f.author}`, sort: (f) => f.createdAt },
     ],
+    { revealKey: (f) => `finding:${f.id}` },
   );
 
   const eligible = (f: Finding) => f.status === 'suspected' && !f.mergedInto;

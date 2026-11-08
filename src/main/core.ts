@@ -63,6 +63,7 @@ import type {
   RunStatus,
   Scan,
   Schedule,
+  SearchHit,
   ScheduleAction,
   ScheduleFiring,
   ScheduleInput,
@@ -235,6 +236,7 @@ import {
 import { DIFF_BATCH_ENTITY, DIFF_ITEM_ENTITY, diffItemId } from './diff-check';
 import { NothingToDo, nextFire, nextFires, parseAction, parseCron, shortestGapMinutes, type Cron } from './schedules';
 import { ProjectStore, type Authorship } from './store';
+import { rankHits } from './search';
 import { Terminals, type PtySpawn } from './terminals';
 import { WorktreeCache } from './worktrees';
 
@@ -4130,6 +4132,58 @@ export class Core extends EventEmitter {
 
   listSchedules(projectId: string): Schedule[] {
     return this.store(projectId).schedules.list();
+  }
+
+  /** Search everywhere: reads the store directly, without the git checks the section views make. */
+  async search(projectId: string, query: string, limit = 50): Promise<SearchHit[]> {
+    const s = this.store(projectId);
+    const hits: SearchHit[] = [];
+    const short = (sha: string) => sha.slice(0, 8);
+    for (const f of s.audit.listFindings()) {
+      const ev = f.files[0];
+      hits.push({ kind: 'finding', id: f.id, title: f.title, detail: [f.severity, f.status, f.cwe].filter(Boolean).join(', '), location: ev && { file: ev.file, line: ev.line ?? null } });
+    }
+    // The commit the Signals section opens on: HEAD when it was scanned, else the latest scanned one.
+    const scanned = s.signals.completeScans().map((x) => x.commitSha);
+    const head = await headSha(this.project(projectId).root);
+    const sha = scanned.includes(head) ? head : scanned[0];
+    if (sha) {
+      for (const r of this.rowsAt(projectId, sha).rows) {
+        hits.push({ kind: 'signal', id: r.id, title: r.title, detail: [r.severity, r.scanner, r.ruleId, ...r.cwe].join(', '), location: { file: r.file, line: r.line } });
+      }
+    }
+    for (const x of s.signals.listSuppressions()) {
+      hits.push({ kind: 'suppression', id: x.id, title: x.reason, detail: [x.scope, x.scanner, x.ruleId, x.file].filter(Boolean).join(', ') });
+    }
+    const modules = s.listModules();
+    for (const m of modules) {
+      const inv = s.sca.latestInventory(m.id);
+      for (const p of inv ? s.sca.listPackages(inv.id) : []) {
+        for (const v of p.vulns) {
+          hits.push({
+            kind: 'sca',
+            id: scaItemId({ moduleId: m.id, packageKey: p.key, vulnId: v.vulnId }),
+            title: `${v.vulnId} ${p.name}@${p.version}`,
+            detail: [v.severity, m.name, v.title, ...v.aliases].filter(Boolean).join(', '),
+          });
+        }
+      }
+    }
+    for (const m of modules) hits.push({ kind: 'module', id: m.id, title: m.name, detail: m.description });
+    for (const d of s.audit.listDocuments()) hits.push({ kind: 'document', id: d.id, title: d.title, detail: d.edition ?? '' });
+    for (const p of s.audit.listDocProposals()) hits.push({ kind: 'doc-proposal', id: p.id, title: p.title ?? p.target, detail: [p.kind, p.status].join(', ') });
+    for (const m of s.audit.listMatrices()) hits.push({ kind: 'matrix', id: m.id, title: m.name, detail: '' });
+    for (const c of s.diff.list()) hits.push({ kind: 'diff-check', id: c.id, title: c.title, detail: `${short(c.baseSha)}..${short(c.headSha)}` });
+    for (const x of s.schedules.list()) hits.push({ kind: 'schedule', id: x.id, title: x.name, detail: x.cron });
+    for (const j of s.listJobs()) hits.push({ kind: 'job', id: j.id, title: j.title, detail: [j.type, j.status].join(', ') });
+    // Free sessions, grouped as in the Sessions section.
+    const sessions = new Set<string>();
+    for (const r of s.listRuns()) {
+      if (r.kind !== 'interactive' || r.jobId || r.entityType || sessions.has(r.sessionId)) continue;
+      sessions.add(r.sessionId);
+      hits.push({ kind: 'session', id: r.sessionId, title: r.role, detail: `${r.startedAt} ${r.cwd}` });
+    }
+    return rankHits(hits, query, limit);
   }
 
   scheduleDetails(projectId: string, id: string): Schedule {

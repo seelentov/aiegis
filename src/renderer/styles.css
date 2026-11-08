@@ -378,3 +378,45 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
   .step-side { grid-column: 2; padding-top: var(--space-xs); }
   .home-head { flex-direction: column; align-items: flex-start; }
 }
+
+/* Terminal panel on the right of the work area (VS Code: Move Panel Right); the breadcrumbs span the full width. */
+.main.terminal-right { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto minmax(0, 1fr); }
+.main.terminal-right > .crumbs { grid-column: 1 / -1; }
+.main.terminal-right > .workspace { grid-column: 1; grid-row: 2; }
+.main.terminal-right > .splitter { grid-column: 2; grid-row: 2; }
+.main.terminal-right > .terminal-panel { grid-column: 3; grid-row: 2; }
+.main.terminal-right > .terminal-panel { border-top: 0; border-left: var(--rule-hair) solid var(--color-rule); min-width: 0; }
+.main.terminal-right > .terminal-panel.collapsed { height: auto; width: 30px; }
+.main.terminal-right > .terminal-panel.collapsed .terminal-tabs { flex-direction: column; padding: var(--space-xs) 0; border-bottom: 0; }
+.main.terminal-right > .terminal-panel.collapsed .terminal-tab, .main.terminal-right > .terminal-panel.collapsed .terminal-tabs > .muted { display: none; }
+.main.terminal-right.terminal-max { grid-template-columns: 0 0 minmax(0, 1fr); }
+.terminal-tab.dragged { opacity: 0.5; }
+.rename-input { width: 12rem; min-height: 20px; padding: 0 var(--space-2xs); font: inherit; }
+.terminal-host { position: absolute; inset: 0; }
+.terminal-find {
+  position: absolute; top: 0; right: 0; z-index: var(--z-raised); display: flex; align-items: center; gap: var(--space-2xs);
+  padding: var(--space-2xs); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-pill);
+}
+.terminal-find input { width: 14rem; }
+
+/* A row brought into view by search or history fades from the accent. */
+@keyframes row-flash { from { background: var(--color-accent-soft); } }
+table.grid tr.flash { animation: row-flash 1.6s var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { table.grid tr.flash { animation: none; box-shadow: inset 2px 0 0 var(--color-accent); } }
+
+/* Search everywhere and the command palette. */
+.palette-backdrop { position: fixed; inset: 0; z-index: var(--z-modal); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
+.palette {
+  display: flex; flex-direction: column; width: min(640px, calc(100% - 2 * var(--space-md))); max-height: 64vh;
+  color: var(--color-ink); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-pill);
+  box-shadow: 0 8px 24px var(--color-scroll-shadow);
+}
+.palette > input { margin: var(--space-xs); }
+.palette-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 0 var(--space-2xs); list-style: none; }
+.palette-list > li[role="option"] { display: flex; align-items: baseline; gap: var(--space-sm); min-height: 24px; padding: var(--space-2xs) var(--space-sm); cursor: pointer; color: var(--color-ink-2); }
+.palette-list > li[data-active] { background: var(--color-select); color: var(--color-ink); }
+.palette-title { flex-shrink: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted); font-size: var(--text-xs); text-align: right; }
+.palette-list kbd { margin-left: auto; color: var(--color-muted); font: inherit; font-size: var(--text-xs); }
+.palette-group { padding: var(--space-xs) var(--space-sm) var(--space-2xs); color: var(--color-muted); font-size: var(--text-xs); }
+.palette-foot { padding: var(--space-2xs) var(--space-sm) var(--space-xs); border-top: var(--rule-hair) solid var(--color-rule); }

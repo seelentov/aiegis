@@ -34,7 +34,39 @@ The layout follows VS Code:
 |---|---|
 | `⌘B` | Show or hide the session list on **Sessions** |
 | `⌘J` | Show or hide the terminal |
+| `⌘P`, `Shift` twice | [Search everywhere](#search-everywhere) |
+| `⌘⇧P` | [Command palette](#command-palette) |
+| `Ctrl+Tab`, `Ctrl+Shift+Tab` | Switch to the recently used tabs; hold `Ctrl` and press `Tab` again to go further back |
+| `Ctrl+-`, `Ctrl+Shift+-` (macOS); `Alt+←`, `Alt+→` (elsewhere) | Go back and forward over tabs and opened items; the mouse back and forward buttons do the same |
+| `↑`, `↓` | Select the previous or next row of the table with a selected row, opening its details |
 | `Esc` | Close the details panel (not while typing in a field or in the terminal) |
+
+Double `Shift` does not open search while the terminal has focus; use `⌘P` there.
+
+## Search everywhere
+
+`⌘P` or `Shift` pressed twice opens a search over the whole project: findings, signals of the commit **Signals** opens on, suppressions, SCA vulnerabilities, modules, documents and their proposals, matrices, branch checks, schedules, jobs and free sessions. An item matches when its id, title, details (severity, status, CWE, scanner, rule, package) or `file:line` hold every word you type, in any case. Exact ids come first, then titles that start with the query.
+
+Results are grouped by kind. `↑`/`↓` move, `Enter` goes to the item: the app opens its tab, selects it, shows its details and brings its row into view, switching the page and dropping filters that hide it. `⌘Enter` opens the item's file at its line in VS Code instead. With an empty query, the recently opened items are listed.
+
+A prefix narrows the search: `f:` findings, `s:` signals and suppressions, `sca:` SCA, `m:` modules, `d:` documents, proposals and matrices, `j:` jobs, sessions, schedules and branch checks. For example, `f: sql orders`.
+
+Rows of the **Queue** tables are not scrolled to: a found job opens in the details panel only.
+
+## Command palette
+
+`⌘⇧P`, or `>` typed in search everywhere, lists commands: go to any tab, go back or forward, start a session, show or hide the session list and the terminal, maximize or move the terminal panel, close finished or all terminal tabs, switch to an open terminal, collapse or expand all detail sections, show or clear notifications, add a project or switch to another one.
+
+## Context menus
+
+Right-click works as in VS Code:
+
+- **Text fields and selected text**: Cut, Copy, Paste, Select all.
+- **Table rows**: Open (as a click), open the `file:line` shown in the cell in VS Code, copy the cell value, the row or all visible rows (tab-separated, with the headings), filter the column by the cell value, hide the column.
+- **Table headings**: sort ascending or descending, reset filters and sorting, show or hide each column, show all columns. Hidden columns are remembered on this machine.
+- **Section headings in the details panel**: collapse or expand all sections, copy the item's id, close the details.
+- **Dividers**: reset the size; the terminal's divider also moves the panel.
+- **Terminal tabs, terminal output and the session list**: see [Queue and sessions](queue-and-sessions.md#terminal-panel).
 
 ## Projects
 
@@ -79,7 +111,9 @@ Every dropdown can be searched:
 
 ## Resizing
 
-Drag a divider to resize the session list, the details panel or the terminal. With the keyboard, focus a divider and use the arrow keys. Double-click a divider to restore its default. Sizes and the last open tab are remembered on this machine.
+Drag a divider to resize the session list, the details panel or the terminal. With the keyboard, focus a divider and use the arrow keys. Double-click a divider, or right-click it and choose **Reset size**, to restore its default. Sizes and the last open tab are remembered on this machine.
+
+The terminal panel sits at the bottom or on the right of the work area: **Move the panel to the right** or **to the bottom** in the context menu of its tab bar or divider, or in the command palette. The position is remembered.
 
 The terminal can also fill the whole work area: use its button or double-click its tab bar.
 

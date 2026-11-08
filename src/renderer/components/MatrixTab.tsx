@@ -6,6 +6,7 @@ import { CELL_STATUS, JOB_STATUS, kTokens, STALE_REASON } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid, type Col } from './Grid';
 import { Icon } from './Icon';
+import { useReveal } from '../reveal';
 import { tr } from '../i18n';
 import { Button, Checkbox, IconButton, Input, Select, Table } from '../ui';
 
@@ -187,6 +188,15 @@ export function MatrixTab({ project, revision, run, selection, onSelect, draftDo
   }, [draftDocument, onDraftTaken]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [filter, setFilter] = useState<RowFilter>('all');
+  useReveal(
+    (key) => {
+      const id = key.startsWith('matrix:') ? key.slice('matrix:'.length) : null;
+      if (!id || !matrices.some((m) => m.id === id)) return false;
+      setMatrixId(id);
+      return true;
+    },
+    [matrices],
+  );
 
   useEffect(() => {
     void run(api.listMatrices(project.id)).then((ms) => {

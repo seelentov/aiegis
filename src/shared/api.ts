@@ -25,6 +25,7 @@ import type {
   FindingStatus,
   Job,
   Language,
+  MenuItemSpec,
   Matrix,
   MatrixEstimate,
   MatrixScope,
@@ -48,6 +49,7 @@ import type {
   Scan,
   RequirementRepeat,
   Schedule,
+  SearchHit,
   ScheduleFiring,
   ScheduleInput,
   ScaEstimate,
@@ -251,6 +253,10 @@ export interface AiegisApi {
   writeConfigFile(projectId: string | null, file: string, text: string): void;
   uiLanguage(): Language;
   uiPageSizes(): { table: number; history: number };
+  /** Search everywhere: the project's entities whose id, title or location match every word of the query, best first. */
+  search(projectId: string, query: string, limit?: number): SearchHit[];
+  /** Pops up a native context menu at the cursor; resolves to the picked item's id, or null when dismissed. */
+  contextMenu(items: MenuItemSpec[]): string | null;
 }
 
 export type ApiMethod = keyof AiegisApi;
@@ -271,6 +277,7 @@ export const UI_METHODS = [
   'terminalResize',
   'uiLanguage',
   'uiPageSizes',
+  'contextMenu',
 ] as const satisfies readonly ApiMethod[];
 export type UiMethod = (typeof UI_METHODS)[number];
 export type CoreMethod = Exclude<ApiMethod, UiMethod>;

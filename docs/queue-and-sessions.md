@@ -50,6 +50,8 @@ The **Sessions** tab holds free agent sessions of the project. The list on the l
 - **Stop the session** ends a live one, after a confirmation.
 - **Continue** resumes a closed one in the same terminal; **Open in an external terminal** resumes it outside the app.
 
+Right-click a session for **Continue** or **Stop the session**, **Open in an external terminal**, **Rename** (the name replaces the start time in the list and is kept on this machine), **Copy the session id** and **Copy the working directory**.
+
 Runs of jobs and of findings, cells and other items are not listed here; open them from **Queue** or the details panel.
 
 ## Sessions
@@ -72,6 +74,13 @@ Interactive sessions exist only in the desktop app, not in the [service](service
 Tabs hold read-only streams (**Watch output**) and interactive sessions. The session selected on **Sessions** is shown there, not in the panel. Closing a tab of a live session ends its process, after a confirmation. Ended streams stay available up to `terminal.keep_ended_streams`, after which the oldest leave memory; their logs stay on disk.
 
 `⌘J` shows or hides the panel, and double-clicking the tab bar maximizes it.
+
+- **Right-click a tab**: Close, Close others, Close to the left, Close to the right, Close finished (tabs whose process ended), Close all; Rename; Show the run (its details in **Queue**); Open in an external terminal (an ended interactive session); Copy the run id. Closing several tabs asks once, naming the live processes it would end.
+- **Middle-click a tab** closes it. Drag tabs to reorder them. Double-click a tab's title to rename it; names and order last until the app restarts.
+- **Right-click the empty tab bar**: New session, Close finished, Close all, maximize or restore, show or hide, move the panel to the right or to the bottom.
+- **Right-click the output**: Copy, Paste (live interactive sessions), Select all, Find, Clear.
+- `⌘F` finds in the output (`Enter` next, `Shift+Enter` previous, `Esc` closes); `⌘K` clears it. Elsewhere than macOS these are `Ctrl+Shift+F` and `Ctrl+Shift+K`, so `Ctrl+F` and `Ctrl+K` still reach the program.
+- Links in the output open in the browser; a `path/to/File.java:42` opens in VS Code, relative to the project root.
 
 ## Command line
 

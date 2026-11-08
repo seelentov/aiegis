@@ -6,7 +6,8 @@ declare global {
   }
 }
 
-export const bridge: Bridge = window.aiegis;
+// Absent outside the app: unit tests import renderer modules that reach this one.
+export const bridge: Bridge = globalThis.window?.aiegis as Bridge;
 
 /** Typed async proxy over the IPC bridge. */
 export const api = new Proxy({} as AsyncApi, {

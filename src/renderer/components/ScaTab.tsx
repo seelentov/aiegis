@@ -209,7 +209,7 @@ export function ScaTab({ project, revision, run, selection, onSelect, notify }: 
       { key: 'module', title: tr('Module'), text: (x) => moduleName(x.moduleId), filter: 'enum' },
     ],
     // Without a chosen sort the worst vulnerabilities lead.
-    { order: (a, b) => SEV_RANK[b.vuln.severity] - SEV_RANK[a.vuln.severity] || a.name.localeCompare(b.name) },
+    { order: (a, b) => SEV_RANK[b.vuln.severity] - SEV_RANK[a.vuln.severity] || a.name.localeCompare(b.name), revealKey: (x) => `sca:${scaItemKey(x)}` },
   );
   const items = g.rows;
 

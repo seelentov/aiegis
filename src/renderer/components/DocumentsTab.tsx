@@ -500,7 +500,7 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
     { key: 'versions', title: tr('Versions') },
     { key: 'check', title: tr('Last check'), text: (d) => (d.retiredAt ? tr('out of force') : d.lastCheck ? CHECK[d.lastCheck.status].label : tr('not checked')), filter: 'enum' },
     { key: 'actions', title: '', className: 'actions' },
-  ], { group: setRank });
+  ], { group: setRank, revealKey: (d) => `document:${d.id}` });
 
   const importFile = async (documentId?: string) => {
     const file = await run(api.pickDocumentFile());
@@ -713,7 +713,7 @@ export function DocumentsTab({ project, revision, run, onTerminal, selection, on
                   </tr>
                 ))}
                 {rows.map((d) => (
-                  <tr key={d.id} className={d.retiredAt ? 'removed' : ''}>
+                  <tr key={d.id} className={d.retiredAt ? 'removed' : ''} data-key={`document:${d.id}`}>
                     <td title={d.generated?.scope}>
                       <strong>{d.title}</strong>
                       {d.generated && <span className="muted small"> · {tr('AI · {prefix}', { prefix: d.generated.key_prefix })}</span>}

@@ -199,4 +199,12 @@ describe('Core with a fake claude', () => {
     core.removeModule(pid, mod.id, 'test');
     await expect(core.enqueueEntryPoints(pid, mod.id)).rejects.toThrow(/not found/);
   });
+
+  it('search everywhere finds modules and free sessions, every word matching', async () => {
+    const mod = await core.saveModule(pid, { name: 'Searchable payments', globs: ['svc/*.java'], description: 'card flows' });
+    expect((await core.search(pid, 'payments SEARCHABLE')).map((h) => [h.kind, h.id])).toEqual([['module', mod.id]]);
+    expect(await core.search(pid, 'payments refunds')).toEqual([]);
+    const free = core.listRuns(pid).find((r) => r.kind === 'interactive' && !r.jobId && !r.entityType)!;
+    expect((await core.search(pid, free.sessionId))[0]).toMatchObject({ kind: 'session', id: free.sessionId });
+  });
 });
