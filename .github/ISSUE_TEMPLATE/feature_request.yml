@@ -1,0 +1,16 @@
+name: Idea or improvement
+description: A new feature, scanner, agent or a better way to do something
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard or impossible today, and in what situation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you have in mind. Alternatives you considered are welcome too.
