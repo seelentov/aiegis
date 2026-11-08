@@ -126,6 +126,10 @@ npm run dist:service  # the Linux service executable, on Node 24
 
 [GitHub Actions](.github/workflows/release.yml) builds the release for all platforms when a release is published.
 
+## Contributing
+
+aiegis is open to the community: bug reports, ideas, new scanners and agents, prompt improvements, translations and documentation are all welcome. Open an issue or a pull request; see [CONTRIBUTING.md](CONTRIBUTING.md) for how to get a change merged.
+
 ## License
 
 [MIT](LICENSE). Methodology fragments in `defaults/instructions/methodology/` are adapted from [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) (MIT, © Cloudflare, Inc.).
