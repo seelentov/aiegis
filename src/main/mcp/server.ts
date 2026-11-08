@@ -1605,7 +1605,7 @@ export class AiegisMcpServer {
       this.handle(req, res).catch((e) => {
         log.error('request %s failed: %s', req.url, e);
         if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: String(e) }));
+        res.end(JSON.stringify({ error: 'internal server error' }));
       });
     });
     await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve));
