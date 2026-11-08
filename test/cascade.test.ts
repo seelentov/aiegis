@@ -94,6 +94,14 @@ describe('mergeSettings', () => {
     expect(value).toEqual({ queue: { parallelism: 4, x: 1 }, claude: { args: ['c'] } });
     expect(sources).toEqual({ 'queue.parallelism': 'p', 'queue.x': 'g', 'claude.args': 'p' });
   });
+
+  it('skips prototype-polluting keys', () => {
+    const { value } = mergeSettings([
+      { source: 'p', value: JSON.parse('{"__proto__":{"polluted":1},"a":{"constructor":{"prototype":{"polluted":1}}}}') },
+    ]);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(value).toEqual({ a: {} });
+  });
 });
 
 describe('config files', () => {

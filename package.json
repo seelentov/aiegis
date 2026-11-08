@@ -115,6 +115,7 @@
   "overrides": {
     "@anthropic-ai/sandbox-runtime": {
       "zod": "$zod"
-    }
+    },
+    "minimatch@>=7.0.0 <11.0.1": "^11.0.5"
   }
 }
