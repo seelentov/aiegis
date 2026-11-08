@@ -14,7 +14,6 @@ interface Props {
   revision: number;
   run: RunFn;
   onAddProject: () => void;
-  onShowProjects: () => void;
   onOpen: (tab: Tab) => void;
   onCreateMatrix: (documentId: string) => void;
   onTerminal: (id: string | undefined) => void;
@@ -58,7 +57,7 @@ interface Step {
 const active = (j: Job) => j.status === 'queued' || j.status === 'running';
 
 /** The setup path shown on the first launch: from an empty project to the first audit results. */
-export function HomeTab({ project, revision, run, onAddProject, onShowProjects, onOpen, onCreateMatrix, onTerminal, onClose }: Props) {
+export function HomeTab({ project, revision, run, onAddProject, onOpen, onCreateMatrix, onTerminal, onClose }: Props) {
   const [data, setData] = useState<Data | null>(null);
   const [skipped, setSkipped] = usePersisted<string[]>('setupSkipped', []);
 
@@ -96,7 +95,7 @@ export function HomeTab({ project, revision, run, onAddProject, onShowProjects, 
 
   const steps: Step[] = [
     project
-      ? { id: 'project', title: tr('Choose a project'), done: true, fact: <span className="mono">{project.root}</span>, side: <Button variant="ghost" onClick={onShowProjects}>{tr('Change')}</Button> }
+      ? { id: 'project', title: tr('Choose a project'), done: true, fact: <span className="mono">{project.root}</span> }
       : {
           id: 'project',
           title: tr('Choose a project'),

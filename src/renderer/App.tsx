@@ -13,13 +13,14 @@ import { ModulesTab } from './components/ModulesTab';
 import { QueueTab } from './components/QueueTab';
 import { ScaTab } from './components/ScaTab';
 import { SchedulesTab } from './components/SchedulesTab';
+import { SessionList, SessionView, loadSessions, terminalOf, type FreeSession } from './components/SessionsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SignalsTab } from './components/SignalsTab';
 import { Icon, type IconName } from './components/Icon';
 import { Splitter, usePersisted } from './components/Splitter';
 import { TerminalPanel } from './components/TerminalPanel';
 import { locale, tr } from './i18n';
-import { Button, IconButton } from './ui';
+import { Button, IconButton, Select } from './ui';
 
 // Groups read top to bottom: the audit itself, what it is built from, the machinery (pinned to the bottom of the activity bar).
 const TABS = [
@@ -31,6 +32,7 @@ const TABS = [
   { id: 'diff', title: tr('Branch check'), icon: 'branch', stage: 3, group: 'audit' },
   { id: 'modules', title: tr('Modules'), icon: 'layers', stage: 2, group: 'sources' },
   { id: 'documents', title: tr('Documents'), icon: 'file', stage: 3, group: 'sources' },
+  { id: 'sessions', title: tr('Sessions'), icon: 'terminal', stage: 1, group: 'system' },
   { id: 'queue', title: tr('Queue'), icon: 'list', stage: 1, group: 'system' },
   { id: 'schedules', title: tr('Schedules'), icon: 'clock', stage: 1, group: 'system' },
   { id: 'settings', title: tr('Settings'), icon: 'sliders', stage: 1, group: 'system' },
@@ -94,6 +96,10 @@ export function App() {
   // The setup guide: offered once, on the first launch with no projects; stays in the activity bar until closed.
   const [guide, setGuide] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
+  const [sessions, setSessions] = useState<FreeSession[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  /** Terminal of a just started session, selected once its run shows up in the list. */
+  const [pendingTerminal, setPendingTerminal] = useState<string | null>(null);
 
   const go = (id: TabId) => {
     setHomeOpen(false);
@@ -172,6 +178,33 @@ export function App() {
     [refreshTerminals],
   );
 
+  useEffect(() => {
+    if (tab === 'sessions' && projectId) void run(loadSessions(projectId)).then((ss) => ss && setSessions(ss));
+  }, [tab, projectId, revision, run]);
+
+  useEffect(() => {
+    const t = terminals.find((x) => x.id === pendingTerminal);
+    const s = t && sessions.find((x) => x.runs.some((r) => r.id === t.runId));
+    if (s) (setSessionId(s.sessionId), setPendingTerminal(null));
+  }, [terminals, sessions, pendingTerminal]);
+
+  const newSession = () => {
+    if (!projectId) return;
+    void run(api.newSession(projectId)).then((id) => {
+      if (!id) return;
+      setPendingTerminal(id);
+      go('sessions');
+      void refreshTerminals();
+    });
+  };
+
+  const pickProject = (id: string) => {
+    setProjectId(id);
+    setSelection(null);
+    setMapModule(null);
+    setSessionId(null);
+  };
+
   const addProject = async () => {
     const p = await run(api.pickAndAddProject());
     if (!p) return;
@@ -199,7 +232,11 @@ export function App() {
 
   const project = projects.find((p) => p.id === projectId) ?? null;
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const details = !homeOpen && tab !== 'settings' && selection !== null;
+  const onSessions = tab === 'sessions' && !homeOpen;
+  const details = !homeOpen && tab !== 'settings' && tab !== 'sessions' && selection !== null;
+  const session = sessions.find((s) => s.sessionId === sessionId);
+  const sessionTerminal = onSessions ? terminalOf(session, terminals) : undefined;
+  const sidebar = sidebarOpen && onSessions && project !== null;
 
   const running = queue?.running ?? 0;
   const termOpen = !termCollapsed && terminals.length > 0;
@@ -219,18 +256,8 @@ export function App() {
 
   return (
     <div className="app">
-      <div className="shell" style={{ gridTemplateColumns: sidebarOpen ? `auto ${sidebarW}px auto minmax(0, 1fr)` : 'auto minmax(0, 1fr)' }}>
+      <div className="shell" style={{ gridTemplateColumns: sidebar ? `auto ${sidebarW}px auto minmax(0, 1fr)` : 'auto minmax(0, 1fr)' }}>
         <nav className="activity-bar" aria-label={tr('Sections')}>
-          <Button
-            className="activity-item projects-toggle"
-            title={`${sidebarOpen ? tr('Hide projects') : tr('Show projects')} (${MOD}B)`}
-            aria-label={tr('Projects')}
-            aria-pressed={sidebarOpen}
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >
-            <Icon name="folder" size={22} />
-          </Button>
-          <span className="activity-rule" />
           {guide && (
             <Button className={`activity-item ${homeOpen ? 'active' : ''}`} title={tr('Setup guide')} aria-label={tr('Setup guide')} aria-current={homeOpen ? 'page' : undefined} onClick={() => setHomeOpen(true)}>
               <Icon name="home" size={22} />
@@ -241,38 +268,31 @@ export function App() {
           {TABS.map((t, i) => t.group === 'system' && activityItem(t, i))}
         </nav>
 
-        {sidebarOpen && (
+        {sidebar && (
           <>
             <aside className="sidebar" tabIndex={-1}>
-              <div className="pane-header">
-                <span>{tr('Projects')}</span>
-                <IconButton icon="folderPlus" variant="ghost" title={tr('Add git repository')} onClick={() => void addProject()} />
-              </div>
-              <ul className="project-list">
-                {projects.map((p) => (
-                  <li key={p.id} className={p.id === projectId ? 'active' : ''} onClick={() => (setProjectId(p.id), setSelection(null), setMapModule(null))}>
-                    <span className="project-name" title={p.root}>
-                      {p.name}
-                    </span>
-                    <IconButton icon="trash" variant="ghost" title={tr('Remove from list')} onClick={(e) => (e.stopPropagation(), void removeProject(p))} />
-                  </li>
-                ))}
-              </ul>
+              <SessionList sessions={sessions} active={sessionId} terminals={terminals} onSelect={setSessionId} onNew={newSession} />
             </aside>
-            <Splitter axis="x" value={sidebarW} onChange={setSidebarW} min={180} max={480} reset={232} label={tr('Project list width')} />
+            <Splitter axis="x" value={sidebarW} onChange={setSidebarW} min={180} max={480} reset={232} label={tr('Session list width')} />
           </>
         )}
 
         <main className={termOpen && termMax ? 'main terminal-max' : 'main'}>
           <header className="crumbs">
+            {project && (
+              <div className="project-picker" title={project.root}>
+                <Select value={project.id} onChange={pickProject} aria-label={tr('Project')}>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+                <IconButton icon="folderPlus" variant="ghost" title={tr('Add git repository')} onClick={() => void addProject()} />
+                <IconButton icon="trash" variant="ghost" title={tr('Remove the project from the list')} onClick={() => void removeProject(project)} />
+              </div>
+            )}
             <ol>
-              {project && (
-                <li>
-                  <Button className="crumb" title={project.root} onClick={() => setSidebarOpen(true)}>
-                    {project.name}
-                  </Button>
-                </li>
-              )}
               {details ? (
                 <li>
                   <Button className="crumb" onClick={() => setSelection(null)}>
@@ -288,14 +308,13 @@ export function App() {
           </header>
           <div className="workspace" style={{ gridTemplateColumns: details ? `minmax(0, 1fr) auto ${detailsW}px` : 'minmax(0, 1fr)' }}>
             {/* Remount per project: tabs keep project-scoped ids (e.g. the selected matrix) in local state. */}
-            <section key={project?.id} className="content" tabIndex={-1}>
+            <section key={project?.id} className={onSessions && project ? 'content flush' : 'content'} tabIndex={-1}>
               {homeOpen ? (
                 <HomeTab
                   project={project}
                   revision={revision}
                   run={run}
                   onAddProject={() => void addProject()}
-                  onShowProjects={() => setSidebarOpen(true)}
                   onOpen={go}
                   onCreateMatrix={createMatrix}
                   onTerminal={showTerminal}
@@ -308,6 +327,8 @@ export function App() {
                   <p>{tr('No projects.')}</p>
                   <IconButton icon="folderPlus" variant="primary" title={tr('Add git repository')} label={tr('Add project')} onClick={() => void addProject()} />
                 </div>
+              ) : tab === 'sessions' ? (
+                <SessionView projectId={project.id} session={session} terminal={sessionTerminal} run={run} onTerminal={showTerminal} onNew={newSession} />
               ) : tab === 'queue' ? (
                 <QueueTab
                   project={project}
@@ -373,7 +394,7 @@ export function App() {
             )}
           </div>
           <TerminalPanel
-            terminals={terminals}
+            terminals={sessionTerminal ? terminals.filter((t) => t.id !== sessionTerminal.id) : terminals}
             active={activeTerminal}
             onActivate={setActiveTerminal}
             run={run}
@@ -388,7 +409,7 @@ export function App() {
       </div>
 
       <footer className="statusbar">
-        <Button className="status-item" title={project ? `${project.root} — ${sidebarOpen ? tr('hide projects') : tr('show projects')} (${MOD}B)` : tr('Add project')} onClick={() => (project ? setSidebarOpen(!sidebarOpen) : void addProject())}>
+        <Button className="status-item" title={project ? project.root : tr('Add project')} onClick={() => (project ? go('sessions') : void addProject())}>
           <Icon name="folder" size={14} />
           <span>{project?.name ?? tr('no project')}</span>
         </Button>
