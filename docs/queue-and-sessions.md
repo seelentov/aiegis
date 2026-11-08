@@ -40,9 +40,21 @@ When a provider limit is hit, the job returns to the queue and the queue pauses 
 
 **Background task** queues any prompt with a role (default `sessions.default_task_role`) and an optional title. It runs as a job like any other.
 
+## Sessions tab
+
+![The Sessions tab with a live session](screenshots/sessions.png)
+
+The **Sessions** tab holds free agent sessions of the project. The list on the left shows each session by its start time, as active or closed, with the first characters of its id; `⌘B` hides it. The selected session's terminal fills the main area, under a line with its role, session id, start time and working directory.
+
+- **New session** (`+` above the list) opens a free interactive session of `sessions.free_role` in your working directory, with the aiegis MCP server and `manage` access. It can read all project data and start checks, and it can edit your code.
+- **Stop the session** ends a live one, after a confirmation.
+- **Continue** resumes a closed one in the same terminal; **Open in an external terminal** resumes it outside the app.
+
+Runs of jobs and of findings, cells and other items are not listed here; open them from **Queue** or the details panel.
+
 ## Sessions
 
-- **New session** opens a free interactive session of `sessions.free_role` in your working directory, with the aiegis MCP server and `manage` access. It can read all project data and start checks, and it can edit your code.
+- **New session** on the [Sessions tab](#sessions-tab) opens a free session, as described above.
 - **Open session** continues any run's session in its working directory (`claude --resume` or `pi --session-id`), with the same scope. The worktree is recreated from its commit if needed. Each opening is a separate interactive run linked to its parent.
 - **Open in an external terminal** uses `terminal.external_app` on macOS. Its process is not tracked, so the run is recorded as finished at once, and its token lives until the app exits. It cannot write an entry point map.
 - A session continues only with the agent that created it.
@@ -57,7 +69,7 @@ Interactive sessions exist only in the desktop app, not in the [service](service
 
 ![The terminal panel showing a run's output](screenshots/terminal.png)
 
-Tabs hold read-only streams (**Watch output**) and interactive sessions. Closing a tab of a live session ends its process, after a confirmation. Ended streams stay available up to `terminal.keep_ended_streams`, after which the oldest leave memory; their logs stay on disk.
+Tabs hold read-only streams (**Watch output**) and interactive sessions. The session selected on **Sessions** is shown there, not in the panel. Closing a tab of a live session ends its process, after a confirmation. Ended streams stay available up to `terminal.keep_ended_streams`, after which the oldest leave memory; their logs stay on disk.
 
 `⌘J` shows or hides the panel, and double-clicking the tab bar maximizes it.
 

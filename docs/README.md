@@ -8,7 +8,7 @@ Screenshots show a small demo API (Node.js/Express with deliberate vulnerabiliti
 
 - [Getting started](getting-started.md): install, first start, a first audit
 - [Concepts](concepts.md): data model, roles, worktrees, verdict rules, `stale`, history
-- [Interface](interface.md): layout, shortcuts, projects, tables, notifications
+- [Interface](interface.md): layout, setup guide, shortcuts, projects, tables, notifications
 
 ## Audit
 
@@ -29,7 +29,7 @@ Screenshots show a small demo API (Node.js/Express with deliberate vulnerabiliti
 ## Automation
 
 - [Schedules](schedules.md): actions on cron
-- [Queue and sessions](queue-and-sessions.md): jobs, runs, limits, interactive sessions, terminal
+- [Queue and sessions](queue-and-sessions.md): jobs, runs, limits, the Sessions tab, interactive sessions, terminal
 - [Service and CLI](service.md): running without a window, systemd
 - [CLI reference](cli.md): every command
 

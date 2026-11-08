@@ -36,7 +36,7 @@ Columns: picker, finding, severity, status, verification, CWE, module, document,
 
 ## Details
 
-![The details of a finding with the PoC result](screenshots/finding.png)
+![The details of a finding with its independent verification](screenshots/finding.png)
 
 - **Status** with **Change the status**.
 - Description, recommendation, entry point and files.
