@@ -13,4 +13,7 @@ report files are removed; verdicts are mapped to aiegis verdicts.
 table, severity ladders and rules for the original company's gateways are removed; outcomes are mapped to aiegis
 outcomes. It is part of role `finding-verify`.
 
+`severity.md` is written for aiegis. It is part of roles `matrix`, `matrix-economy`, `diff-check`, `sca` and
+`finding-verify`.
+
 This file is not loaded into prompts.
