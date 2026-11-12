@@ -27,7 +27,7 @@ const server = new AiegisMcpServer(tokens, {
     return store.addJob({ type: 'agent', role: t.role, title: t.title, entityType: 'task', entityId: 'x', payload: {} });
   },
   stopJob: () => undefined,
-  queueState: () => ({ pausedUntil: null, parallelism: 2, running: 0 }),
+  queueState: () => ({ pausedUntil: null, pauseReason: null, parallelism: 2, running: 0 }),
   documentText: () => docText,
   matrixView: () => Promise.reject(new Error('n/a')),
   cellDetails: () => Promise.reject(new Error('n/a')),

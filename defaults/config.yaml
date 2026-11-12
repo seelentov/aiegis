@@ -74,6 +74,10 @@ queue:
   parallelism: 2
   # Pause used when a rate limit is hit but the reset time is unknown.
   rate_limit_fallback_pause_sec: 900
+  # Runs the model declined in a row (provider safety filter) before the queue pauses; 0 never pauses.
+  pause_after_refusals: 3
+  # How long that pause lasts; Continue in Queue resumes earlier.
+  refusal_pause_sec: 3600
 
 limits:
   # Background run is stopped when input + cache_creation + output tokens exceed this value.

@@ -460,6 +460,8 @@ export class Core extends EventEmitter {
       {
         parallelism: () => this.globalSettings().queue.parallelism,
         fallbackPauseMs: () => this.globalSettings().queue.rate_limit_fallback_pause_sec * 1000,
+        refusalsToPause: () => this.globalSettings().queue.pause_after_refusals,
+        refusalPauseMs: () => this.globalSettings().queue.refusal_pause_sec * 1000,
       },
     );
     this.queue.on('changed', () => this.send({ type: 'queue-changed', state: this.queue.state() }));
@@ -4750,6 +4752,8 @@ export class Core extends EventEmitter {
           return { kind: 'taken_over' };
         case 'rate_limited':
           return { kind: 'rate_limited', resetsAt: res.rateLimitResetsAt };
+        case 'refused':
+          return { kind: 'failed', error: res.error ?? res.status, refused: true };
         default:
           return { kind: 'failed', error: res.error ?? res.status };
       }
