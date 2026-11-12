@@ -8,6 +8,7 @@ import YAML from 'yaml';
 import { coverage, cropText, decodeBody, fetchSource, hostOf, htmlToText, isHtml, isPlainText, sameText, type FetchRules, type Fetched } from './doc-fetch';
 import type {
   DocCheck,
+  HuntFileReview,
   DocLink,
   DocProposal,
   DocProposalKind,
@@ -2677,10 +2678,29 @@ export class Core extends EventEmitter {
         busy++;
         continue;
       }
-      const files = await matchFiles(p.root, [...mod.globs, ...settings.exclude.map((g) => `!${g}`)]);
+      const files = await this.huntFiles(projectId, mod);
       for (let i = 0; i < files.length; i += settings.batch_files) batches.push({ mod, files: files.slice(i, i + settings.batch_files), n: i / settings.batch_files + 1 });
     }
     return { batches, busy, head };
+  }
+
+  private huntFiles(projectId: string, mod: Module): Promise<string[]> {
+    return matchFiles(this.project(projectId).root, [...mod.globs, ...this.projectSettings(projectId).hunt.exclude.map((g) => `!${g}`)]);
+  }
+
+  /** Files a hunt of the module reads now, unread first, then the longest unread. */
+  async huntCoverage(projectId: string, moduleId: string): Promise<HuntFileReview[]> {
+    const s = this.store(projectId);
+    const mod = s.getModule(moduleId);
+    if (!mod) throw new Error(`module ${moduleId} not found`);
+    const files = await this.huntFiles(projectId, mod);
+    const last = new Map(s.huntReviews(moduleId).map((r) => [r.file, r]));
+    return files
+      .map((file) => {
+        const r = last.get(file);
+        return { file, reviewedAt: r?.createdAt ?? null, note: r?.note ?? null, commitSha: r?.commitSha ?? null, runId: r?.runId ?? null };
+      })
+      .sort((a, b) => (a.reviewedAt ?? '').localeCompare(b.reviewedAt ?? '') || a.file.localeCompare(b.file));
   }
 
   async estimateHunt(projectId: string, moduleIds: string[]): Promise<MatrixEstimate> {

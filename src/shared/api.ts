@@ -1,4 +1,5 @@
 import type {
+  HuntFileReview,
   AppEvent,
   CellDetails,
   DiffCheck,
@@ -107,6 +108,7 @@ export interface AiegisApi {
   estimateHunt(projectId: string, moduleIds: string[]): MatrixEstimate;
   /** Vulnerability hunt: one session per batch of module files at HEAD; findings are not tied to requirements. */
   runHunt(projectId: string, moduleIds: string[]): Job[];
+  huntCoverage(projectId: string, moduleId: string): HuntFileReview[];
   entryPointMap(projectId: string, moduleId: string, snapshotId?: string): EntryPointMap;
 
   listDocuments(projectId: string): DocumentSummary[];

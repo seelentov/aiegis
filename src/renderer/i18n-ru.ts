@@ -233,6 +233,8 @@ export const RU: Record<string, string> = {
   'Hunt for vulnerabilities in the module': 'Искать уязвимости в модуле',
   'vulnerability hunt': 'поиск уязвимостей',
   'Vulnerability hunt': 'Поиск уязвимостей',
+  'Read: {n} of {total} files; unread first': 'Прочитано: {n} из {total} файлов; непрочитанные сверху',
+  'not read': 'не прочитан',
   'Markup: {status}': 'Разметка: {status}',
   'Watch output': 'Смотреть вывод',
   'New module': 'Новый модуль',

@@ -85,6 +85,7 @@ Modules. See [Modules](modules.md).
 | `module remove <module> <reason>` | Remove a module |
 | `module parse [--hint <text>]` | Queue AI markup of modules |
 | `module hunt-estimate <module...>` | Estimate a vulnerability hunt in modules |
+| `module hunt-coverage <module>` | Show which files of a module the hunt has read, unread first |
 | `module hunt <module...>` | Queue a vulnerability hunt after the estimate: sessions read every file of the modules for flaws of any kind |
 
 ## entry-points

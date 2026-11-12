@@ -1,6 +1,6 @@
 import { DocProposalDetailsView } from './DocumentsTab';
 import { useEffect, useState } from 'react';
-import type { EffectiveConfigView, Job, ModuleRevision, ModuleSummary, ProjectInfo, ResultRecord, Run } from '../../shared/types';
+import type { EffectiveConfigView, HuntFileReview, Job, ModuleRevision, ModuleSummary, ProjectInfo, ResultRecord, Run } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { cost, JOB_STATUS, RUN_STATUS, time, tokens } from '../format';
@@ -37,6 +37,7 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
   const [history, setHistory] = useState<ModuleRevision[]>([]);
   const [files, setFiles] = useState<number | null>(null);
   const [config, setConfig] = useState<EffectiveConfigView | null>(null);
+  const [coverage, setCoverage] = useState<HuntFileReview[]>([]);
   const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -48,6 +49,7 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
       setHistory((await run(api.moduleHistory(project.id, id))) ?? []);
       if (!m) return;
       setFiles((await api.previewGlobs(project.id, m.globs).catch(() => null))?.count ?? null);
+      setCoverage((await run(api.huntCoverage(project.id, id))) ?? []);
       const role = await run(api.taskRole(project.id, 'entry_points'));
       setConfig(role ? ((await run(api.effectiveConfig(project.id, role, m.name))) ?? null) : null);
     })();
@@ -121,6 +123,26 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
         </div>
       )}</Paged>
       </Section>
+      {mod && (
+        <Section title={tr('Vulnerability hunt')}>
+          <div className="muted small">{tr('Read: {n} of {total} files; unread first', { n: coverage.filter((c) => c.reviewedAt).length, total: coverage.length })}</div>
+          <Paged key={id} items={coverage}>{(c) => (
+            <div key={c.file} className="result">
+              <div className="mono small">{c.file}</div>
+              <div className="muted small">
+                {c.reviewedAt ? (
+                  <>
+                    {time(c.reviewedAt)} · {c.commitSha!.slice(0, 8)} · <a onClick={() => onSelect({ kind: 'run', id: c.runId! })}>{tr('run')}</a>
+                    {c.note && <> · {c.note}</>}
+                  </>
+                ) : (
+                  tr('not read')
+                )}
+              </div>
+            </div>
+          )}</Paged>
+        </Section>
+      )}
       {config && <ConfigView config={config} title={tr('Effective configuration of the entry point map')} />}
     </section>
   );
