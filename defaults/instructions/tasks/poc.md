@@ -9,6 +9,9 @@ Module: {{module_name}}; entry point: {{entry_point}}
 Code locations:
 {{files}}
 
+Data flow (attacker input first, the sink last):
+{{trace}}
+
 Recommendation: {{recommendation}}
 
 Test instance (already started from this commit): {{base_url}}

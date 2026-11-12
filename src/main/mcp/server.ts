@@ -107,6 +107,11 @@ const pocStep = z.object({
 const evidenceSchema = z.array(
   z.object({ file: z.string().min(1).describe('Path relative to the repository root'), line: z.number().int().min(1).optional(), note: z.string().optional() }),
 );
+const traceSchema = evidenceSchema
+  .optional()
+  .describe(
+    'Data flow in order: the first step is where attacker-controlled input enters (file:line), each next step is a call or assignment that carries it, the last is the sink. A note per step says what happens there. Omit when the flaw is not a flow (for example a missing check).',
+  );
 
 export function buildServer(grant: Grant, svc: McpServices, checks: SimilarChecks = new Map()): McpServer {
   const server = new McpServer({ name: 'aiegis', version: '0.1.0' });
@@ -1044,6 +1049,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         cwe: z.string().optional(),
         entry_point: z.string().optional().describe('Entry point key, if reachable through one'),
         files: evidenceSchema.min(1),
+        trace: traceSchema,
         recommendation: z.string().optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -1054,7 +1060,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         if (!checks.get(grant.runId)?.has(a.check_id)) return fail('no such check_id: call find_similar in this run first');
         const c = cellOf(a);
         cellTarget(c);
-        checkFiles(run.cwd, a.files);
+        checkFiles(run.cwd, [...a.files, ...(a.trace ?? [])]);
         const f = svc.store(pid).audit.createFinding(
           {
             title: a.title.trim(),
@@ -1064,6 +1070,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
             moduleId: c.moduleId,
             entryPoint: a.entry_point?.trim() || null,
             files: a.files,
+            trace: a.trace ?? [],
             recommendation: a.recommendation ?? null,
           },
           [c],
@@ -1378,6 +1385,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         cwe: z.string().optional(),
         entry_point: z.string().optional().describe('Entry point key, if reachable through one'),
         files: evidenceSchema.min(1),
+        trace: traceSchema,
         recommendation: z.string().optional().describe('e.g. upgrade to the fixed version'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -1388,7 +1396,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
         if (!checks.get(grant.runId)?.has(a.check_id)) return fail('no such check_id: call find_similar in this run first');
         const { pkg } = currentPackage(a.module_id, a.package_key);
         checkVulns(pkg, a.vuln_ids);
-        checkFiles(run.cwd, a.files);
+        checkFiles(run.cwd, [...a.files, ...(a.trace ?? [])]);
         const f = svc.store(pid).audit.createFinding(
           {
             title: a.title.trim(),
@@ -1398,6 +1406,7 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
             moduleId: a.module_id,
             entryPoint: a.entry_point?.trim() || null,
             files: a.files,
+            trace: a.trace ?? [],
             recommendation: a.recommendation ?? null,
           },
           [],

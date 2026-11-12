@@ -38,6 +38,7 @@ export function findingClaim(f: Finding, moduleName: string | null): string {
       entry_point: f.entryPoint,
       description: f.description,
       code_locations: f.files.map((e) => (e.line ? `${e.file}:${e.line}` : e.file)),
+      ...(f.trace.length ? { data_flow: f.trace.map((e) => `${e.line ? `${e.file}:${e.line}` : e.file}${e.note ? ` — ${e.note}` : ''}`) } : {}),
     },
     null,
     2,

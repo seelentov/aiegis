@@ -23,4 +23,6 @@ reached, and you do not need it.
     the fix deleted may be cited);
   - `not_closed` — the path from input to effect still holds, whatever changed; `evidence` must point to it;
   - `undetermined` — the repository does not decide it, or you could not finish; name what is missing in `reason`.
+- If the claim has a `data_flow`, check each step: that the location exists and carries the value to the next one. A
+  broken step refutes the claim only if no other path you find from the same input reaches the effect.
 - Do not modify files and do not change the finding's status: a human decides it from your result.

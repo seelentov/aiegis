@@ -215,6 +215,7 @@ function toFinding(r: Row, events: FindingEvent[]): Finding {
     moduleId: (r.module_id as string) ?? null,
     entryPoint: (r.entry_point as string) ?? null,
     files: JSON.parse(r.files as string),
+    trace: JSON.parse((r.trace as string) ?? '[]'),
     recommendation: (r.recommendation as string) ?? null,
     status,
     mergedInto,
@@ -783,10 +784,10 @@ export class AuditStore {
     this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO findings (id, title, description, severity, cwe, module_id, entry_point, files, recommendation, run_id, author, created_at, commit_sha)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO findings (id, title, description, severity, cwe, module_id, entry_point, files, trace, recommendation, run_id, author, created_at, commit_sha)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(id, f.title, f.description, f.severity, f.cwe, f.moduleId, f.entryPoint, JSON.stringify(f.files), f.recommendation, by.runId, by.author, now(), commitSha);
+        .run(id, f.title, f.description, f.severity, f.cwe, f.moduleId, f.entryPoint, JSON.stringify(f.files), JSON.stringify(f.trace ?? []), f.recommendation, by.runId, by.author, now(), commitSha);
       this.insertEvent(id, { kind: 'created', status: 'suspected' }, by);
       for (const c of cells) this.insertEvent(id, { kind: 'link', cell: c }, by);
       for (const x of scaItems) this.insertEvent(id, { kind: 'link', scaItem: x }, by);

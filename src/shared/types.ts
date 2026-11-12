@@ -527,10 +527,13 @@ export interface FindingInput {
   /** Entry point key ("kind METHOD name"), if the finding is reachable through one. */
   entryPoint: string | null;
   files: Evidence[];
+  /** Data flow in order: where attacker input enters first, the sink last; empty when there is no flow to show. */
+  trace?: Evidence[];
   recommendation: string | null;
 }
 
 export interface Finding extends FindingInput {
+  trace: Evidence[];
   id: string;
   status: FindingStatus;
   /** Set when merged into another finding. */

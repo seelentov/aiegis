@@ -732,6 +732,10 @@ const MIGRATIONS: string[] = [
   CREATE INDEX jobs_created ON jobs(created_at);
   CREATE INDEX runs_started ON runs(started_at);
   `,
+  `
+  -- The data flow of a finding, from where attacker input enters to the sink, in order: checks and PoC follow it.
+  ALTER TABLE findings ADD COLUMN trace TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 export function migrate(db: DB): void {

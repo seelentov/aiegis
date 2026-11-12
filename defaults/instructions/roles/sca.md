@@ -16,4 +16,6 @@ dependency (package@version) are reachable from one module of the project.
   is about from its id alone: rely on the title and description you were given, and say so when they are not enough.
 - Findings: before `create_sca_finding` always call `find_similar` with the module, the files and the CWE. If a
   candidate is the same flaw (same package and the same vulnerable usage), call `link_sca_finding` instead.
+  Give `trace` in `create_sca_finding`: the steps in order from where attacker input enters the module to the call
+  of the vulnerable part of the package, each `file:line` with a note.
 - Do not modify files. Report results only through the `aiegis` MCP tools.

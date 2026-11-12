@@ -290,6 +290,8 @@ interface ScaPayload {
 const scaPayload = (job: Job): ScaPayload | null => (job.entityType === SCA_PACKAGE_ENTITY ? (job.payload as unknown as ScaPayload) : null);
 
 const today = () => new Date().toISOString().slice(0, 10);
+/** Code locations as a prompt list, one `- file:line — note` per line. */
+const evidenceList = (list: Evidence[]) => list.map((e) => `- ${e.file}${e.line ? `:${e.line}` : ''}${e.note ? ` — ${e.note}` : ''}`).join('\n');
 
 const uniq = <T,>(xs: T[]) => [...new Set(xs)];
 
@@ -2693,7 +2695,8 @@ export class Core extends EventEmitter {
       severity: f.severity,
       cwe: f.cwe ?? '—',
       description: f.description,
-      files: f.files.map((e) => `- ${e.file}${e.line ? `:${e.line}` : ''}${e.note ? ` — ${e.note}` : ''}`).join('\n') || '—',
+      files: evidenceList(f.files) || '—',
+      trace: evidenceList(f.trace) || '—',
       recommendation: f.recommendation ?? '—',
       entry_point: f.entryPoint ?? '—',
       module_name: (f.moduleId && s.getModule(f.moduleId)?.name) || '—',
@@ -2868,7 +2871,8 @@ export class Core extends EventEmitter {
       severity: fl.severity,
       cwe: fl.cwe ?? '—',
       description: fl.description,
-      files: fl.files.map((e) => `- ${e.file}${e.line ? `:${e.line}` : ''}${e.note ? ` — ${e.note}` : ''}`).join('\n'),
+      files: evidenceList(fl.files),
+      trace: evidenceList(fl.trace) || '—',
       recommendation: fl.recommendation ?? '—',
       cells: fl.cells.map((c) => this.cellLabel(s, c)).map((l) => `- ${l.key ?? l.requirementId}: ${l.text ?? ''} (module ${l.moduleName ?? l.moduleId})${l.citation ? `\n  Grounds: ${l.citation}` : ''}`).join('\n') || '—',
     };
