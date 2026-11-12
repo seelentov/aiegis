@@ -319,4 +319,5 @@ Background roles deny `WebFetch` and `WebSearch`. Except for `sca-inventory` and
 `~/.aiegis/instructions/methodology/` holds reference fragments adapted from [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) (MIT):
 
 - `verdict-discipline.md` and `attack-classes.md` are on by default for `matrix` and `diff-check`;
+- `severity.md` (how to choose a finding's severity: what the attacker gains, what it takes, how far it reaches, what it is worth in this application; caps by the privilege required; the lower level when in doubt) is on for `matrix`, `matrix-economy`, `diff-check`, `sca` and `finding-verify`;
 - `web-and-auth.md` ships but is off. For modules with HTTP and authentication, add `instructions/methodology/web-and-auth.md` to `roles.matrix.instructions.file` in the global config, or copy the file into `<repo>/.aiegis/instructions/` and name it in the project config, as in the example above. A file path cannot start with `~/`.
