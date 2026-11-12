@@ -13,6 +13,10 @@ export const FINDING_ENTITY = 'finding';
 export const FINDING_VERIFY_ENTITY = 'finding_verify';
 /** Fix check of a finding (SPEC §33). */
 export const FIX_VERIFY_ENTITY = 'fix_verify';
+/** Vulnerability hunt in a module: what a hunt run may write (id = module id). */
+export const HUNT_ENTITY = 'hunt';
+/** Entity of a hunt job over one batch of module files (id = `<module_id>:<n>`). */
+export const HUNT_BATCH_ENTITY = 'hunt_batch';
 /** Validity entity type of a finding's files since its baseline (id = `<finding>@<baseline>`). */
 export const FINDING_FIX_VALIDITY = 'finding_fix';
 

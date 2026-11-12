@@ -316,6 +316,21 @@ export class ProjectStore {
     );
   }
 
+  /** Records files a hunt run has read (one row per file). */
+  addHuntReviews(moduleId: string, items: { file: string; note?: string }[], commitSha: string, by: Authorship & { runId: string }): void {
+    const ins = this.db.prepare('INSERT INTO hunt_reviews (id, module_id, file, note, commit_sha, run_id, author, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    this.db.transaction(() => {
+      for (const i of items) ins.run(crypto.randomUUID(), moduleId, i.file, i.note ?? null, commitSha, by.runId, by.author, now());
+    })();
+  }
+
+  /** Files that the given hunt runs marked as read. */
+  huntReviewedFiles(runIds: string[]): Set<string> {
+    if (!runIds.length) return new Set();
+    const rows = this.db.prepare(`SELECT DISTINCT file FROM hunt_reviews WHERE run_id IN (${runIds.map(() => '?').join(',')})`).all(...runIds) as Row[];
+    return new Set(rows.map((r) => r.file as string));
+  }
+
   /** Latest finished successful background runs of a role (dry-run estimates). */
   recentRuns(role: string, limit: number): Run[] {
     return (

@@ -29,8 +29,13 @@ export function toPathspecs(globs: string[]): string[] {
 export async function matchFiles(cwd: string, globs: string[]): Promise<string[]> {
   const err = globsError(globs);
   if (err) throw new Error(err);
-  const out = await git(cwd, ['ls-files', '-z', '--', ...toPathspecs(globs)]);
-  return out.split('\0').filter(Boolean);
+  const ls = async (specs: string[]) => (await git(cwd, ['ls-files', '-z', '--', ...specs])).split('\0').filter(Boolean);
+  const excluded = globs.filter((g) => g.startsWith('!')).map((g) => g.slice(1));
+  const files = await ls(toPathspecs(globs.filter((g) => !g.startsWith('!'))));
+  if (!excluded.length) return files;
+  // Excluded files are listed apart: git skips an exclude pathspec like `**/x` when the includes share a prefix (`svc/**`).
+  const drop = new Set(await ls(toPathspecs(excluded)));
+  return files.filter((f) => !drop.has(f));
 }
 
 /** Returns an error for a path that is not a file of the checkout in `cwd`, or null. */

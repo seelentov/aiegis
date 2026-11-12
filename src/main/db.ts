@@ -736,6 +736,25 @@ const MIGRATIONS: string[] = [
   -- The data flow of a finding, from where attacker input enters to the sink, in order: checks and PoC follow it.
   ALTER TABLE findings ADD COLUMN trace TEXT NOT NULL DEFAULT '[]';
   `,
+  `
+  -- Files a vulnerability hunt run has read: coverage of the hunt, per file; a retry covers only the files left.
+  CREATE TABLE hunt_reviews (
+    id TEXT PRIMARY KEY,
+    module_id TEXT NOT NULL,
+    file TEXT NOT NULL,
+    note TEXT,
+    commit_sha TEXT NOT NULL,
+    run_id TEXT NOT NULL REFERENCES runs(id),
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX hunt_reviews_run ON hunt_reviews(run_id);
+  CREATE INDEX hunt_reviews_module ON hunt_reviews(module_id, created_at);
+  CREATE TRIGGER hunt_reviews_no_update BEFORE UPDATE ON hunt_reviews
+  BEGIN SELECT RAISE(ABORT, 'hunt reviews are append-only'); END;
+  CREATE TRIGGER hunt_reviews_no_delete BEFORE DELETE ON hunt_reviews
+  BEGIN SELECT RAISE(ABORT, 'hunt reviews are append-only'); END;
+  `,
 ];
 
 export function migrate(db: DB): void {

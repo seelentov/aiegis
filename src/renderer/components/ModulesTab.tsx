@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { Job, Module, ModuleSummary, ProjectInfo } from '../../shared/types';
+import type { Job, MatrixEstimate, Module, ModuleSummary, ProjectInfo } from '../../shared/types';
 import { api } from '../api';
 import type { RunFn } from '../App';
 import { JOB_STATUS, time } from '../format';
 import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
+import { EstimatePanel } from './MatrixTab';
 import { tr } from '../i18n';
 import { Button, IconButton, Input, Table, Textarea } from '../ui';
 
@@ -81,6 +82,7 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
   const [markupJob, setMarkupJob] = useState<Job | null>(null);
   const [hint, setHint] = useState('');
   const [creating, setCreating] = useState(false);
+  const [hunt, setHunt] = useState<{ ids: string[]; estimate: MatrixEstimate } | null>(null);
 
   useEffect(() => {
     void run(api.listModules(project.id)).then((ms) => ms && setModules(ms));
@@ -103,6 +105,18 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
     { key: 'actions', title: '', className: 'actions' },
   ], { revealKey: (m) => `module:${m.id}` });
 
+  const estimateHunt = async (ids: string[]) => {
+    const estimate = await run(api.estimateHunt(project.id, ids));
+    if (estimate) setHunt({ ids, estimate });
+  };
+  const startHunt = async () => {
+    if (hunt && (await run(api.runHunt(project.id, hunt.ids)))) setHunt(null);
+  };
+  const buildMaps = async () => {
+    for (const m of hunt?.estimate.modulesWithoutMap ?? []) await run(api.enqueueEntryPoints(project.id, m.id));
+    if (hunt) await estimateHunt(hunt.ids);
+  };
+
   const markup = async () => {
     const job = await run(api.enqueueModuleMarkup(project.id, hint));
     if (job) setHint('');
@@ -119,6 +133,13 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
           disabled={!modules.length}
           onClick={() => void run(api.enqueueAllEntryPoints(project.id))}
         />
+        <IconButton
+          icon="finding"
+          title={tr('Hunt for vulnerabilities of any kind in the modules shown, not only those the requirements name')}
+          label={tr('Hunt')}
+          disabled={!g.all.length}
+          onClick={() => void estimateHunt(g.all.map((m) => m.id))}
+        />
         {markupJob && (
           <span className="muted">
             {tr('Markup: {status}', { status: JOB_STATUS[markupJob.status] })}
@@ -131,6 +152,10 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
           </span>
         )}
       </div>
+
+      {hunt && (
+        <EstimatePanel estimate={hunt.estimate} title={tr('vulnerability hunt')} batchSetting="hunt.batch_files" perFile onBuildMaps={() => void buildMaps()} onRun={() => void startHunt()} onCancel={() => setHunt(null)} />
+      )}
 
       {creating && (
         <div className="card">
@@ -202,6 +227,7 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
                   disabled={Boolean(m.activeJob)}
                   onClick={() => void run(api.enqueueEntryPoints(project.id, m.id))}
                 />
+                <IconButton icon="finding" title={tr('Hunt for vulnerabilities in the module')} onClick={() => void estimateHunt([m.id])} />
               </td>
             </tr>
           ))}

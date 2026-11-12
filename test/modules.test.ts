@@ -46,6 +46,8 @@ describe('module globs', () => {
     execFileSync('git', ['add', '.'], { cwd: repo });
     write(path.join(repo, 'svc/src/Untracked.java'), 'x');
     expect(await matchFiles(repo, ['svc/**', '!svc/test/**'])).toEqual(['svc/src/A.java', 'svc/src/sub/B.java']);
+    expect(await matchFiles(repo, ['svc/**', '!**/test/**'])).toEqual(['svc/src/A.java', 'svc/src/sub/B.java']);
+    expect(await matchFiles(repo, ['svc/**', '!**/*.java'])).toEqual([]);
     expect(await matchFiles(repo, ['svc/*/*.java'])).toEqual(['svc/src/A.java', 'svc/test/T.java']);
     expect(await matchFiles(repo, ['nope/**'])).toEqual([]);
     expect(repoFileError(repo, 'svc/src/A.java')).toBeNull();

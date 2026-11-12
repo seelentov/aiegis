@@ -231,6 +231,23 @@ if (!args.includes('-p')) {
       }
       return done(`inputs: ${inputs.join(',')}\n${res.join('\n')}`);
     }
+    const hunting = /Hunt for vulnerabilities in module "[^"]*" \(id (\S+)\)/.exec(prompt);
+    if (hunting) {
+      const module_id = hunting[1];
+      const batch = prompt.split('Your batch')[1].split('Steps:')[0];
+      const files = [...batch.matchAll(/^- (.+)$/gm)].map((m) => m[1]);
+      const sim = JSON.parse((await mcp('find_similar', { module_id, files: [files[0]], cwe: 'CWE-89' })).content[0].text);
+      const evidence = [{ file: files[0], line: 1, note: 'query built from input' }];
+      await mcp('create_hunt_finding', {
+        module_id, check_id: sim.check_id, title: `SQL injection in ${files[0]}`, description: 'request field concatenated into SQL',
+        severity: 'high', cwe: 'CWE-89', files: evidence, trace: [{ file: files[0], line: 1, note: 'input' }, { file: files[0], line: 2, note: 'sink' }],
+      });
+      const outside = await mcp('mark_files_reviewed', { module_id, files: [{ file: 'README.md' }] });
+      // The first run of a partial batch leaves its last file unread, so that a retry has something left.
+      const read = prompt.includes('HUNT_PARTIAL') && files.length > 1 ? files.slice(0, -1) : files;
+      await mcp('mark_files_reviewed', { module_id, files: read.map((file) => ({ file, note: 'checked' })) });
+      return done(`outside: ${outside.content[0].text}`);
+    }
     if (prompt.includes('Decide whether the vulnerabilities')) {
       const module_id = moduleOf();
       const package_key = /package_key `([^`]+)`/.exec(prompt)[1];

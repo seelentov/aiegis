@@ -118,6 +118,7 @@ export interface Settings {
   };
   diff_check: { batch_size: number; max_diff_kb_in_prompt: number; prompt_exclude: string[]; estimate_tokens_per_requirement: number; estimate_tokens_per_diff_kb: number };
   findings: { similar_limit: number; verify_estimate_history_runs: number; verify_estimate_tokens: number };
+  hunt: { batch_files: number; exclude: string[]; estimate_history_runs: number; estimate_tokens_per_file: number };
   tasks: Record<string, TaskSettings>;
   /** Scanners by name; entries are validated when used (`scannerSettings`). */
   scanners: Record<string, Partial<ScannerSettings>>;
@@ -256,6 +257,10 @@ const REQUIRED_SETTINGS: string[] = [
   'findings.similar_limit',
   'findings.verify_estimate_history_runs',
   'findings.verify_estimate_tokens',
+  'hunt.batch_files',
+  'hunt.exclude',
+  'hunt.estimate_history_runs',
+  'hunt.estimate_tokens_per_file',
   'scanners',
   'signals.auto_scan',
   'signals.max_per_call',
@@ -381,7 +386,7 @@ export function agentOf(cfg: EffectiveConfig): 'claude' | 'pi' {
 }
 
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh', 'matrix', 'findings', 'diff_check'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh', 'matrix', 'findings', 'diff_check', 'hunt'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing
