@@ -173,7 +173,7 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 | `hunt.batch_files` | `30` | Module files per [hunt](modules.md#vulnerability-hunt) session |
 | `hunt.exclude` | tests, vendored, generated code, docs | Pathspec globs of module files the hunt skips |
 | `hunt.estimate_history_runs` | `20` | Recent runs of `hunt` averaged for its estimate (tokens per read file) |
-| `hunt.estimate_tokens_per_file` | `6000` | Billable tokens per file in that estimate when there is no history |
+| `hunt.estimate_tokens_per_file` | `4000` | Billable tokens per file in that estimate when there is no history |
 
 ### `scanners`
 
