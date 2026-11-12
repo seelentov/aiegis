@@ -6,7 +6,8 @@ const log = getLogger('queue');
 
 export type JobOutcome =
   | { kind: 'done' }
-  | { kind: 'failed'; error: string }
+  /** `refused`: the model declined the task (provider safety filter). */
+  | { kind: 'failed'; error: string; refused?: boolean }
   | { kind: 'cancelled' }
   | { kind: 'taken_over' }
   /** Subscription rate limit: job goes back to the queue, the whole queue pauses. `resetsAt` is epoch ms. */
@@ -28,6 +29,9 @@ export interface QueueBackend {
 export interface QueueOptions {
   parallelism: () => number;
   fallbackPauseMs: () => number;
+  /** Declined runs in a row that pause the queue; 0 never pauses. */
+  refusalsToPause?: () => number;
+  refusalPauseMs?: () => number;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => () => void;
 }
@@ -36,6 +40,8 @@ export interface QueueOptions {
 export class JobQueue extends EventEmitter {
   private readonly running = new Map<string, { job: Job; ctrl: AbortController }>();
   private pausedUntilMs: number | null = null;
+  private pauseReason: QueueState['pauseReason'] = null;
+  private refusalsInRow = 0;
   private cancelTimer: (() => void) | null = null;
   private readonly now: () => number;
   private readonly setTimer: (fn: () => void, ms: number) => () => void;
@@ -58,14 +64,15 @@ export class JobQueue extends EventEmitter {
   }
 
   state(): QueueState {
-    return { pausedUntil: this.pausedUntilMs, parallelism: this.opts.parallelism(), running: this.running.size };
+    return { pausedUntil: this.pausedUntilMs, pauseReason: this.pausedUntilMs === null ? null : this.pauseReason, parallelism: this.opts.parallelism(), running: this.running.size };
   }
 
   isRunning(jobId: string): boolean {
     return this.running.has(jobId);
   }
 
-  pauseUntil(ms: number): void {
+  pauseUntil(ms: number, reason: 'rate_limit' | 'refusals' = 'rate_limit'): void {
+    if (ms >= (this.pausedUntilMs ?? 0)) this.pauseReason = reason;
     this.pausedUntilMs = Math.max(this.pausedUntilMs ?? 0, ms);
     this.armTimer();
     this.emit('changed');
@@ -163,11 +170,20 @@ export class JobQueue extends EventEmitter {
     else log.info('job %s finished: %s', job.id, o.kind);
     switch (o.kind) {
       case 'done':
+        this.refusalsInRow = 0;
         this.backend.setStatus(job, 'done');
         break;
-      case 'failed':
+      case 'failed': {
         this.backend.setStatus(job, 'failed', o.error);
+        // One declined task is about its content; several in a row mean the provider declines the whole project.
+        const limit = this.opts.refusalsToPause?.() ?? 0;
+        if (o.refused && limit > 0 && ++this.refusalsInRow >= limit) {
+          this.refusalsInRow = 0;
+          log.warn('%d runs in a row declined by the model, the queue pauses', limit);
+          this.pauseUntil(this.now() + (this.opts.refusalPauseMs?.() ?? 0), 'refusals');
+        }
         break;
+      }
       case 'cancelled':
         this.backend.setStatus(job, 'cancelled');
         break;

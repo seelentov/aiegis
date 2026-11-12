@@ -1020,6 +1020,8 @@ export interface ProjectInfo {
 
 export interface QueueState {
   pausedUntil: number | null;
+  /** Why the queue is paused: the subscription rate limit or runs the model declined in a row. */
+  pauseReason: 'rate_limit' | 'refusals' | null;
   parallelism: number;
   running: number;
 }

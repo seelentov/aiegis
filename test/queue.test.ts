@@ -116,6 +116,27 @@ describe('JobQueue', () => {
     expect(b.status('a')).toBe('failed');
   });
 
+  it('pauses after runs declined in a row; a success in between resets the count', async () => {
+    const b = new MemBackend();
+    ['a', 'b', 'c', 'd', 'e'].forEach((id) => b.add(id));
+    const c = controllable();
+    const clock = fakeClock();
+    const q = new JobQueue(b, c.exec, { parallelism: () => 1, fallbackPauseMs: () => 1, refusalsToPause: () => 2, refusalPauseMs: () => 7000, ...clock });
+    q.pump();
+    const end = async (id: string, o: JobOutcome) => {
+      c.pending.get(id)!.resolve(o);
+      await flush();
+    };
+    await end('a', { kind: 'failed', error: 'declined', refused: true });
+    await end('b', { kind: 'done' });
+    await end('c', { kind: 'failed', error: 'declined', refused: true });
+    expect(q.state().pausedUntil).toBeNull();
+    await end('d', { kind: 'failed', error: 'declined', refused: true });
+    expect(b.status('d')).toBe('failed');
+    expect(q.state()).toMatchObject({ pausedUntil: clock.now() + 7000, pauseReason: 'refusals' });
+    expect(c.started).toEqual(['a', 'b', 'c', 'd']);
+  });
+
   it('rate limit requeues the job and pauses until reset', async () => {
     const b = new MemBackend();
     ['a', 'b'].forEach((id) => b.add(id));
@@ -127,6 +148,7 @@ describe('JobQueue', () => {
     await flush();
     expect(b.status('a')).toBe('queued');
     expect(q.state().pausedUntil).toBe(clock.now() + 5000);
+    expect(q.state().pauseReason).toBe('rate_limit');
     expect(c.started).toEqual(['a']);
     q.pump();
     expect(c.started).toEqual(['a']);

@@ -75,7 +75,9 @@ export function QueueTab({ project, revision, run, selection, onSelect, onTermin
             {queue.pausedUntil && (
               <>
                 {' '}
-                · <span className="warn">{tr('paused (rate limit) until {time}', { time: new Date(queue.pausedUntil).toLocaleTimeString(locale) })}</span>{' '}
+                · <span className="warn">{queue.pauseReason === 'refusals'
+                    ? tr('paused (the model declined several runs in a row) until {time}', { time: new Date(queue.pausedUntil).toLocaleTimeString(locale) })
+                    : tr('paused (rate limit) until {time}', { time: new Date(queue.pausedUntil).toLocaleTimeString(locale) })}</span>{' '}
                 <IconButton icon="play" title={tr('Resume')} label={tr('Continue')} onClick={() => void run(api.resumeQueue())} />
               </>
             )}

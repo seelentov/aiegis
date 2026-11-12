@@ -132,6 +132,8 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 |---|---|---|
 | `queue.parallelism` | `2` | Jobs at once. Global only |
 | `queue.rate_limit_fallback_pause_sec` | `900` | Pause when the reset time is unknown. Global only |
+| `queue.pause_after_refusals` | `3` | Runs the model declined in a row before the queue pauses; `0` never pauses. Global only |
+| `queue.refusal_pause_sec` | `3600` | How long that pause lasts; **Continue** resumes earlier. Global only |
 | `limits.max_tokens_per_run` | `300000` | Stops a run above this |
 | `limits.max_tokens_per_document_run` | `1000000` | The same for reading documents, extraction and document checks |
 | `limits.entry_points_inline_chars` | `60000` | A larger entry point map reaches agents as a brief list, with details on request |

@@ -118,6 +118,8 @@ export const ConfigFileSchema = z.looseObject({
     .looseObject({
       parallelism: z.number().int().min(1).optional(),
       rate_limit_fallback_pause_sec: z.number().int().min(1).optional(),
+      pause_after_refusals: z.number().int().min(0).optional(),
+      refusal_pause_sec: z.number().int().min(1).optional(),
     })
     .optional(),
   limits: z.looseObject({ max_tokens_per_run: z.number().int().min(1).optional(), max_tokens_per_document_run: z.number().int().min(1).optional(), entry_points_inline_chars: z.number().int().min(1).optional() }).optional(),

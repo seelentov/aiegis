@@ -295,6 +295,7 @@ export const RU: Record<string, string> = {
   'New session': 'Новая сессия',
   'Parallelism {n} · running {running}': 'Параллельность {n} · выполняется {running}',
   'paused (rate limit) until {time}': 'пауза (rate limit) до {time}',
+  'paused (the model declined several runs in a row) until {time}': 'пауза (модель отказала несколько раз подряд) до {time}',
   'Resume': 'Снять паузу',
   'Continue': 'Продолжить',
   'Background task': 'Фоновая задача',

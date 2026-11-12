@@ -98,7 +98,7 @@ export interface RoleInfo {
 export interface Settings {
   claude: { binary: string; background_args: string[]; interactive_args: string[] };
   pi: { binary: string; background_args: string[]; interactive_args: string[]; tools: Record<string, string[]> };
-  queue: { parallelism: number; rate_limit_fallback_pause_sec: number };
+  queue: { parallelism: number; rate_limit_fallback_pause_sec: number; pause_after_refusals: number; refusal_pause_sec: number };
   limits: { max_tokens_per_run: number; max_tokens_per_document_run: number; entry_points_inline_chars: number };
   terminal: {
     external_app: string;
@@ -232,6 +232,8 @@ const REQUIRED_SETTINGS: string[] = [
   'pi.tools',
   'queue.parallelism',
   'queue.rate_limit_fallback_pause_sec',
+  'queue.pause_after_refusals',
+  'queue.refusal_pause_sec',
   'limits.max_tokens_per_run',
   'limits.max_tokens_per_document_run',
   'limits.entry_points_inline_chars',
@@ -386,7 +388,7 @@ export function agentOf(cfg: EffectiveConfig): 'claude' | 'pi' {
 }
 
 /** Maps whose entries are added one by one when a newer app version ships new ones. */
-const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh', 'matrix', 'findings', 'diff_check', 'hunt'];
+const MERGED_MAPS = ['roles', 'tasks', 'scanners', 'poc', 'terminal', 'limits', 'doc_refresh', 'matrix', 'findings', 'diff_check', 'hunt', 'queue'];
 
 /**
  * Adds keys that a newer default config has and the user's config lacks: missing top-level keys and missing
