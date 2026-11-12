@@ -40,6 +40,7 @@ beforeAll(async () => {
   const doc = YAML.parseDocument(fs.readFileSync(cfgFile, 'utf8'));
   doc.setIn(['claude', 'binary'], FAKE);
   doc.setIn(['hunt', 'batch_files'], 2);
+  doc.setIn(['queue', 'parallelism'], 3);
   fs.writeFileSync(cfgFile, doc.toString());
   core = new Core({ globalDir: home, dataDir: fs.realpathSync(tmpDir()), defaultsDir: DEFAULTS_DIR });
   await core.start();
@@ -71,6 +72,9 @@ describe('vulnerability hunt', () => {
     const runs = jobs.map((j) => job(j.id).lastRunId!);
     expect([...core.store(pid).huntReviewedFiles(runs)].sort()).toEqual(['svc/a.js', 'svc/b.js', 'svc/c.js']);
     expect(core.store(pid).getRun(runs[0])!.status).toBe('succeeded');
+    // Batches of one module never overlap, so each sees the findings of the one before.
+    const [r1, r2] = runs.map((id) => core.store(pid).getRun(id)!);
+    expect(r2.startedAt >= r1.finishedAt!).toBe(true);
   });
 
   it('a run that leaves files unread fails; retry reads only those', async () => {

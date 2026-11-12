@@ -42,7 +42,7 @@ The matrix finds what the requirements name. **Hunt** (toolbar: the modules show
 - Files are the module's files minus `hunt.exclude` (tests, vendored and generated code, docs by default), split into sessions of `hunt.batch_files`. The run goes through an [estimate](queue-and-sessions.md); without an entry point map the estimate warns and offers **Build maps**.
 - A session marks each file it finished (`mark_files_reviewed`). A successful run that left files unread fails, and **Retry** reads only those.
 - Findings (`create_hunt_finding`) need `find_similar` first, belong to the module, have no matrix cells and usually carry a [data flow](findings.md#fields). Their status is set by a person, as for any finding.
-- A module with a hunt in the queue is skipped. A new hunt reads all files again.
+- Sessions of one module run one at a time, so each sees the findings of the previous one; different modules run in parallel. A module with a hunt in the queue is skipped. A new hunt reads all files again.
 
 ## Command line
 

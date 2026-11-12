@@ -3043,8 +3043,11 @@ export class Core extends EventEmitter {
     // One test instance per project (one base_url): tester and env-setup jobs run one at a time.
     const instance = (j: Job) => j.entityType === POC_ENTITY || j.entityType === POC_ENV_ENTITY;
     let tester = s.activeJobs().some((j) => instance(j) && j.status === 'running');
+    // Hunt batches of a module run one at a time: find_similar must see the findings of the previous batch.
+    const hunting = new Set(s.activeJobs().filter((j) => j.entityType === HUNT_BATCH_ENTITY && j.status === 'running').map((j) => String(j.payload.module_id)));
     return s.queuedJobs().filter((j) => {
       if (instance(j)) return tester ? false : (tester = true);
+      if (j.entityType === HUNT_BATCH_ENTITY) return hunting.has(String(j.payload.module_id)) ? false : !!hunting.add(String(j.payload.module_id));
       return !(scanning.size && matrixPayload(j)?.stage === 'verdicts' && scanning.has(String(j.payload.commit_sha)));
     });
   }
