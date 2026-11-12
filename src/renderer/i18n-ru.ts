@@ -595,6 +595,8 @@ export const RU: Record<string, string> = {
   'Entry point': 'Точка входа',
   'Recommendation': 'Рекомендация',
   'Code': 'Код',
+  'Data flow': 'Поток данных',
+  'From where attacker input enters to the sink': 'От места, где входят данные атакующего, до опасного вызова',
   'Open an interactive fix session': 'Открыть интерактивную сессию для фикса',
   'Fix': 'Фикс',
   'Recheck the linked matrix cells': 'Перепроверить связанные ячейки матрицы',

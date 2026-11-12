@@ -8,6 +8,9 @@ Severity: {{severity}}; CWE: {{cwe}}
 Code locations:
 {{files}}
 
+Data flow (attacker input first, the sink last):
+{{trace}}
+
 Recommendation: {{recommendation}}
 
 Violated requirements:

@@ -282,10 +282,15 @@ describe('MCP requirement, matrix and finding tools', () => {
 
     const sim = JSON.parse((await call('find_similar', { module_id: mod.id, files: ['svc/Api.java'], cwe: 'CWE-639' })).text);
     expect(sim.candidates).toEqual([]);
-    const created = JSON.parse(
-      (await call('create_finding', { ...cell, check_id: sim.check_id, title: 'IDOR', description: 'd', severity: 'high', cwe: 'CWE-639', files: evidence })).text,
-    );
+    const fields = { ...cell, check_id: sim.check_id, title: 'IDOR', description: 'd', severity: 'high', cwe: 'CWE-639', files: evidence };
+    expect((await call('create_finding', { ...fields, trace: [{ file: 'svc/Nope.java', line: 3 }] })).text).toMatch(/not found/);
+    const trace = [
+      { file: 'svc/Api.java', line: 1, note: 'id from the path' },
+      { file: 'svc/Api.java', line: 2, note: 'loaded without an owner check' },
+    ];
+    const created = JSON.parse((await call('create_finding', { ...fields, trace })).text);
     expect(created.status).toBe('suspected');
+    expect(a.getFinding(created.finding_id)?.trace).toEqual(trace);
     const v = await call('set_verdict', { ...cell, status: 'finding', reason: 'no owner check', evidence });
     expect(v.err).toBe(false);
     const verdict = a.latestVerdicts().get(`${mod.id}/${item.requirementId}`)!;

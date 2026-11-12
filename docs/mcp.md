@@ -74,7 +74,7 @@ Writes that check files need a live run, so a token stops writing once its run e
 |---|---|
 | `list_findings` | Findings, without merged ones |
 | `find_similar` | Mandatory deduplication check. Returns the `check_id` that `create_finding` needs |
-| `create_finding` | Creates a `suspected` finding linked to a cell in scope |
+| `create_finding` | Creates a `suspected` finding linked to a cell in scope; optional `trace` is its data flow, input first, sink last, every file must exist |
 | `link_finding` | Links an existing finding to a cell in scope |
 
 ## Signals
@@ -92,7 +92,7 @@ Writes that check files need a live run, so a token stops writing once its run e
 | `remove_vulnerable_package` | Removes one from this run's inventory |
 | `set_inventory_summary` | Finishes an inventory. Mandatory, even when nothing vulnerable was found |
 | `set_sca_verdict` | Reachability verdict for one vulnerability |
-| `create_sca_finding` | Creates a `suspected` finding for reachable vulnerabilities |
+| `create_sca_finding` | Creates a `suspected` finding for reachable vulnerabilities; optional `trace` as in `create_finding` |
 | `link_sca_finding` | Links an existing finding to vulnerabilities of the package |
 
 ## Independent verification

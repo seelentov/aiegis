@@ -16,7 +16,9 @@ A finding itself cannot change; its state comes from an append-only list of even
 
 ## Fields
 
-Title, description, severity, CWE, entry point, files, recommendation, module. Severity uses one scale for findings and signals.
+Title, description, severity, CWE, entry point, files, data flow, recommendation, module. Severity uses one scale for findings and signals.
+
+The **data flow** is set by the agent that creates the finding: the steps in order, from where attacker input enters to the sink, each with `file:line` and a note. It is empty when the flaw is not a flow (for example a missing check), and for findings created by hand. The [independent verification](#independent-verification) checks each step, and the [PoC tester](poc.md) and fix sessions receive it in their prompts.
 
 ## Where findings come from
 
@@ -41,7 +43,7 @@ Any finding that is not merged can be ticked; **Pick all** ticks every one the f
 ![The details of a finding with its independent verification](screenshots/finding.png)
 
 - **Status** with **Change the status**.
-- Description, recommendation, entry point and files.
+- Description, recommendation, entry point, files and the data flow.
 - **Cells**, which rechecks the linked matrix cells after an estimate.
 - **Matrix cells** and **Vulnerable dependencies (SCA)** linked to the finding.
 - **Similar (manual merge)**.

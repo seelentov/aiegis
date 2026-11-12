@@ -405,6 +405,14 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
         <dd>
           <EvidenceList project={project} run={run} items={f.files} />
         </dd>
+        {f.trace.length > 0 && (
+          <>
+            <dt title={tr('From where attacker input enters to the sink')}>{tr('Data flow')}</dt>
+            <dd>
+              <EvidenceList project={project} run={run} items={f.trace} />
+            </dd>
+          </>
+        )}
         <dt>{tr('Created')}</dt>
         <dd>
           {f.author} · {time(f.createdAt)}
