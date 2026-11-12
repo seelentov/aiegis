@@ -159,8 +159,8 @@ hunt:
   exclude: ["**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/*Test.java", "**/*Test.kt", "**/*_test.go", "**/test_*.py", "**/vendor/**", "**/node_modules/**", "**/third_party/**", "**/generated/**", "**/*.generated.*", "**/*.pb.go", "**/*.min.js", "**/*.md", "**/*.txt", "**/*.svg", "**/*.css", "**/*.scss", "**/*.lock", "**/package-lock.json"]
   # Dry-run estimate: average billable tokens per reviewed file over this many recent runs of the role...
   estimate_history_runs: 20
-  # ...or this value when there is no history yet.
-  estimate_tokens_per_file: 6000
+  # ...or this value when there is no history yet. Sonnet low reads about 2500 per file; medium reads more.
+  estimate_tokens_per_file: 4000
 
 # Scanners the app runs itself, once per commit in the worktree (results are cached by commit and scanned paths).
 # Binaries come from the system (PATH); availability is checked at startup with `version_args`.
