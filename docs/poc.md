@@ -56,7 +56,7 @@ If the instance does not start, the run fails without calling the agent. The ins
 
 ## Results
 
-`reproduced`, `not_reproduced` or `inconclusive`. The first two need the steps taken and the responses observed. Results are append-only and record the commit, `base_url`, run and author. A successful run with no result ends in an error. After `reproduced`, the panel reminds you that a person sets the `verified` status.
+`reproduced`, `not_reproduced` or `inconclusive`. The first two need the steps taken and the responses observed. `reproduced` means the effect the finding claims; when the tester could only show something weaker, it reports `inconclusive` and says what it showed. Results are append-only and record the commit, `base_url`, run and author. A successful run with no result ends in an error. After `reproduced`, the panel reminds you that a person sets the `verified` status.
 
 ## Isolation
 

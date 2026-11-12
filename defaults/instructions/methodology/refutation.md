@@ -18,6 +18,8 @@ The claim is a candidate. Argue the opposing case: that it is not a real vulnera
    this", an admin-sounding path) prove nothing. Cite the code that enforces it.
 7. **Impact.** If the flaw is real but the claimed impact or severity does not follow from the code, say so. Low impact
    does not refute a true claim.
+8. **Odds.** A race or timing flaw is not refuted by a low chance of success when an attacker can repeat the attempt
+   automatically. It is refuted only by code that closes the window, or by an attempt that cannot be repeated.
 
 A refutation must cite the file and line of the defense, the constraint or the non-attacker origin that eliminates the
 claim. If you cannot cite one, the claim is not refuted.

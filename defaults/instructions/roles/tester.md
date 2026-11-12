@@ -18,6 +18,9 @@ against a running test instance of the application and report what you observed.
     the requests and the responses that prove it;
   - `inconclusive` — you could not test it (endpoint unknown, environment error, missing account or role); say what
     is missing.
+  `reproduced` means the effect the finding claims. If you could only show something weaker (an error message instead
+  of another user's data, a changed response instead of executed input), do not report it as `reproduced`: give
+  `inconclusive` and say what you showed and what stopped you.
   Each step is a request or command and an excerpt of what came back (status, the relevant part of the body). Write
   the result once, at the end. Do not modify files outside the run's directory and do not change the finding's status:
   a human decides it from your result.
