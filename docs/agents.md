@@ -41,7 +41,7 @@ pi has no permission system of its own, so an aiegis extension loads with every 
 - `deny` wins, including for any part of a compound command.
 - `Bash(git log:*)` allows commands with that prefix, at a word boundary. With pattern rules only a simple command passes: no `$(…)`, backticks or redirection, and each part of `&&`, `||`, `;`, `|`, `&` outside quotes must be allowed.
 - `Edit(./.aiegis-sca/**)` and similar rules are globs over the absolute path (also `~/…` and `//abs`).
-- Tools with a path do not leave the working directory and `permissions.dirs`, and for env-setup also your checkout.
+- Tools with a path do not leave the working directory and `permissions.dirs`, and for env-setup also your checkout. Paths are checked after resolving symbolic links, so a link committed in the repository cannot lead a tool to a file outside these directories.
 - Anything the rules do not allow is blocked in background runs, and asked of you in interactive sessions.
 
 ## PoC tester under pi

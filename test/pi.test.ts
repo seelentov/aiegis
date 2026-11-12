@@ -64,6 +64,27 @@ describe('pi permissions', () => {
     expect(decide(sca, CWD, 'read', { path: '/etc/passwd' }).kind).toBe('ask');
   });
 
+  it('a symlink in the checkout does not lead path tools outside it', () => {
+    const root = tmpDir();
+    const tree = path.join(root, 'tree');
+    const secret = path.join(root, 'secret');
+    fs.mkdirSync(path.join(tree, 'src'), { recursive: true });
+    fs.mkdirSync(secret);
+    fs.writeFileSync(path.join(secret, 'key'), 'x');
+    fs.writeFileSync(path.join(tree, 'src', 'a.ts'), '');
+    fs.symlinkSync(path.join(secret, 'key'), path.join(tree, 'src', 'key'));
+    fs.symlinkSync(secret, path.join(tree, 'linked'));
+    fs.symlinkSync(secret, path.join(tree, '.aiegis-sca'));
+    const verify = rc(['Read(./**)', 'Grep(./**)', 'Glob(./**)']);
+    expect(decide(verify, tree, 'read', { path: 'src/a.ts' }).kind).toBe('allow');
+    expect(decide(verify, tree, 'read', { path: 'src/key' }).kind).not.toBe('allow');
+    expect(decide(verify, tree, 'read', { path: 'linked/key' }).kind).not.toBe('allow');
+    expect(decide(verify, tree, 'grep', { pattern: 'x', path: 'linked' }).kind).not.toBe('allow');
+    expect(decide(sca, tree, 'read', { path: 'src/key' }).kind).toBe('ask');
+    expect(decide(sca, tree, 'write', { path: '.aiegis-sca/new.txt' }).kind).toBe('ask');
+    expect(decide(rc(['Read(//' + secret.slice(1) + '/**)']), tree, 'read', { path: 'src/key' }).kind).toBe('allow');
+  });
+
   it('path rules: writes only into the run directory', () => {
     expect(decide(sca, CWD, 'write', { path: '.aiegis-sca/j1/init.gradle', content: '' }).kind).toBe('allow');
     expect(decide(sca, CWD, 'write', { path: `${CWD}/.aiegis-sca/x` }).kind).toBe('allow');
