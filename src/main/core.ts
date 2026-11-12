@@ -4871,6 +4871,9 @@ export class Core extends EventEmitter {
         } else if (sum.rateLimited) {
           status = 'rate_limited';
           error = sum.result?.text ?? 'rate limit';
+        } else if (sum.refused) {
+          status = 'refused';
+          error = `the model declined the task (provider safety filter); it is not retried automatically: ${sum.result?.text ?? 'refusal'}`;
         } else if (code === 0 && sum.result && !sum.result.isError) {
           status = 'succeeded';
         } else {

@@ -10,7 +10,12 @@ export interface StreamSummary {
   /** Epoch ms when a rejected rate limit resets (if seen). */
   rateLimitResetsAt?: number;
   rateLimited: boolean;
+  /** The model declined the task: a `refusal` stop reason or the provider's policy error. */
+  refused?: boolean;
 }
+
+/** Wording of a declined request: Claude Code's API error about the usage policy, the provider's cyber safeguard. */
+export const REFUSAL_TEXT = /API Error:[^\n]*Usage Policy|violative cyber/i;
 
 const emptyUsage = (): TokenUsage => ({ input: 0, output: 0, cacheCreation: 0, cacheRead: 0, costUsd: 0 });
 
@@ -21,6 +26,7 @@ export class StreamTracker {
   readonly summary: StreamSummary = { usage: emptyUsage(), rateLimited: false };
 
   feed(ev: Ev): void {
+    if (ev.type === 'assistant' && ev.message?.stop_reason === 'refusal') this.summary.refused = true;
     if (ev.type === 'assistant' && ev.message?.usage) {
       const u = ev.message.usage;
       this.perMessage.set(ev.message.id ?? String(this.perMessage.size), {
@@ -48,6 +54,7 @@ export class StreamTracker {
       const text = typeof ev.result === 'string' ? ev.result : (ev.errors ?? []).join('; ');
       this.summary.result = { isError: Boolean(ev.is_error) || ev.subtype !== 'success', subtype: ev.subtype ?? '', text };
       if (this.summary.result.isError && /usage limit|rate limit/i.test(text)) this.summary.rateLimited = true;
+      if (REFUSAL_TEXT.test(text)) this.summary.refused = true;
     }
     this.summary.usage = this.final ?? this.sum();
   }

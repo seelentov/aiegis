@@ -1,5 +1,5 @@
 import type { TokenUsage } from '../../shared/types';
-import type { StreamSummary } from '../claude/stream';
+import { REFUSAL_TEXT, type StreamSummary } from '../claude/stream';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Ev = Record<string, any>;
@@ -32,6 +32,7 @@ export class PiStreamTracker {
           .join('');
     this.summary.result = { isError, subtype: m.stopReason ?? '', text };
     if (isError && /usage limit|rate limit|\b429\b/i.test(text)) this.summary.rateLimited = true;
+    if (m.stopReason === 'refusal' || (isError && REFUSAL_TEXT.test(text))) this.summary.refused = true;
   }
 }
 

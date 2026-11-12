@@ -48,6 +48,18 @@ describe('StreamTracker', () => {
     expect(t.summary.result?.isError).toBe(true);
     expect(t.summary.rateLimited).toBe(true);
   });
+
+  it('detects a declined task by the stop reason or the policy error, not by an answer that mentions a policy', () => {
+    const byStop = new StreamTracker();
+    byStop.feed({ type: 'assistant', message: { id: 'm', stop_reason: 'refusal', usage: { input_tokens: 1 } } });
+    expect(byStop.summary.refused).toBe(true);
+    const byText = new StreamTracker();
+    byText.feed({ type: 'result', subtype: 'success', is_error: false, result: 'API Error: Claude Code is unable to respond to this request, which appears to violate our Usage Policy' });
+    expect(byText.summary.refused).toBe(true);
+    const answer = new StreamTracker();
+    answer.feed({ type: 'result', subtype: 'success', is_error: false, result: 'The page changed its Usage Policy section.' });
+    expect(answer.summary.refused).toBeFalsy();
+  });
 });
 
 describe('LineSplitter', () => {

@@ -38,6 +38,7 @@ export const RUN_STATUS: Record<RunStatus, string> = {
   cancelled: tr('cancelled|run'),
   rate_limited: 'rate limit',
   token_limit: tr('token limit'),
+  refused: tr('declined by the model'),
   taken_over: tr('taken over|run'),
   exited: tr('exited'),
   interrupted: tr('interrupted'),
