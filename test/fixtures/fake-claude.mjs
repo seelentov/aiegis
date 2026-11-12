@@ -38,6 +38,11 @@ if (!args.includes('-p')) {
       emit({ type: 'result', subtype: 'success', is_error: true, result: 'usage limit reached', usage: {} });
       process.exit(1);
     }
+    if (prompt.includes('DECLINE')) {
+      emit({ type: 'assistant', message: { id: 'm0', stop_reason: 'refusal', content: [], usage: { input_tokens: 1, output_tokens: 1 } } });
+      emit({ type: 'result', subtype: 'success', is_error: true, result: 'API Error: Claude Code is unable to respond to this request, which appears to violate our Usage Policy', usage: {} });
+      process.exit(0);
+    }
     if (prompt.includes('TOKENS')) {
       emit({ type: 'assistant', message: { id: 'm1', content: [], usage: { input_tokens: 10, output_tokens: 10, cache_creation_input_tokens: 999999 } } });
       setInterval(() => undefined, 1000);

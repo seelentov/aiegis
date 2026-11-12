@@ -51,6 +51,8 @@ export type RunStatus =
   | 'cancelled'
   | 'rate_limited'
   | 'token_limit'
+  /** The model declined the task (provider safety filter); not retried automatically. */
+  | 'refused'
   | 'taken_over'
   | 'exited'
   | 'interrupted';

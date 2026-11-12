@@ -194,6 +194,15 @@ describe('PiStreamTracker', () => {
     expect(t.summary.result).toEqual({ isError: false, subtype: 'stop', text: 'done' });
   });
 
+  it('a declined request is detected by the provider wording', () => {
+    const t = new PiStreamTracker();
+    t.feed(assistant({ stopReason: 'error', errorMessage: 'This request was flagged as potentially violative cyber content', usage: usage(0, 0, 0, 0, 0) }));
+    expect(t.summary.refused).toBe(true);
+    const other = new PiStreamTracker();
+    other.feed(assistant({ stopReason: 'error', errorMessage: '400 invalid', usage: usage(0, 0, 0, 0, 0) }));
+    expect(other.summary.refused).toBeFalsy();
+  });
+
   it('a provider error is a failed run (pi exits 0); rate limits are detected', () => {
     const t = new PiStreamTracker();
     t.feed(assistant({ stopReason: 'error', errorMessage: '400 invalid', usage: usage(0, 0, 0, 0, 0) }));

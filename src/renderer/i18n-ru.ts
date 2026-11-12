@@ -44,6 +44,7 @@ export const RU: Record<string, string> = {
   'succeeded': 'успешно',
   'cancelled|run': 'отменён',
   'token limit': 'лимит токенов',
+  'declined by the model': 'отказ модели',
   'taken over|run': 'перехвачен',
   'exited': 'завершён',
   'interrupted': 'прерван',

@@ -108,6 +108,13 @@ describe('Core with a fake claude', () => {
     expect(core.store(pid).getRun(done.lastRunId!)!.status).toBe('token_limit');
   });
 
+  it('a declined task fails with its own run status, without a retry', async () => {
+    const done = await settled(await core.enqueueTask(pid, { role: 'task', prompt: 'DECLINE' }));
+    expect(done.status).toBe('failed');
+    expect(done.error).toMatch(/declined the task/);
+    expect(core.store(pid).getRun(done.lastRunId!)!.status).toBe('refused');
+  });
+
   it('rate limit requeues and pauses the queue', async () => {
     const j = await core.enqueueTask(pid, { role: 'task', prompt: 'RATELIMIT' });
     await waitFor(() => core.queue.state().pausedUntil);

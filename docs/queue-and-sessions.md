@@ -19,6 +19,7 @@ A **job** is a queue entry. A **run** is one execution of a job or one opening o
 | `running`, `succeeded`, `failed`, `cancelled` | As named |
 | `rate_limited` | Stopped by a provider limit; the job goes back to the queue |
 | `token_limit` | Stopped at the configured limit |
+| `refused` | The model declined the task (the provider's safety filter); the job fails and is not retried automatically |
 | `taken_over` | Stopped for an interactive session |
 | `exited` | An interactive session ended |
 | `interrupted` | The app stopped during the run |
