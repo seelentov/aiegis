@@ -1114,9 +1114,11 @@ export type ScheduleAction =
   /** Starts only when the branches moved since the last check of these document versions. */
   | ({ kind: 'diff_check' } & DiffCheckInput)
   /** Fix checks of the stale findings (SPEC §33). */
-  | { kind: 'fix_verify' };
+  | { kind: 'fix_verify' }
+  /** Vulnerability hunt (SPEC §5.3); without modules: all modules. */
+  | { kind: 'hunt'; moduleIds?: string[] };
 
-export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points', 'doc_refresh', 'diff_check', 'fix_verify'] as const satisfies readonly ScheduleAction['kind'][];
+export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points', 'doc_refresh', 'diff_check', 'fix_verify', 'hunt'] as const satisfies readonly ScheduleAction['kind'][];
 
 export interface ScheduleInput {
   name: string;

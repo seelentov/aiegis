@@ -4338,6 +4338,7 @@ export class Core extends EventEmitter {
       case 'scanners':
       case 'sca_inventory':
       case 'sca':
+      case 'hunt':
         modules(a.moduleIds);
         break;
       case 'entry_points':
@@ -4364,7 +4365,7 @@ export class Core extends EventEmitter {
     const maxTokens = input.maxTokens ?? null;
     if (maxTokens !== null) {
       if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('the token limit must be a positive integer');
-      if (action.kind !== 'matrix' && action.kind !== 'sca' && action.kind !== 'doc_refresh' && action.kind !== 'diff_check' && action.kind !== 'fix_verify') throw new Error('a token limit applies to matrix, SCA, document check, branch check and fix check actions');
+      if (action.kind !== 'matrix' && action.kind !== 'sca' && action.kind !== 'doc_refresh' && action.kind !== 'diff_check' && action.kind !== 'fix_verify' && action.kind !== 'hunt') throw new Error('a token limit applies to matrix, SCA, document check, branch check, fix check and hunt actions');
     }
     this.checkedCron(projectId, input.cron);
     await this.checkScheduleAction(projectId, action);
@@ -4499,11 +4500,20 @@ export class Core extends EventEmitter {
       if (!e.cells) throw new NothingToDo('no stale findings to check');
       return e.tokens;
     }
+    if (a.kind === 'hunt') {
+      const e = await this.estimateHunt(projectId, this.huntTargets(projectId, a.moduleIds));
+      if (!e.cells) throw new NothingToDo(e.busy ? 'these modules are already queued for a hunt' : 'no module files to hunt in');
+      return e.tokens;
+    }
     if (a.kind !== 'matrix') return null;
     if (!a.slice) return (await this.estimateMatrix(projectId, a.matrixId, a.stage, a.scope)).tokens;
     const cells = await this.scheduleCells(projectId, a.matrixId, a.slice);
     if (!cells.length) throw new NothingToDo('no unchecked or stale cells in this slice');
     return (await this.estimateRecheck(projectId, cells, a.matrixId)).tokens;
+  }
+
+  private huntTargets(projectId: string, moduleIds: string[] | undefined): string[] {
+    return moduleIds?.length ? moduleIds : this.store(projectId).listModules().map((m) => m.id);
   }
 
   /** Starts an action through the method the UI and CLI call; returns the jobs of the firing. */
@@ -4545,6 +4555,8 @@ export class Core extends EventEmitter {
         return (await this.runDiffCheck(projectId, { baseRef: a.baseRef, headRef: a.headRef, target: a.target })).jobs.map((j) => j.id);
       case 'fix_verify':
         return (await this.runFixVerify(projectId, await this.staleFindingIds(projectId))).map((j) => j.id);
+      case 'hunt':
+        return (await this.runHunt(projectId, this.huntTargets(projectId, a.moduleIds))).map((j) => j.id);
     }
   }
 

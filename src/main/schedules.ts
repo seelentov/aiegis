@@ -23,6 +23,7 @@ const ActionSchema: z.ZodType<ScheduleAction> = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('entry_points'), moduleId: id.optional() }),
   z.strictObject({ kind: z.literal('doc_refresh'), target: z.union([z.strictObject({ setId: id }), z.strictObject({ documentId: id })]) }),
   z.strictObject({ kind: z.literal('fix_verify') }),
+  z.strictObject({ kind: z.literal('hunt'), moduleIds: ids.optional() }),
   z.strictObject({ kind: z.literal('diff_check'), baseRef: id, headRef: id, target: z.union([z.strictObject({ setId: id }), z.strictObject({ documentId: id })]) }),
 ]);
 

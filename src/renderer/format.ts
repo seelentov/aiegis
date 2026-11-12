@@ -54,6 +54,7 @@ export const SCHEDULE_ACTION: Record<ScheduleAction['kind'], string> = {
   doc_refresh: tr('Document check'),
   diff_check: tr('Branch check'),
   fix_verify: tr('Fix checks of stale findings'),
+  hunt: tr('Vulnerability hunt'),
 };
 
 export const SCHEDULE_OUTCOME: Record<ScheduleOutcome, string> = {

@@ -172,6 +172,8 @@ async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
       return { kind, ...diffInput(a) };
     case 'fix_verify':
       return { kind };
+    case 'hunt':
+      return { kind, moduleIds: mods };
     case 'scanners':
       return { kind, moduleIds: a.has('repository') ? null : (mods ?? []) };
     case 'sca_inventory':

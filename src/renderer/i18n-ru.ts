@@ -232,6 +232,7 @@ export const RU: Record<string, string> = {
   'Hunt for vulnerabilities of any kind in the modules shown, not only those the requirements name': 'Искать уязвимости любого вида в показанных модулях, не только названные в требованиях',
   'Hunt for vulnerabilities in the module': 'Искать уязвимости в модуле',
   'vulnerability hunt': 'поиск уязвимостей',
+  'Vulnerability hunt': 'Поиск уязвимостей',
   'Markup: {status}': 'Разметка: {status}',
   'Watch output': 'Смотреть вывод',
   'New module': 'Новый модуль',
