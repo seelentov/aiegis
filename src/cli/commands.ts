@@ -239,6 +239,18 @@ export const COMMANDS: Record<CoreMethod, Command> = {
     run: (a, c) => c.call('saveModule', c.pid(), { id: a.one('id'), name: a.pos[0], globs: a.all('glob'), description: a.one('description') ?? '' }),
   },
   removeModule: { name: 'module remove', usage: '<module> <reason>', help: 'Remove a module', run: async (a, c) => c.call('removeModule', c.pid(), await moduleId(c, a.pos[0]), a.pos[1]) },
+  estimateHunt: { name: 'module hunt-estimate', usage: '<module...>', help: 'Estimate a vulnerability hunt in modules', run: async (a, c) => c.call('estimateHunt', c.pid(), await moduleIds(c, a.pos)) },
+  runHunt: {
+    name: 'module hunt',
+    usage: '<module...>',
+    help: 'Queue a vulnerability hunt: sessions read every file of the modules for flaws of any kind',
+    columns: ['id', 'status', 'title'],
+    run: async (a, c) => {
+      const ids = await moduleIds(c, a.pos);
+      await c.confirm(await c.call('estimateHunt', c.pid(), ids));
+      return c.call('runHunt', c.pid(), ids);
+    },
+  },
   enqueueModuleMarkup: { name: 'module parse', usage: '[--hint <text>]', help: 'Queue AI markup of modules', run: (a, c) => c.call('enqueueModuleMarkup', c.pid(), a.one('hint') ?? '') },
   enqueueEntryPoints: { name: 'entry-points build', usage: '<module>', help: 'Queue the entry point map of a module', run: async (a, c) => c.call('enqueueEntryPoints', c.pid(), await moduleId(c, a.pos[0])) },
   enqueueAllEntryPoints: { name: 'entry-points build-all', usage: '', help: 'Queue the entry point maps of all modules', run: (_a, c) => c.call('enqueueAllEntryPoints', c.pid()) },

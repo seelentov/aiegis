@@ -91,12 +91,19 @@ function MatrixForm({ project, run, matrix, documentId, onDone }: { project: Pro
 const STAGE_TITLE: Record<MatrixStage, string> = { triage: tr('n/a triage'), verdicts: tr('Verdicts') };
 
 /** Dry-run estimate shown before queuing a matrix stage (SPEC §7). */
-export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', perFinding, onSwitch, onBuildMaps, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; perFinding?: boolean; onSwitch?: () => void; onBuildMaps?: () => void; onRun: () => void; onCancel: () => void }) {
+export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_size', perFinding, perFile, onSwitch, onBuildMaps, onRun, onCancel }: { estimate: MatrixEstimate; title?: string; batchSetting?: string; perFinding?: boolean; perFile?: boolean; onSwitch?: () => void; onBuildMaps?: () => void; onRun: () => void; onCancel: () => void }) {
   const over = estimate.batches.filter((b) => b.tokens > estimate.maxTokensPerRun);
+  const counts = {
+    sessions: estimate.sessions,
+    cells: estimate.cells,
+    tokens: kTokens(estimate.tokens),
+    perCell: kTokens(estimate.tokensPerCell),
+    source: estimate.tokensPerCellSource === 'history' ? tr('from run history') : tr('from config'),
+  };
   const g = useGrid('estimate.sessions', estimate.batches, [
     { key: 'module', title: tr('Module'), text: (b) => b.moduleName, filter: 'enum' },
     { key: 'group', title: tr('Group'), text: (b) => b.group || '—', filter: 'enum' },
-    { key: 'cells', title: tr('Cells'), text: (b) => String(b.cells), sort: (b) => b.cells, filter: 'none' },
+    { key: 'cells', title: perFile ? tr('Files') : tr('Cells'), text: (b) => String(b.cells), sort: (b) => b.cells, filter: 'none' },
     { key: 'tokens', title: tr('Tokens'), text: (b) => kTokens(b.tokens), sort: (b) => b.tokens, filter: 'none' },
   ]);
   return (
@@ -107,13 +114,9 @@ export function EstimatePanel({ estimate, title, batchSetting = 'matrix.batch_si
       <div>
         {perFinding
           ? tr('Findings: {sessions}, one session each · ≈{tokens} tokens ({perCell} per finding, {source})', { sessions: estimate.sessions, tokens: kTokens(estimate.tokens), perCell: kTokens(estimate.tokensPerCell), source: estimate.tokensPerCellSource === 'history' ? tr('from run history') : tr('from config') })
-          : tr('Sessions: {sessions} · cells: {cells} · ≈{tokens} tokens ({perCell} per cell, {source})', {
-              sessions: estimate.sessions,
-              cells: estimate.cells,
-              tokens: kTokens(estimate.tokens),
-              perCell: kTokens(estimate.tokensPerCell),
-              source: estimate.tokensPerCellSource === 'history' ? tr('from run history') : tr('from config'),
-            })}
+          : perFile
+            ? tr('Sessions: {sessions} · files: {cells} · ≈{tokens} tokens ({perCell} per file, {source})', counts)
+            : tr('Sessions: {sessions} · cells: {cells} · ≈{tokens} tokens ({perCell} per cell, {source})', counts)}
         {estimate.busy > 0 && <span className="muted"> · {tr('already queued: {n}', { n: estimate.busy })}</span>}
       </div>
       {over.length > 0 && (

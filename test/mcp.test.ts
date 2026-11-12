@@ -308,6 +308,30 @@ describe('MCP requirement, matrix and finding tools', () => {
     expect((await call('recheck_cells', { cells: [cell] })).text).toMatch(/no manage access/);
     await c.close();
   });
+
+  it('hunt: own module only, files of the module, a finding without cells', async () => {
+    write(path.join(repo, 'lib/Util.java'), 'class Util {}');
+    execFileSync('git', ['add', '.'], { cwd: repo });
+    const mod = store.saveModule({ name: 'hunted', globs: ['svc/**'], description: '' }, { author: 'human', runId: null });
+    const run = store.startRun({ ...base, role: 'hunt' });
+    const g = tokens.issue({ projectId: 'p1', role: 'hunt', access: 'scoped', sessionId: 's', runId: run.id, scope: [{ type: 'hunt', id: mod.id }] });
+    const c = await connect(g.token);
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const r = await c.callTool({ name, arguments: args });
+      return { err: Boolean(r.isError), text: text(r) };
+    };
+    expect((await call('mark_files_reviewed', { module_id: 'other', files: [{ file: 'svc/Api.java' }] })).text).toMatch(/outside the token scope/);
+    expect((await call('mark_files_reviewed', { module_id: mod.id, files: [{ file: 'lib/Util.java' }] })).text).toMatch(/not files of the module: lib\/Util.java/);
+    expect((await call('mark_files_reviewed', { module_id: mod.id, files: [{ file: 'svc/Api.java', note: 'checked' }] })).err).toBe(false);
+    expect([...store.huntReviewedFiles([run.id])]).toEqual(['svc/Api.java']);
+
+    const sim = JSON.parse((await call('find_similar', { module_id: mod.id, files: ['svc/Api.java'] })).text);
+    const fields = { module_id: mod.id, check_id: sim.check_id, title: 'SQLi', description: 'd', severity: 'high', files: [{ file: 'lib/Util.java', line: 1 }] };
+    expect((await call('create_hunt_finding', fields)).text).toMatch(/must belong to the module/);
+    const created = JSON.parse((await call('create_hunt_finding', { ...fields, files: [{ file: 'svc/Api.java', line: 1 }, { file: 'lib/Util.java' }] })).text);
+    expect(a.getFinding(created.finding_id)).toMatchObject({ moduleId: mod.id, cells: [], author: 'ai:hunt', status: 'suspected' });
+    await c.close();
+  });
 });
 
 describe('MCP tool annotations', () => {
@@ -324,7 +348,7 @@ describe('MCP tool annotations', () => {
     'set_finding_verification', 'set_fix_verification', 'fetch_url', 'report_document_check', 'request_document_review', 'request_catalogue_review',
     'judge_catalogue_entries', 'propose_document_change', 'submit_result', 'upsert_module', 'triage_cell', 'set_verdict', 'set_verdicts',
     'set_diff_verdicts', 'create_finding', 'link_finding', 'set_sca_verdict', 'create_sca_finding', 'link_sca_finding', 'set_poc_result',
-    'recheck_cells', 'enqueue_task',
+    'recheck_cells', 'enqueue_task', 'mark_files_reviewed', 'create_hunt_finding',
   ];
 
   it('every tool of every grant shape declares all four hints, matching what it does', async () => {

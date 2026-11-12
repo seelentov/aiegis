@@ -160,6 +160,8 @@ import {
   fixBaseline,
   fixEligible,
   FIX_VERIFY_ENTITY,
+  HUNT_BATCH_ENTITY,
+  HUNT_ENTITY,
   MATRIX_BATCH_ENTITY,
   matchesGlobs,
   parseCellId,
@@ -610,7 +612,7 @@ export class Core extends EventEmitter {
     const moduleId =
       job.entityType === MODULE_ENTITY || job.entityType === SCA_MODULE_ENTITY
         ? job.entityId
-        : job.entityType === FINDING_VERIFY_ENTITY || job.entityType === FIX_VERIFY_ENTITY
+        : job.entityType === FINDING_VERIFY_ENTITY || job.entityType === FIX_VERIFY_ENTITY || job.entityType === HUNT_BATCH_ENTITY
           ? (job.payload.module_id as string | undefined)
           : scaPayload(job)?.module_id;
     if (!moduleId) return this.resolve(job.projectId, job.role);
@@ -2657,6 +2659,103 @@ export class Core extends EventEmitter {
     return jobs;
   }
 
+  // --- Vulnerability hunt ---
+
+  /** Files of each module a hunt reads, in batches; modules with a queued or running hunt are skipped. */
+  private async huntPlan(projectId: string, moduleIds: string[]): Promise<{ batches: { mod: Module; files: string[]; n: number }[]; busy: number; head: string }> {
+    const p = this.project(projectId);
+    const s = this.store(projectId);
+    const settings = this.projectSettings(projectId).hunt;
+    const head = await headSha(p.root);
+    const active = s.activeJobs().filter((j) => j.entityType === HUNT_BATCH_ENTITY);
+    const batches: { mod: Module; files: string[]; n: number }[] = [];
+    let busy = 0;
+    for (const id of uniq(moduleIds)) {
+      const mod = s.getModule(id);
+      if (!mod) throw new Error(`module ${id} not found`);
+      if (active.some((j) => j.payload.module_id === mod.id)) {
+        busy++;
+        continue;
+      }
+      const files = await matchFiles(p.root, [...mod.globs, ...settings.exclude.map((g) => `!${g}`)]);
+      for (let i = 0; i < files.length; i += settings.batch_files) batches.push({ mod, files: files.slice(i, i + settings.batch_files), n: i / settings.batch_files + 1 });
+    }
+    return { batches, busy, head };
+  }
+
+  async estimateHunt(projectId: string, moduleIds: string[]): Promise<MatrixEstimate> {
+    const s = this.store(projectId);
+    const settings = this.projectSettings(projectId);
+    const { batches, busy } = await this.huntPlan(projectId, moduleIds);
+    const role = this.taskRole(projectId, 'hunt');
+    const runs = s.recentRuns(role, settings.hunt.estimate_history_runs);
+    const read = runs.length ? s.huntReviewedFiles(runs.map((r) => r.id)).size : 0;
+    const hist = read ? Math.round(runs.reduce((n, r) => n + billableTokens(r.usage), 0) / read) : null;
+    const perFile = hist ?? settings.hunt.estimate_tokens_per_file;
+    const files = batches.reduce((n, b) => n + b.files.length, 0);
+    return {
+      stage: 'verdicts',
+      role,
+      sessions: batches.length,
+      cells: files,
+      tokensPerCell: perFile,
+      tokensPerCellSource: hist === null ? 'config' : 'history',
+      tokens: files * perFile,
+      maxTokensPerRun: settings.limits.max_tokens_per_run,
+      batches: batches.map((b) => ({ moduleId: b.mod.id, moduleName: b.mod.name, group: `${b.n}`, cells: b.files.length, tokens: b.files.length * perFile })),
+      busy,
+      modulesWithoutMap: uniq(batches.map((b) => b.mod.id))
+        .filter((id) => !s.latestSnapshot(id) && !s.activeJobFor(MODULE_ENTITY, id))
+        .map((id) => ({ id, name: s.getModule(id)!.name })),
+    };
+  }
+
+  /** Queues one session per batch of module files at HEAD; findings are not tied to requirements. */
+  async runHunt(projectId: string, moduleIds: string[]): Promise<Job[]> {
+    const { batches, busy, head } = await this.huntPlan(projectId, moduleIds);
+    if (!batches.length) throw new NothingToDo(busy ? 'these modules are already queued for a hunt' : 'no module files to hunt in');
+    return batches.map((b) => {
+      const t = this.renderHuntTask(projectId, b.mod, b.files);
+      return this.addAgentJob(projectId, { ...t, entity: { type: HUNT_BATCH_ENTITY, id: `${b.mod.id}:${b.n}` }, payload: { module_id: b.mod.id, files: b.files } }, head);
+    });
+  }
+
+  private renderHuntTask(projectId: string, mod: Module, files: string[]): { role: string; title: string; prompt: string } {
+    const spec = this.taskSpec(projectId, 'hunt');
+    const vars = {
+      project: this.project(projectId).name,
+      module_id: mod.id,
+      module_name: mod.name,
+      module_description: mod.description || '(none)',
+      module_globs: mod.globs.map((g) => `- ${g}`).join('\n'),
+      files: files.map((f) => `- ${f}`).join('\n'),
+      file_count: String(files.length),
+    };
+    return { role: spec.role, title: renderTemplate(spec.title, vars), prompt: renderTemplate(spec.template, vars, spec.file) };
+  }
+
+  /** Files of a hunt job its runs have not marked as read. */
+  private openHuntFiles(job: Job): string[] {
+    const s = this.store(job.projectId);
+    const done = s.huntReviewedFiles(s.jobRuns(job.id).map((r) => r.id));
+    return (job.payload.files as string[]).filter((f) => !done.has(f));
+  }
+
+  /** Hunt jobs are atomic per file, like matrix cells: a re-run covers what earlier runs left unread. */
+  private prepareHuntJob(job: Job): { job: Job; scope: EntityRef[]; prompt: string } | null {
+    const s = this.store(job.projectId);
+    const moduleId = String(job.payload.module_id);
+    const mod = s.getModule(moduleId);
+    if (!mod) throw new Error(`module ${moduleId} deleted`);
+    const remaining = this.openHuntFiles(job);
+    if (!remaining.length) return null;
+    if (remaining.length !== (job.payload.files as string[]).length) {
+      s.setJobPayload(job.id, { ...job.payload, files: remaining, prompt: this.renderHuntTask(job.projectId, mod, remaining).prompt });
+      job = s.getJob(job.id)!;
+    }
+    return { job, scope: [{ type: HUNT_ENTITY, id: moduleId }], prompt: String(job.payload.prompt) };
+  }
+
   // --- PoC tester (SPEC §4, Q14) ---
 
   private pocAvailability(projectId: string): { available: boolean; reason: string | null; baseUrl: string | null } {
@@ -4648,6 +4747,7 @@ export class Core extends EventEmitter {
     if (sp) return this.prepareScaJob(job, sp);
     const dp = diffPayload(job);
     if (dp) return this.prepareDiffJob(job, dp);
+    if (job.entityType === HUNT_BATCH_ENTITY) return this.prepareHuntJob(job);
     const mp = matrixPayload(job);
     if (!mp) return { job, scope: [{ type: job.entityType, id: job.entityId }], prompt: String(job.payload.prompt) };
     const s = this.store(job.projectId);
@@ -4749,6 +4849,10 @@ export class Core extends EventEmitter {
       return 'the run finished, but no PoC result was recorded: the agent did not call set_poc_result';
     if (job.entityType === FINDING_VERIFY_ENTITY && !s0.audit.findingVerifications({ runId }).length)
       return 'the run finished, but no result was recorded: the agent did not call set_finding_verification; its log shows why, a safety refusal also ends a run this way';
+    if (job.entityType === HUNT_BATCH_ENTITY) {
+      const left = this.openHuntFiles(job).length;
+      return left ? `the run finished, but files left unread: ${left}; “Retry” reruns only them` : null;
+    }
     const sp = scaPayload(job);
     if (sp) {
       const left = this.openScaVulns(job, sp);

@@ -31,7 +31,7 @@ import {
 import type { Settings } from '../config/loader';
 import { DOC_GEN_ENTITY, DOC_PLAN_ENTITY, DOC_REFRESH_ENTITY, DOC_TEXT_ENTITY, sha256File } from '../documents';
 import type { RefreshProposalInput } from '../core';
-import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, FINDING_VERIFY_ENTITY, FIX_VERIFY_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
+import { CELL_ENTITY, cellId, DOC_VERSION_ENTITY, FINDING_VERIFY_ENTITY, FIX_VERIFY_ENTITY, HUNT_ENTITY, quoteFound, rankSimilar, reqHash, type CellRef } from '../matrix';
 import { CARRIED_AUTHOR } from '../audit-store';
 import { DIFF_ITEM_ENTITY, diffItemId, diffVerdictError } from '../diff-check';
 import { entryPointKey, globsError, matchFiles, MODULE_ENTITY, MODULE_MAP_ENTITY, repoFileError } from '../modules';
@@ -1074,6 +1074,82 @@ export function buildServer(grant: Grant, svc: McpServices, checks: SimilarCheck
             recommendation: a.recommendation ?? null,
           },
           [c],
+          by,
+        );
+        svc.onWrite(pid);
+        return ok({ finding_id: f.id, status: f.status });
+      }),
+  );
+
+  /** Live module of a hunt write and its tracked files in the run's checkout. */
+  const huntModule = async (cwd: string, moduleId: string) => {
+    const mod = svc.store(pid).getModule(moduleId);
+    if (!mod) throw new Error(`module ${moduleId} not found`);
+    return { mod, files: new Set(await matchFiles(cwd, mod.globs)) };
+  };
+
+  server.registerTool(
+    'mark_files_reviewed',
+    {
+      description:
+        'Vulnerability hunt: record that you finished reading files of the module in your scope (hunt:<module_id>), with a short note of what you checked or why a file could not be reviewed. Files must belong to the module. Every file of your batch must be marked before you stop.',
+      inputSchema: {
+        module_id: z.string(),
+        files: z.array(z.object({ file: z.string().min(1).describe('Path relative to the repository root'), note: z.string().optional() })).min(1),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: HUNT_ENTITY, id: a.module_id } }, async () => {
+        const run = liveRun();
+        const { files } = await huntModule(run.cwd, a.module_id);
+        const outside = a.files.filter((f) => !files.has(f.file)).map((f) => f.file);
+        if (outside.length) return fail(`not files of the module: ${outside.join(', ')}`);
+        svc.store(pid).addHuntReviews(a.module_id, a.files, run.commitSha, { ...by, runId: run.id });
+        svc.onWrite(pid);
+        return ok({ marked: a.files.length });
+      }),
+  );
+
+  server.registerTool(
+    'create_hunt_finding',
+    {
+      description:
+        'Vulnerability hunt: create a finding (status suspected) in the module in your scope (hunt:<module_id>), not tied to a requirement. Call find_similar first and pass its check_id; if a candidate is the same flaw, do not create another one.',
+      inputSchema: {
+        module_id: z.string(),
+        check_id: z.string().describe('check_id returned by find_similar in this run'),
+        title: z.string().min(1),
+        description: z.string().min(1).describe('What is wrong, how it can be exploited, impact'),
+        severity: z.enum(SEVERITIES),
+        cwe: z.string().optional(),
+        entry_point: z.string().optional().describe('Entry point key, if reachable through one'),
+        files: evidenceSchema.min(1),
+        trace: traceSchema,
+        recommendation: z.string().optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (a) =>
+      guard({ kind: 'write', entity: { type: HUNT_ENTITY, id: a.module_id } }, async () => {
+        const run = liveRun();
+        if (!checks.get(grant.runId)?.has(a.check_id)) return fail('no such check_id: call find_similar in this run first');
+        const { mod, files } = await huntModule(run.cwd, a.module_id);
+        checkFiles(run.cwd, [...a.files, ...(a.trace ?? [])]);
+        if (!a.files.some((f) => files.has(f.file))) return fail('at least one of files must belong to the module');
+        const f = svc.store(pid).audit.createFinding(
+          {
+            title: a.title.trim(),
+            description: a.description,
+            severity: a.severity,
+            cwe: a.cwe?.trim() || null,
+            moduleId: mod.id,
+            entryPoint: a.entry_point?.trim() || null,
+            files: a.files,
+            trace: a.trace ?? [],
+            recommendation: a.recommendation ?? null,
+          },
+          [],
           by,
         );
         svc.onWrite(pid);

@@ -104,6 +104,9 @@ export interface AiegisApi {
   enqueueModuleMarkup(projectId: string, hint: string): Job;
   enqueueEntryPoints(projectId: string, moduleId: string): Job;
   enqueueAllEntryPoints(projectId: string): Job[];
+  estimateHunt(projectId: string, moduleIds: string[]): MatrixEstimate;
+  /** Vulnerability hunt: one session per batch of module files at HEAD; findings are not tied to requirements. */
+  runHunt(projectId: string, moduleIds: string[]): Job[];
   entryPointMap(projectId: string, moduleId: string, snapshotId?: string): EntryPointMap;
 
   listDocuments(projectId: string): DocumentSummary[];

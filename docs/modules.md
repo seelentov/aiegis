@@ -35,6 +35,15 @@ The table shows each module's name, globs, description and entry point map, incl
 
 **Map all** queues a map for every module.
 
+## Vulnerability hunt
+
+The matrix finds what the requirements name. **Hunt** (toolbar: the modules shown under the filters; row: one module) looks for exploitable flaws of any kind: sessions of the role `hunt` read every file of the module and record findings that are not tied to a requirement.
+
+- Files are the module's files minus `hunt.exclude` (tests, vendored and generated code, docs by default), split into sessions of `hunt.batch_files`. The run goes through an [estimate](queue-and-sessions.md); without an entry point map the estimate warns and offers **Build maps**.
+- A session marks each file it finished (`mark_files_reviewed`). A successful run that left files unread fails, and **Retry** reads only those.
+- Findings (`create_hunt_finding`) need `find_similar` first, belong to the module, have no matrix cells and usually carry a [data flow](findings.md#fields). Their status is set by a person, as for any finding.
+- A module with a hunt in the queue is skipped. A new hunt reads all files again.
+
 ## Command line
 
 ```bash
@@ -43,6 +52,7 @@ aiegis module preview 'api/**' '!api/test/**'
 aiegis module save api --glob 'api/**' --glob 'lib/**' --description 'Public API'
 aiegis module parse --hint 'Two modules: api and admin'
 aiegis module history <module>
+aiegis module hunt api            # estimate, confirm, queue
 aiegis module remove <module> 'Merged into api'
 ```
 

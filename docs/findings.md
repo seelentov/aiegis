@@ -24,6 +24,7 @@ The **data flow** is set by the agent that creates the finding: the steps in ord
 
 - Matrix verdicts (`create_finding`, `link_finding`).
 - SCA reachability (`create_sca_finding`, `link_sca_finding`).
+- [Vulnerability hunt](modules.md#vulnerability-hunt) (`create_hunt_finding`): not tied to a requirement.
 - Manual input: **Finding** on a cell or an SCA item.
 
 ## Deduplication

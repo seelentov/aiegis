@@ -147,6 +147,17 @@ findings:
   # ...or this value when there is no history yet (measured on a large repository: 12 sessions, 12k to 25k, 18k on average).
   verify_estimate_tokens: 20000
 
+# Vulnerability hunt: reads every file of a module for flaws of any kind, not only those the requirements name.
+hunt:
+  # Files of a module in one session; a module with more files gets several sessions.
+  batch_files: 30
+  # Pathspec globs of module files the hunt skips: tests, vendored, generated code and docs.
+  exclude: ["**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/*Test.java", "**/*Test.kt", "**/*_test.go", "**/test_*.py", "**/vendor/**", "**/node_modules/**", "**/third_party/**", "**/generated/**", "**/*.generated.*", "**/*.pb.go", "**/*.min.js", "**/*.md", "**/*.txt", "**/*.svg", "**/*.css", "**/*.scss", "**/*.lock", "**/package-lock.json"]
+  # Dry-run estimate: average billable tokens per reviewed file over this many recent runs of the role...
+  estimate_history_runs: 20
+  # ...or this value when there is no history yet.
+  estimate_tokens_per_file: 6000
+
 # Scanners the app runs itself, once per commit in the worktree (results are cached by commit and scanned paths).
 # Binaries come from the system (PATH); availability is checked at startup with `version_args`.
 #   format         - normalizer of the output: semgrep | gitleaks | trivy;
@@ -443,6 +454,13 @@ tasks:
     role: finding-verify
     title: { en: "Fix check: {{title}}", ru: "Проверка исправления: {{title}}" }
     prompt: instructions/tasks/fix-verify.md
+  # Vulnerability hunt over a batch of module files (Modules -> Hunt).
+  # Placeholders: project, module_id, module_name, module_description, module_globs, files (the batch, one per line),
+  # file_count.
+  hunt:
+    role: hunt
+    title: { en: "Hunt: {{module_name}} ({{file_count}} files)", ru: "Поиск уязвимостей: {{module_name}} ({{file_count}} файлов)" }
+    prompt: instructions/tasks/hunt.md
   # "Open fix session" (interactive, user's working directory).
   # Placeholders: project, finding_id, title, severity, cwe, description, files, recommendation, cells.
   fix:
@@ -615,6 +633,24 @@ roles:
         - instructions/methodology/severity.md
     permissions:
       allow: ["Read(./**)", "Grep(./**)", "Glob(./**)", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)"]
+      deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash(git log *--ou*)", "Bash(git show *--ou*)"]
+
+  # Vulnerability hunt: reads the files of a module for flaws of any kind, not only those the requirements name; source
+  # review only. `--output` (git takes abbreviations) would let these commands write files.
+  hunt:
+    title: { en: "Vulnerability hunt", ru: "Поиск уязвимостей" }
+    kind: background
+    mcp_access: scoped
+    model: sonnet
+    effort: medium
+    instructions:
+      file:
+        - instructions/roles/hunt.md
+        - instructions/methodology/verdict-discipline.md
+        - instructions/methodology/attack-classes.md
+        - instructions/methodology/severity.md
+    permissions:
+      allow: ["Read", "Grep", "Glob", "mcp__aiegis", "Bash(git log:*)", "Bash(git show:*)"]
       deny: ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Bash(git log *--ou*)", "Bash(git show *--ou*)"]
 
   # SCA reachability: is a vulnerable package version used by the module in a way the vulnerability needs.

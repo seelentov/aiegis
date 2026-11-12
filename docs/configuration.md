@@ -148,7 +148,7 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 | `schedules.catch_up_window_hours` | `12` | A later firing is only recorded as missed |
 | `schedules.max_tokens_per_firing` | `1000000` | Above this estimate a firing does not start |
 
-### `matrix`, `diff_check`, `findings`
+### `matrix`, `diff_check`, `findings`, `hunt`
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -168,6 +168,10 @@ Global only. See [Data and logs](data-and-logs.md#logs).
 | `findings.similar_limit` | `5` | Candidates from `find_similar` |
 | `findings.verify_estimate_history_runs` | `20` | Recent runs of `finding-verify` averaged for its estimate |
 | `findings.verify_estimate_tokens` | `20000` | Billable tokens per finding in that estimate when there is no history |
+| `hunt.batch_files` | `30` | Module files per [hunt](modules.md#vulnerability-hunt) session |
+| `hunt.exclude` | tests, vendored, generated code, docs | Pathspec globs of module files the hunt skips |
+| `hunt.estimate_history_runs` | `20` | Recent runs of `hunt` averaged for its estimate (tokens per read file) |
+| `hunt.estimate_tokens_per_file` | `6000` | Billable tokens per file in that estimate when there is no history |
 
 ### `scanners`
 
@@ -284,6 +288,7 @@ See [PoC tester](poc.md).
 | `sca_reachability` | `sca` | `project`, `module_id`, `module_name`, `module_globs`, `module_description`, `package_key`, `package`, `direct`, `manifest`, `import_names`, `import_hits`, `vulnerabilities` |
 | `finding_verify` | `finding-verify` | `project`, `finding_id`, `title`, `commit_sha`, `claim` |
 | `fix_verify` | `finding-verify` | `project`, `finding_id`, `title`, `commit_sha`, `base_commit`, `changed_files`, `claim` |
+| `hunt` | `hunt` | `project`, `module_id`, `module_name`, `module_description`, `module_globs`, `files`, `file_count` |
 | `poc` | `tester` | `project`, `finding_id`, `title`, `severity`, `cwe`, `description`, `files`, `recommendation`, `entry_point`, `module_name`, `base_url`, `accounts`, `out_dir` |
 | `poc_setup` | `env-setup` | `project`, `project_root`, `environment`, `accounts`, `scripts_dir`, `env_passthrough`, `last_failure` |
 | `fix` | `assistant` | `project`, `finding_id`, `title`, `severity`, `cwe`, `description`, `files`, `recommendation`, `cells` |
@@ -310,6 +315,7 @@ See [PoC tester](poc.md).
 | `sca` | haiku, low | `git log/show/diff` |
 | `env-setup` | sonnet, medium | All of `Bash`; no `Edit`, `Write` |
 | `finding-verify` | sonnet, medium | `Read`, `Grep`, `Glob` in its checkout, `git log/show`; its MCP token reaches only its own result |
+| `hunt` | sonnet, medium | `Read`, `Grep`, `Glob`, `git log/show` |
 | `tester` | sonnet, low | Writes in `.aiegis-poc/`, and `git log/show`, `ls`, `mkdir`, `curl`, `jq`, `python3`, `node` |
 
 Background roles deny `WebFetch` and `WebSearch`. Except for `sca-inventory` and `tester`, they also deny `Edit` and `Write`.
@@ -319,5 +325,5 @@ Background roles deny `WebFetch` and `WebSearch`. Except for `sca-inventory` and
 `~/.aiegis/instructions/methodology/` holds reference fragments adapted from [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) (MIT):
 
 - `verdict-discipline.md` and `attack-classes.md` are on by default for `matrix` and `diff-check`;
-- `severity.md` (how to choose a finding's severity: what the attacker gains, what it takes, how far it reaches, what it is worth in this application; caps by the privilege required; the lower level when in doubt) is on for `matrix`, `matrix-economy`, `diff-check`, `sca` and `finding-verify`;
+- `severity.md` (how to choose a finding's severity: what the attacker gains, what it takes, how far it reaches, what it is worth in this application; caps by the privilege required; the lower level when in doubt) is on for `matrix`, `matrix-economy`, `diff-check`, `sca`, `finding-verify` and `hunt` (which also uses `verdict-discipline.md` and `attack-classes.md`);
 - `web-and-auth.md` ships but is off. For modules with HTTP and authentication, add `instructions/methodology/web-and-auth.md` to `roles.matrix.instructions.file` in the global config, or copy the file into `<repo>/.aiegis/instructions/` and name it in the project config, as in the example above. A file path cannot start with `~/`.

@@ -94,6 +94,8 @@ Writes that check files need a live run, so a token stops writing once its run e
 | `set_sca_verdict` | Reachability verdict for one vulnerability |
 | `create_sca_finding` | Creates a `suspected` finding for reachable vulnerabilities; optional `trace` as in `create_finding` |
 | `link_sca_finding` | Links an existing finding to vulnerabilities of the package |
+| `mark_files_reviewed` | Hunt: records files of the module in scope (`hunt:<module_id>`) the session finished reading, with a note |
+| `create_hunt_finding` | Hunt: creates a `suspected` finding in the module, not tied to a requirement; needs `check_id` from `find_similar`; at least one file must belong to the module; optional `trace` |
 
 ## Independent verification
 
