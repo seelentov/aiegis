@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -45,15 +46,32 @@ function expandHome(p: string): string {
   return p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p;
 }
 
+/** Path with symlinks resolved, so a link inside the checkout cannot point a path rule at a file outside it; a file
+ * that does not exist yet (a write) resolves through its nearest existing parent. */
+function real(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    const parent = path.dirname(p);
+    return parent === p ? p : path.join(real(parent), path.basename(p));
+  }
+}
+
 /** Absolute path a path tool works on (default: the working directory). */
 function targetPath(input: Input, cwd: string): string {
   const raw = String(input.path ?? input.file_path ?? '.').replace(/^@/, '');
-  return path.resolve(cwd, expandHome(raw));
+  return real(path.resolve(cwd, expandHome(raw)));
 }
 
 /** `./x` and `x` are relative to the working directory, `~/x` to home, `//x` is absolute. */
 function pathSpecMatches(spec: string, file: string, cwd: string): boolean {
-  const abs = spec.startsWith('//') ? spec.slice(1) : spec.startsWith('~') ? expandHome(spec) : path.join(cwd, spec);
+  const outside = spec.startsWith('//') || spec.startsWith('~');
+  const lexical = spec.startsWith('//') ? spec.slice(1) : spec.startsWith('~') ? expandHome(spec) : path.join(cwd, spec);
+  // An absolute or home rule comes from the config: resolve its literal directory part like the target, so `//etc/**`
+  // still matches where /etc is a link. A relative rule stays literal: a link committed in the checkout must not move it.
+  const wild = lexical.search(/[*?]/);
+  const cut = wild < 0 ? lexical.length : lexical.lastIndexOf('/', wild);
+  const abs = outside && cut > 0 ? real(lexical.slice(0, cut)) + lexical.slice(cut) : lexical;
   const re = globRegExp(abs);
   // `dir/**` also covers the directory itself.
   return re.test(file) || (abs.endsWith('/**') && file === abs.slice(0, -3));
@@ -121,7 +139,8 @@ const inside = (file: string, dir: string) => file === dir || file.startsWith(di
  * Decides a pi tool call by the role's Claude Code-style rules: deny wins; then allow; else "ask" (interactive sessions
  * confirm, background runs block). Path tools stay inside the working directory and `dirs` unless a rule names the path.
  */
-export function decide(rc: PiRunConfig, cwd: string, toolName: string, input: Input): Decision {
+export function decide(rc: PiRunConfig, workDir: string, toolName: string, input: Input): Decision {
+  const cwd = real(workDir);
   const names = toolName.startsWith('mcp__') ? [toolName] : Object.keys(rc.tools).filter((k) => rc.tools[k].includes(toolName));
   if (!names.length) return { kind: 'ask', reason: `tool ${toolName} is not covered by the role's permissions` };
   const isBash = names.includes('Bash');
@@ -145,7 +164,7 @@ export function decide(rc: PiRunConfig, cwd: string, toolName: string, input: In
   const pathTool = names.some((n) => PATH_TOOLS.includes(n));
   if (pathTool && bare) {
     const file = targetPath(input, cwd);
-    if (![cwd, ...rc.dirs].some((d) => inside(file, path.resolve(d)))) return { kind: 'ask', reason: `${file} is outside the working directories` };
+    if (![cwd, ...rc.dirs].some((d) => inside(file, real(path.resolve(d))))) return { kind: 'ask', reason: `${file} is outside the working directories` };
   }
   return { kind: 'allow' };
 }
