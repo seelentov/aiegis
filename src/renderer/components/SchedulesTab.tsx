@@ -58,7 +58,7 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
   const [cells, setCells] = useState(a?.kind === 'matrix' ? (a.slice?.cells ?? []).join('\n') : '');
   const [target, setTarget] = useState<Target>(a?.kind === 'scanners' && a.moduleIds === null ? 'repository' : 'modules');
   const [mods, setMods] = useState<string[]>(
-    a?.kind === 'matrix' ? (a.slice?.modules ?? []) : a?.kind === 'scanners' || a?.kind === 'sca' || a?.kind === 'sca_inventory' ? (a.moduleIds ?? []) : a?.kind === 'entry_points' && a.moduleId ? [a.moduleId] : [],
+    a?.kind === 'matrix' ? (a.slice?.modules ?? []) : a?.kind === 'scanners' || a?.kind === 'sca' || a?.kind === 'sca_inventory' || a?.kind === 'hunt' ? (a.moduleIds ?? []) : a?.kind === 'entry_points' && a.moduleId ? [a.moduleId] : [],
   );
   const [refresh, setRefresh] = useState(a?.kind === 'doc_refresh' ? ('setId' in a.target ? `set:${a.target.setId}` : `doc:${a.target.documentId}`) : '');
   const [sets, setSets] = useState<DocSet[]>([]);
@@ -135,12 +135,14 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
         return { kind, ...diffInputOf(diff) };
       case 'fix_verify':
         return { kind };
+      case 'hunt':
+        return { kind, moduleIds };
       case 'doc_refresh':
         return { kind, target: refresh.startsWith('set:') ? { setId: refresh.slice(4) } : { documentId: refresh.slice(4) } };
     }
   };
 
-  const limited = kind === 'matrix' || kind === 'sca' || kind === 'doc_refresh' || kind === 'diff_check' || kind === 'fix_verify';
+  const limited = kind === 'matrix' || kind === 'sca' || kind === 'doc_refresh' || kind === 'diff_check' || kind === 'fix_verify' || kind === 'hunt';
   const save = async () => {
     const input: ScheduleInput = { name, cron, action: action(), maxTokens: limited && maxTokens.trim() ? Number(maxTokens) : null };
     const s = await run(schedule ? api.updateSchedule(project.id, schedule.id, input) : api.createSchedule(project.id, input));
@@ -282,7 +284,7 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
           </Select>
         </label>
       )}
-      {((kind === 'scanners' && target === 'modules') || kind === 'sca' || kind === 'sca_inventory') && <ModuleChecks modules={modules} chosen={mods} onChange={setMods} />}
+      {((kind === 'scanners' && target === 'modules') || kind === 'sca' || kind === 'sca_inventory' || kind === 'hunt') && <ModuleChecks modules={modules} chosen={mods} onChange={setMods} />}
       {kind === 'entry_points' && (
         <label>
           {tr('Module')}
@@ -387,7 +389,7 @@ export function ScheduleDetailsView({ project, id, revision, run, onSelect }: { 
             <dd>{SCHEDULE_ACTION[schedule.action.kind]}</dd>
             <dt>{tr('Parameters')}</dt>
             <dd className="mono small">{JSON.stringify(schedule.action, (k, v: unknown) => (k === 'kind' ? undefined : typeof v === 'string' ? (names.get(v) ?? v) : v))}</dd>
-            {(schedule.action.kind === 'matrix' || schedule.action.kind === 'sca' || schedule.action.kind === 'doc_refresh' || schedule.action.kind === 'diff_check' || schedule.action.kind === 'fix_verify') && (
+            {(schedule.action.kind === 'matrix' || schedule.action.kind === 'sca' || schedule.action.kind === 'doc_refresh' || schedule.action.kind === 'diff_check' || schedule.action.kind === 'fix_verify' || schedule.action.kind === 'hunt') && (
               <>
                 <dt>{tr('Token limit')}</dt>
                 <dd>{schedule.maxTokens ?? tr('from the settings')}</dd>

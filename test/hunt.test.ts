@@ -90,4 +90,16 @@ describe('vulnerability hunt', () => {
     expect(job(j.id).payload.files).toEqual(['web/y.js']);
     expect(job(j.id).payload.prompt).not.toContain('web/x.js');
   });
+
+  it('a schedule respects its limit and starts the chosen modules', async () => {
+    const mod = await core.saveModule(pid, { name: 'sched', globs: ['svc/a.js'], description: 'service' });
+    const s = await core.createSchedule(pid, { name: 'hunt', cron: '0 3 * * *', action: { kind: 'hunt', moduleIds: [mod.id] }, maxTokens: 1 });
+    expect((await core.runSchedule(pid, s.id)).outcome).toBe('over_limit');
+
+    await core.updateSchedule(pid, s.id, { maxTokens: 10_000_000 });
+    const firing = await core.runSchedule(pid, s.id);
+    expect(firing.outcome).toBe('started');
+    expect(firing.jobIds.map((id) => job(id).payload.module_id)).toEqual([mod.id]);
+    for (const id of firing.jobIds) expect((await settled(job(id))).status).toBe('done');
+  });
 });
