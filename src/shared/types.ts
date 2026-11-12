@@ -111,6 +111,15 @@ export interface Module {
   updatedAt: string;
 }
 
+/** A file the hunt reads and its latest review (SPEC §5.3); null fields: never read. */
+export interface HuntFileReview {
+  file: string;
+  reviewedAt: string | null;
+  note: string | null;
+  commitSha: string | null;
+  runId: string | null;
+}
+
 export interface ModuleRevision {
   id: string;
   moduleId: string;

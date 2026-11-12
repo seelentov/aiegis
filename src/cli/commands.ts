@@ -242,6 +242,13 @@ export const COMMANDS: Record<CoreMethod, Command> = {
   },
   removeModule: { name: 'module remove', usage: '<module> <reason>', help: 'Remove a module', run: async (a, c) => c.call('removeModule', c.pid(), await moduleId(c, a.pos[0]), a.pos[1]) },
   estimateHunt: { name: 'module hunt-estimate', usage: '<module...>', help: 'Estimate a vulnerability hunt in modules', run: async (a, c) => c.call('estimateHunt', c.pid(), await moduleIds(c, a.pos)) },
+  huntCoverage: {
+    name: 'module hunt-coverage',
+    usage: '<module>',
+    help: 'Show which files of a module the hunt has read, unread first',
+    columns: ['file', 'reviewedAt', 'note'],
+    run: async (a, c) => c.call('huntCoverage', c.pid(), await moduleId(c, a.pos[0])),
+  },
   runHunt: {
     name: 'module hunt',
     usage: '<module...>',

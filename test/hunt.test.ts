@@ -72,6 +72,9 @@ describe('vulnerability hunt', () => {
     const runs = jobs.map((j) => job(j.id).lastRunId!);
     expect([...core.store(pid).huntReviewedFiles(runs)].sort()).toEqual(['svc/a.js', 'svc/b.js', 'svc/c.js']);
     expect(core.store(pid).getRun(runs[0])!.status).toBe('succeeded');
+    const coverage = await core.huntCoverage(pid, mod.id);
+    expect(coverage.map((c) => c.file).sort()).toEqual(['svc/a.js', 'svc/b.js', 'svc/c.js']);
+    expect(coverage.every((c) => c.reviewedAt && runs.includes(c.runId!))).toBe(true);
     // Batches of one module never overlap, so each sees the findings of the one before.
     const [r1, r2] = runs.map((id) => core.store(pid).getRun(id)!);
     expect(r2.startedAt >= r1.finishedAt!).toBe(true);
@@ -83,6 +86,7 @@ describe('vulnerability hunt', () => {
     const failed = await settled(j);
     expect(failed.status).toBe('failed');
     expect(failed.error).toMatch(/files left unread: 1/);
+    expect((await core.huntCoverage(pid, mod.id)).map((c) => [c.file, !!c.reviewedAt])).toEqual([['web/y.js', false], ['web/x.js', true]]);
 
     core.retryJob(pid, j.id);
     await waitFor(() => job(j.id).status === 'running' || job(j.id).status === 'done');

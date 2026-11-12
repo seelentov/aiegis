@@ -331,6 +331,13 @@ export class ProjectStore {
     return new Set(rows.map((r) => r.file as string));
   }
 
+  /** The latest review of each file of a module. */
+  huntReviews(moduleId: string): { file: string; note: string | null; commitSha: string; runId: string; createdAt: string }[] {
+    // SQLite takes the bare columns from the row with MAX(created_at).
+    const rows = this.db.prepare('SELECT file, note, commit_sha, run_id, MAX(created_at) AS created_at FROM hunt_reviews WHERE module_id = ? GROUP BY file').all(moduleId) as Row[];
+    return rows.map((r) => ({ file: r.file as string, note: (r.note as string | null) ?? null, commitSha: r.commit_sha as string, runId: r.run_id as string, createdAt: r.created_at as string }));
+  }
+
   /** Latest finished successful background runs of a role (dry-run estimates). */
   recentRuns(role: string, limit: number): Run[] {
     return (
