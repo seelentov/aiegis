@@ -144,7 +144,7 @@ async function scheduleId(c: Ctx, ref: string): Promise<string> {
 }
 
 const SCHEDULE_FLAGS =
-  '[--max-tokens <n|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]';
+  '[--max-tokens <n|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage|verdicts>] [--scope <pending|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--all] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]';
 
 /** Action of `--action` and its flags; the core validates the result. */
 async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
@@ -173,7 +173,7 @@ async function scheduleAction(a: Input, c: Ctx): Promise<ScheduleAction> {
     case 'fix_verify':
       return { kind };
     case 'hunt':
-      return { kind, moduleIds: mods };
+      return { kind, moduleIds: mods, all: a.has('all') || undefined };
     case 'scanners':
       return { kind, moduleIds: a.has('repository') ? null : (mods ?? []) };
     case 'sca_inventory':
@@ -241,23 +241,28 @@ export const COMMANDS: Record<CoreMethod, Command> = {
     run: (a, c) => c.call('saveModule', c.pid(), { id: a.one('id'), name: a.pos[0], globs: a.all('glob'), description: a.one('description') ?? '' }),
   },
   removeModule: { name: 'module remove', usage: '<module> <reason>', help: 'Remove a module', run: async (a, c) => c.call('removeModule', c.pid(), await moduleId(c, a.pos[0]), a.pos[1]) },
-  estimateHunt: { name: 'module hunt-estimate', usage: '<module...>', help: 'Estimate a vulnerability hunt in modules', run: async (a, c) => c.call('estimateHunt', c.pid(), await moduleIds(c, a.pos)) },
+  estimateHunt: {
+    name: 'module hunt-estimate',
+    usage: '<module...> [--all]',
+    help: 'Estimate a vulnerability hunt in modules: unread files and those changed since read, or all with --all',
+    run: async (a, c) => c.call('estimateHunt', c.pid(), await moduleIds(c, a.pos), a.has('all')),
+  },
   huntCoverage: {
     name: 'module hunt-coverage',
     usage: '<module>',
-    help: 'Show which files of a module the hunt has read, unread first',
-    columns: ['file', 'reviewedAt', 'note'],
+    help: 'Show which files of a module the hunt has read: unread first, then changed since read',
+    columns: ['file', 'reviewedAt', 'changed', 'note'],
     run: async (a, c) => c.call('huntCoverage', c.pid(), await moduleId(c, a.pos[0])),
   },
   runHunt: {
     name: 'module hunt',
-    usage: '<module...>',
-    help: 'Queue a vulnerability hunt: sessions read every file of the modules for flaws of any kind',
+    usage: '<module...> [--all]',
+    help: 'Queue a vulnerability hunt: sessions read unread files of the modules and those changed since read (every file with --all) for flaws of any kind',
     columns: ['id', 'status', 'title'],
     run: async (a, c) => {
       const ids = await moduleIds(c, a.pos);
-      await c.confirm(await c.call('estimateHunt', c.pid(), ids));
-      return c.call('runHunt', c.pid(), ids);
+      await c.confirm(await c.call('estimateHunt', c.pid(), ids, a.has('all')));
+      return c.call('runHunt', c.pid(), ids, a.has('all'));
     },
   },
   enqueueModuleMarkup: { name: 'module parse', usage: '[--hint <text>]', help: 'Queue AI markup of modules', run: (a, c) => c.call('enqueueModuleMarkup', c.pid(), a.one('hint') ?? '') },

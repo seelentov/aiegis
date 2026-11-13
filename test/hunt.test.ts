@@ -74,7 +74,19 @@ describe('vulnerability hunt', () => {
     expect(core.store(pid).getRun(runs[0])!.status).toBe('succeeded');
     const coverage = await core.huntCoverage(pid, mod.id);
     expect(coverage.map((c) => c.file).sort()).toEqual(['svc/a.js', 'svc/b.js', 'svc/c.js']);
-    expect(coverage.every((c) => c.reviewedAt && runs.includes(c.runId!))).toBe(true);
+    expect(coverage.every((c) => c.reviewedAt && runs.includes(c.runId!) && !c.changed)).toBe(true);
+
+    // A second hunt reads only what changed since; `all` reads everything again.
+    await expect(core.runHunt(pid, [mod.id])).rejects.toThrow('every module file is read and unchanged since');
+    write(path.join(repo, 'svc/b.js'), 'changed\n');
+    git('commit', '-qam', 'change b');
+    expect((await core.huntCoverage(pid, mod.id)).map((c) => [c.file, c.changed])).toEqual([['svc/b.js', true], ['svc/a.js', false], ['svc/c.js', false]]);
+    expect((await core.estimateHunt(pid, [mod.id])).cells).toBe(1);
+    expect((await core.estimateHunt(pid, [mod.id], true)).cells).toBe(3);
+    const [again] = await core.runHunt(pid, [mod.id]);
+    expect(again.payload.files).toEqual(['svc/b.js']);
+    expect((await settled(again)).status).toBe('done');
+    expect((await core.huntCoverage(pid, mod.id)).some((c) => c.changed)).toBe(false);
     // Batches of one module never overlap, so each sees the findings of the one before.
     const [r1, r2] = runs.map((id) => core.store(pid).getRun(id)!);
     expect(r2.startedAt >= r1.finishedAt!).toBe(true);

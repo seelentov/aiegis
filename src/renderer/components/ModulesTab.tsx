@@ -7,7 +7,7 @@ import type { Selection } from './DetailsPanel';
 import { EmptyRow, useGrid } from './Grid';
 import { EstimatePanel } from './MatrixTab';
 import { tr } from '../i18n';
-import { Button, IconButton, Input, Table, Textarea } from '../ui';
+import { Button, Checkbox, IconButton, Input, Table, Textarea } from '../ui';
 
 interface FormProps {
   project: ProjectInfo;
@@ -82,7 +82,7 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
   const [markupJob, setMarkupJob] = useState<Job | null>(null);
   const [hint, setHint] = useState('');
   const [creating, setCreating] = useState(false);
-  const [hunt, setHunt] = useState<{ ids: string[]; estimate: MatrixEstimate } | null>(null);
+  const [hunt, setHunt] = useState<{ ids: string[]; all: boolean; estimate: MatrixEstimate } | null>(null);
 
   useEffect(() => {
     void run(api.listModules(project.id)).then((ms) => ms && setModules(ms));
@@ -105,16 +105,16 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
     { key: 'actions', title: '', className: 'actions' },
   ], { revealKey: (m) => `module:${m.id}` });
 
-  const estimateHunt = async (ids: string[]) => {
-    const estimate = await run(api.estimateHunt(project.id, ids));
-    if (estimate) setHunt({ ids, estimate });
+  const estimateHunt = async (ids: string[], all = false) => {
+    const estimate = await run(api.estimateHunt(project.id, ids, all));
+    if (estimate) setHunt({ ids, all, estimate });
   };
   const startHunt = async () => {
-    if (hunt && (await run(api.runHunt(project.id, hunt.ids)))) setHunt(null);
+    if (hunt && (await run(api.runHunt(project.id, hunt.ids, hunt.all)))) setHunt(null);
   };
   const buildMaps = async () => {
     for (const m of hunt?.estimate.modulesWithoutMap ?? []) await run(api.enqueueEntryPoints(project.id, m.id));
-    if (hunt) await estimateHunt(hunt.ids);
+    if (hunt) await estimateHunt(hunt.ids, hunt.all);
   };
 
   const markup = async () => {
@@ -153,6 +153,12 @@ export function ModulesTab({ project, revision, run, selection, onSelect, onOpen
         )}
       </div>
 
+      {hunt && (
+        <label className="check">
+          <Checkbox checked={hunt.all} onChange={(e) => void estimateHunt(hunt.ids, e.target.checked)} />
+          {tr('Read every file again, not only unread ones and those changed since read')}
+        </label>
+      )}
       {hunt && (
         <EstimatePanel estimate={hunt.estimate} title={tr('vulnerability hunt')} batchSetting="hunt.batch_files" perFile onBuildMaps={() => void buildMaps()} onRun={() => void startHunt()} onCancel={() => setHunt(null)} />
       )}

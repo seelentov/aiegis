@@ -34,7 +34,7 @@ A schedule has a name, a time, an action and optionally a token limit. It belong
 | Document check | `doc_refresh` | A set or a document against its links |
 | Branch check | `diff_check` | A branch against a set or a document |
 | Fix checks | `fix_verify` | [Fix checks](findings.md#checking-a-fix) of the stale findings; with none, nothing runs and no tokens are spent |
-| Vulnerability hunt | `hunt` | A [hunt](modules.md#vulnerability-hunt) in the chosen modules, or all; modules with a hunt in the queue are skipped |
+| Vulnerability hunt | `hunt` | A [hunt](modules.md#vulnerability-hunt) in the chosen modules, or all: files not read yet and changed since read (every file with **Read every file again**, CLI `--all`); with none, nothing runs |
 
 Part of a matrix takes only its unchecked and stale cells. It does not fall back to all cells, unlike the ▷ buttons. PoC runs, document plans, module markup and environment setup cannot be scheduled.
 

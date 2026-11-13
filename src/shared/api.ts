@@ -105,9 +105,10 @@ export interface AiegisApi {
   enqueueModuleMarkup(projectId: string, hint: string): Job;
   enqueueEntryPoints(projectId: string, moduleId: string): Job;
   enqueueAllEntryPoints(projectId: string): Job[];
-  estimateHunt(projectId: string, moduleIds: string[]): MatrixEstimate;
+  /** `all`: every file again; otherwise only unread files and those changed since read. */
+  estimateHunt(projectId: string, moduleIds: string[], all?: boolean): MatrixEstimate;
   /** Vulnerability hunt: one session per batch of module files at HEAD; findings are not tied to requirements. */
-  runHunt(projectId: string, moduleIds: string[]): Job[];
+  runHunt(projectId: string, moduleIds: string[], all?: boolean): Job[];
   huntCoverage(projectId: string, moduleId: string): HuntFileReview[];
   entryPointMap(projectId: string, moduleId: string, snapshotId?: string): EntryPointMap;
 

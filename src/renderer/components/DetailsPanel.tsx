@@ -125,13 +125,20 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
       </Section>
       {mod && (
         <Section title={tr('Vulnerability hunt')}>
-          <div className="muted small">{tr('Read: {n} of {total} files; unread first', { n: coverage.filter((c) => c.reviewedAt).length, total: coverage.length })}</div>
+          <div className="muted small">
+            {tr('Read: {n} of {total} files, changed since read: {changed}; unread first, then changed', {
+              n: coverage.filter((c) => c.reviewedAt).length,
+              total: coverage.length,
+              changed: coverage.filter((c) => c.changed).length,
+            })}
+          </div>
           <Paged key={id} items={coverage}>{(c) => (
             <div key={c.file} className="result">
               <div className="mono small">{c.file}</div>
               <div className="muted small">
                 {c.reviewedAt ? (
                   <>
+                    {c.changed && <span className="warn">{tr('changed since read')} · </span>}
                     {time(c.reviewedAt)} · {c.commitSha!.slice(0, 8)} · <a onClick={() => onSelect({ kind: 'run', id: c.runId! })}>{tr('run')}</a>
                     {c.note && <> · {c.note}</>}
                   </>

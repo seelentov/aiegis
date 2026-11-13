@@ -28,8 +28,8 @@ export function coreApi(core: Core): CoreApi {
     enqueueModuleMarkup: (pid, hint) => core.enqueueModuleMarkup(pid, hint),
     enqueueEntryPoints: (pid, id) => core.enqueueEntryPoints(pid, id),
     enqueueAllEntryPoints: (pid) => core.enqueueAllEntryPoints(pid),
-    estimateHunt: (pid, ids) => core.estimateHunt(pid, ids),
-    runHunt: (pid, ids) => core.runHunt(pid, ids),
+    estimateHunt: (pid, ids, all) => core.estimateHunt(pid, ids, all),
+    runHunt: (pid, ids, all) => core.runHunt(pid, ids, all),
     huntCoverage: (pid, id) => core.huntCoverage(pid, id),
     entryPointMap: (pid, id, snap) => core.entryPointMap(pid, id, snap),
 
