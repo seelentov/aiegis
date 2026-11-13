@@ -59,6 +59,24 @@ describe('StreamTracker', () => {
     const answer = new StreamTracker();
     answer.feed({ type: 'result', subtype: 'success', is_error: false, result: 'The page changed its Usage Policy section.' });
     expect(answer.summary.refused).toBeFalsy();
+    for (const text of [
+      "API Error: Claude Sonnet 5.5's safeguards flagged this message. Learn more",
+      "API Error: Claude can't help with this. Start a new session to continue.",
+      "API Error: Claude Code can't respond to your last message with Claude Haiku 5.5.",
+    ]) {
+      const t = new StreamTracker();
+      t.feed({ type: 'result', subtype: 'success', is_error: true, result: text });
+      expect(t.summary.refused, text).toBe(true);
+    }
+  });
+
+  it('a turn retried on the fallback model counts by the retry', () => {
+    const t = new StreamTracker();
+    t.feed({ type: 'assistant', message: { id: 'm1', stop_reason: 'refusal' } });
+    t.feed({ type: 'system', subtype: 'model_refusal_fallback', trigger: 'refusal', direction: 'retry' });
+    t.feed({ type: 'assistant', message: { id: 'm2', stop_reason: 'end_turn' } });
+    t.feed({ type: 'result', subtype: 'success', is_error: false, result: 'done' });
+    expect(t.summary.refused).toBe(false);
   });
 });
 
