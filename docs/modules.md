@@ -42,8 +42,9 @@ The matrix finds what the requirements name. **Hunt** (toolbar: the modules show
 - Files are the module's files minus `hunt.exclude` (tests, vendored and generated code, docs by default), split into sessions of `hunt.batch_files`. The run goes through an [estimate](queue-and-sessions.md); without an entry point map the estimate warns and offers **Build maps**.
 - A session marks each file it finished (`mark_files_reviewed`). A successful run that left files unread fails, and **Retry** reads only those.
 - Findings (`create_hunt_finding`) need `find_similar` first, belong to the module, have no matrix cells and usually carry a [data flow](findings.md#fields). Their status is set by a person, as for any finding.
-- The module's details show **Vulnerability hunt**: each file the hunt reads, when it was last read, at which commit and with the session's note, unread files first.
-- Sessions of one module run one at a time, so each sees the findings of the previous one; different modules run in parallel. A module with a hunt in the queue is skipped. A new hunt reads all files again.
+- A hunt reads the files not read yet and those changed since they were read (a file counts as changed when it differs between the commit it was read at and HEAD). Tick **Read every file again** above the estimate, or pass `--all`, to read all of them.
+- The module's details show **Vulnerability hunt**: each file the hunt reads, when it was last read, at which commit, with the session's note and a **changed since read** mark; unread files first, then changed ones.
+- Sessions of one module run one at a time, so each sees the findings of the previous one; different modules run in parallel. A module with a hunt in the queue is skipped.
 
 ## Command line
 
@@ -53,7 +54,8 @@ aiegis module preview 'api/**' '!api/test/**'
 aiegis module save api --glob 'api/**' --glob 'lib/**' --description 'Public API'
 aiegis module parse --hint 'Two modules: api and admin'
 aiegis module history <module>
-aiegis module hunt api            # estimate, confirm, queue
+aiegis module hunt api            # estimate, confirm, queue: unread and changed files
+aiegis module hunt api --all      # every file again
 aiegis module remove <module> 'Merged into api'
 ```
 

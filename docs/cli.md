@@ -84,9 +84,9 @@ Modules. See [Modules](modules.md).
 | `module save <name> --glob <glob>... [--description <text>] [--id <module>]` | Create or change a module |
 | `module remove <module> <reason>` | Remove a module |
 | `module parse [--hint <text>]` | Queue AI markup of modules |
-| `module hunt-estimate <module...>` | Estimate a vulnerability hunt in modules |
-| `module hunt-coverage <module>` | Show which files of a module the hunt has read, unread first |
-| `module hunt <module...>` | Queue a vulnerability hunt after the estimate: sessions read every file of the modules for flaws of any kind |
+| `module hunt-estimate <module...> [--all]` | Estimate a vulnerability hunt in modules: unread files and those changed since read, or all with `--all` |
+| `module hunt-coverage <module>` | Show which files of a module the hunt has read: unread first, then changed since read |
+| `module hunt <module...> [--all]` | Queue a vulnerability hunt after the estimate: sessions read unread and changed files of the modules (every file with `--all`) for flaws of any kind |
 
 ## entry-points
 
@@ -271,8 +271,8 @@ Schedules. See [Schedules](schedules.md).
 | `schedule list` | List schedules |
 | `schedule show <schedule>` | Show a schedule |
 | `schedule history <schedule> [--limit <n>]` | List firings of a schedule, newest first |
-| `schedule add --name <text> --cron <expr> --action <task\|matrix\|scanners\|sca_inventory\|sca\|entry_points\|doc_refresh\|diff_check\|fix_verify\|hunt> [--max-tokens <n\|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]` | Create a schedule; it runs while the app or the service is running, in the time zone of the OS |
-| `schedule edit <schedule> [--name <text>] [--cron <expr>] [--action <task\|matrix\|scanners\|sca_inventory\|sca\|entry_points\|doc_refresh\|diff_check\|fix_verify\|hunt>] [--max-tokens <n\|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]` | Change a schedule; --action replaces the whole action |
+| `schedule add --name <text> --cron <expr> --action <task\|matrix\|scanners\|sca_inventory\|sca\|entry_points\|doc_refresh\|diff_check\|fix_verify\|hunt> [--max-tokens <n\|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--all] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]` | Create a schedule; it runs while the app or the service is running, in the time zone of the OS |
+| `schedule edit <schedule> [--name <text>] [--cron <expr>] [--action <task\|matrix\|scanners\|sca_inventory\|sca\|entry_points\|doc_refresh\|diff_check\|fix_verify\|hunt>] [--max-tokens <n\|default>] [--prompt <text>] [--role <role>] [--title <text>] [--matrix <matrix>] [--stage <triage\|verdicts>] [--scope <pending\|stale>] [--module <name>...] [--requirement <key>...] [--section <name>] [--cell <id>...] [--repository] [--all] [--base <branch>] [--head <branch>] [--set <id>] [--document <id>]` | Change a schedule; --action replaces the whole action |
 | `schedule enable <schedule>` | Enable a schedule |
 | `schedule disable <schedule>` | Disable a schedule |
 | `schedule remove <schedule>` | Remove a schedule; its firings stay in the history |

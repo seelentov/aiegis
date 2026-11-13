@@ -2664,8 +2664,11 @@ export class Core extends EventEmitter {
 
   // --- Vulnerability hunt ---
 
-  /** Files of each module a hunt reads, in batches; modules with a queued or running hunt are skipped. */
-  private async huntPlan(projectId: string, moduleIds: string[]): Promise<{ batches: { mod: Module; files: string[]; n: number }[]; busy: number; head: string }> {
+  /**
+   * Files of each module a hunt reads, in batches: unread and changed since read, or all with `all`. Modules with a
+   * queued or running hunt are skipped.
+   */
+  private async huntPlan(projectId: string, moduleIds: string[], all: boolean): Promise<{ batches: { mod: Module; files: string[]; n: number }[]; busy: number; head: string }> {
     const p = this.project(projectId);
     const s = this.store(projectId);
     const settings = this.projectSettings(projectId).hunt;
@@ -2680,7 +2683,7 @@ export class Core extends EventEmitter {
         busy++;
         continue;
       }
-      const files = await this.huntFiles(projectId, mod);
+      const files = all ? await this.huntFiles(projectId, mod) : (await this.huntCoverage(projectId, mod.id)).filter((f) => !f.reviewedAt || f.changed).map((f) => f.file);
       for (let i = 0; i < files.length; i += settings.batch_files) batches.push({ mod, files: files.slice(i, i + settings.batch_files), n: i / settings.batch_files + 1 });
     }
     return { batches, busy, head };
@@ -2690,25 +2693,35 @@ export class Core extends EventEmitter {
     return matchFiles(this.project(projectId).root, [...mod.globs, ...this.projectSettings(projectId).hunt.exclude.map((g) => `!${g}`)]);
   }
 
-  /** Files a hunt of the module reads now, unread first, then the longest unread. */
+  /** Files a hunt of the module reads now, in file order: unread first, then changed since read, then the longest unread. */
   async huntCoverage(projectId: string, moduleId: string): Promise<HuntFileReview[]> {
     const s = this.store(projectId);
+    const root = this.project(projectId).root;
     const mod = s.getModule(moduleId);
     if (!mod) throw new Error(`module ${moduleId} not found`);
     const files = await this.huntFiles(projectId, mod);
     const last = new Map(s.huntReviews(moduleId).map((r) => [r.file, r]));
+    const head = await headSha(root);
+    // A commit the history no longer has (rebase, shallow clone) cannot vouch for anything: its files count as changed.
+    const changedSince = new Map<string, Set<string> | null>();
+    for (const sha of uniq(files.flatMap((f) => last.get(f)?.commitSha ?? []))) {
+      const changed = await changedFiles(root, sha, head);
+      changedSince.set(sha, changed && new Set(changed));
+    }
+    const rank = (f: HuntFileReview) => (!f.reviewedAt ? 0 : f.changed ? 1 : 2);
     return files
       .map((file) => {
         const r = last.get(file);
-        return { file, reviewedAt: r?.createdAt ?? null, note: r?.note ?? null, commitSha: r?.commitSha ?? null, runId: r?.runId ?? null };
+        const since = r && changedSince.get(r.commitSha);
+        return { file, reviewedAt: r?.createdAt ?? null, note: r?.note ?? null, commitSha: r?.commitSha ?? null, runId: r?.runId ?? null, changed: !!r && (since === null || !!since?.has(file)) };
       })
-      .sort((a, b) => (a.reviewedAt ?? '').localeCompare(b.reviewedAt ?? '') || a.file.localeCompare(b.file));
+      .sort((a, b) => rank(a) - rank(b) || (a.reviewedAt ?? '').localeCompare(b.reviewedAt ?? '') || a.file.localeCompare(b.file));
   }
 
-  async estimateHunt(projectId: string, moduleIds: string[]): Promise<MatrixEstimate> {
+  async estimateHunt(projectId: string, moduleIds: string[], all = false): Promise<MatrixEstimate> {
     const s = this.store(projectId);
     const settings = this.projectSettings(projectId);
-    const { batches, busy } = await this.huntPlan(projectId, moduleIds);
+    const { batches, busy } = await this.huntPlan(projectId, moduleIds, all);
     const role = this.taskRole(projectId, 'hunt');
     const runs = s.recentRuns(role, settings.hunt.estimate_history_runs);
     const read = runs.length ? s.huntReviewedFiles(runs.map((r) => r.id)).size : 0;
@@ -2733,9 +2746,9 @@ export class Core extends EventEmitter {
   }
 
   /** Queues one session per batch of module files at HEAD; findings are not tied to requirements. */
-  async runHunt(projectId: string, moduleIds: string[]): Promise<Job[]> {
-    const { batches, busy, head } = await this.huntPlan(projectId, moduleIds);
-    if (!batches.length) throw new NothingToDo(busy ? 'these modules are already queued for a hunt' : 'no module files to hunt in');
+  async runHunt(projectId: string, moduleIds: string[], all = false): Promise<Job[]> {
+    const { batches, busy, head } = await this.huntPlan(projectId, moduleIds, all);
+    if (!batches.length) throw new NothingToDo(busy ? 'these modules are already queued for a hunt' : all ? 'no module files to hunt in' : 'every module file is read and unchanged since');
     return batches.map((b) => {
       const t = this.renderHuntTask(projectId, b.mod, b.files);
       return this.addAgentJob(projectId, { ...t, entity: { type: HUNT_BATCH_ENTITY, id: `${b.mod.id}:${b.n}` }, payload: { module_id: b.mod.id, files: b.files } }, head);
@@ -4523,8 +4536,8 @@ export class Core extends EventEmitter {
       return e.tokens;
     }
     if (a.kind === 'hunt') {
-      const e = await this.estimateHunt(projectId, this.huntTargets(projectId, a.moduleIds));
-      if (!e.cells) throw new NothingToDo(e.busy ? 'these modules are already queued for a hunt' : 'no module files to hunt in');
+      const e = await this.estimateHunt(projectId, this.huntTargets(projectId, a.moduleIds), a.all);
+      if (!e.cells) throw new NothingToDo(e.busy ? 'these modules are already queued for a hunt' : a.all ? 'no module files to hunt in' : 'every module file is read and unchanged since');
       return e.tokens;
     }
     if (a.kind !== 'matrix') return null;
@@ -4578,7 +4591,7 @@ export class Core extends EventEmitter {
       case 'fix_verify':
         return (await this.runFixVerify(projectId, await this.staleFindingIds(projectId))).map((j) => j.id);
       case 'hunt':
-        return (await this.runHunt(projectId, this.huntTargets(projectId, a.moduleIds))).map((j) => j.id);
+        return (await this.runHunt(projectId, this.huntTargets(projectId, a.moduleIds), a.all)).map((j) => j.id);
     }
   }
 

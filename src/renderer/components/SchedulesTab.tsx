@@ -60,6 +60,7 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
   const [mods, setMods] = useState<string[]>(
     a?.kind === 'matrix' ? (a.slice?.modules ?? []) : a?.kind === 'scanners' || a?.kind === 'sca' || a?.kind === 'sca_inventory' || a?.kind === 'hunt' ? (a.moduleIds ?? []) : a?.kind === 'entry_points' && a.moduleId ? [a.moduleId] : [],
   );
+  const [huntAll, setHuntAll] = useState(a?.kind === 'hunt' && !!a.all);
   const [refresh, setRefresh] = useState(a?.kind === 'doc_refresh' ? ('setId' in a.target ? `set:${a.target.setId}` : `doc:${a.target.documentId}`) : '');
   const [sets, setSets] = useState<DocSet[]>([]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -136,7 +137,7 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
       case 'fix_verify':
         return { kind };
       case 'hunt':
-        return { kind, moduleIds };
+        return { kind, moduleIds, all: huntAll || undefined };
       case 'doc_refresh':
         return { kind, target: refresh.startsWith('set:') ? { setId: refresh.slice(4) } : { documentId: refresh.slice(4) } };
     }
@@ -285,6 +286,12 @@ export function ScheduleForm({ project, run, schedule, onDone }: { project: Proj
         </label>
       )}
       {((kind === 'scanners' && target === 'modules') || kind === 'sca' || kind === 'sca_inventory' || kind === 'hunt') && <ModuleChecks modules={modules} chosen={mods} onChange={setMods} />}
+      {kind === 'hunt' && (
+        <label className="check">
+          <Checkbox checked={huntAll} onChange={(e) => setHuntAll(e.target.checked)} />
+          {tr('Read every file again, not only unread ones and those changed since read')}
+        </label>
+      )}
       {kind === 'entry_points' && (
         <label>
           {tr('Module')}

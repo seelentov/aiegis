@@ -118,6 +118,8 @@ export interface HuntFileReview {
   note: string | null;
   commitSha: string | null;
   runId: string | null;
+  /** Read, and changed between the commit it was read at and HEAD. */
+  changed: boolean;
 }
 
 export interface ModuleRevision {
@@ -1127,7 +1129,8 @@ export type ScheduleAction =
   /** Fix checks of the stale findings (SPEC §33). */
   | { kind: 'fix_verify' }
   /** Vulnerability hunt (SPEC §5.3); without modules: all modules. */
-  | { kind: 'hunt'; moduleIds?: string[] };
+  /** `all`: read every file again, not only unread and changed ones. */
+  | { kind: 'hunt'; moduleIds?: string[]; all?: boolean };
 
 export const SCHEDULE_ACTIONS = ['task', 'matrix', 'scanners', 'sca_inventory', 'sca', 'entry_points', 'doc_refresh', 'diff_check', 'fix_verify', 'hunt'] as const satisfies readonly ScheduleAction['kind'][];
 
