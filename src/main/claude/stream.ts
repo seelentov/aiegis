@@ -15,7 +15,8 @@ export interface StreamSummary {
 }
 
 /** Wording of a declined request: Claude Code's API error about the usage policy, the provider's cyber safeguard. */
-export const REFUSAL_TEXT = /API Error:[^\n]*Usage Policy|violative cyber/i;
+// Claude Code error texts of a declined turn, older and newer, and pi's provider error.
+export const REFUSAL_TEXT = /API Error:[^\n]*(Usage Policy|safeguards flagged this message|can't help with this|can't respond to (this|your last) message)|violative cyber/i;
 
 const emptyUsage = (): TokenUsage => ({ input: 0, output: 0, cacheCreation: 0, cacheRead: 0, costUsd: 0 });
 
@@ -27,6 +28,8 @@ export class StreamTracker {
 
   feed(ev: Ev): void {
     if (ev.type === 'assistant' && ev.message?.stop_reason === 'refusal') this.summary.refused = true;
+    // Claude Code retried the declined turn on a fallback model: what counts is how that retry ends.
+    if (ev.type === 'system' && ev.subtype === 'model_refusal_fallback' && ev.direction === 'retry') this.summary.refused = false;
     if (ev.type === 'assistant' && ev.message?.usage) {
       const u = ev.message.usage;
       this.perMessage.set(ev.message.id ?? String(this.perMessage.size), {
