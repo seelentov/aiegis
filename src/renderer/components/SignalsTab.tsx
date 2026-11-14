@@ -81,16 +81,8 @@ function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 
   return (
     <>
     <div className="toolbar">
-      {status.map((s) => (
-        <span key={s.name} className={`status ${s.available ? 'r-succeeded' : s.enabled ? 'r-failed' : ''}`} title={s.error ?? `${s.binary} · ${s.format}`}>
-          {s.name} {s.available ? (s.version ?? '') : s.enabled ? tr('unavailable|scanner') : tr('disabled')}
-        </span>
-      ))}
-      <IconButton icon="recheck" title={tr('Check scanner availability again')} onClick={() => void run(api.scannerStatus(project.id, true)).then((s) => s && setStatus(s))} />
-      <span className="toolbar-group">
-        <IconButton icon="scan" variant="primary" title={tr('Scan the files of all modules')} label={tr('Modules')} onClick={() => void scan([])} />
-        <IconButton icon="scan" title={tr('Scan the whole repository')} label={tr('Repository')} onClick={() => void scan(null)} />
-      </span>
+      <IconButton icon="scan" variant="primary" title={tr('Scan the files of all modules')} label={tr('Scan modules')} onClick={() => void scan([])} />
+      <IconButton icon="scan" title={tr('Scan the whole repository')} label={tr('Scan repository')} onClick={() => void scan(null)} />
       <Button title={tr('Import a SARIF 2.1.0 report of an external tool')} aria-pressed={importing} onClick={() => setImporting(!importing)}>
         {tr('Import SARIF')}
       </Button>
@@ -99,6 +91,14 @@ function ScannerBar({ project, run, notify, revision }: Pick<Props, 'project' | 
           {j.role}: {JOB_STATUS[j.status]}
         </span>
       ))}
+      <span className="toolbar-group end">
+        {status.map((s) => (
+          <span key={s.name} className={`status ${s.available ? 'r-succeeded' : s.enabled ? 'r-failed' : ''}`} title={s.error ?? `${s.binary} · ${s.format}`}>
+            {s.name} {s.available ? (s.version ?? '') : s.enabled ? tr('unavailable|scanner') : tr('disabled')}
+          </span>
+        ))}
+        <IconButton icon="recheck" title={tr('Check scanner availability again')} onClick={() => void run(api.scannerStatus(project.id, true)).then((s) => s && setStatus(s))} />
+      </span>
     </div>
     {importing && <SarifImportForm project={project} run={run} notify={notify} onDone={() => setImporting(false)} />}
     </>

@@ -433,6 +433,8 @@ export const RU: Record<string, string> = {
   'Check scanner availability again': 'Проверить доступность сканеров снова',
   'Scan the files of all modules': 'Сканировать файлы всех модулей',
   'Scan the whole repository': 'Сканировать весь репозиторий',
+  'Scan modules': 'Сканировать модули',
+  'Scan repository': 'Сканировать репозиторий',
   'Repository': 'Репозиторий',
   'Signal': 'Сигнал',
   'Kind': 'Вид',
