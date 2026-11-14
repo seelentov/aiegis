@@ -38,12 +38,13 @@ The app has no chat of its own. It starts your local coding agent, stores the da
 | **Documents to requirements** | Uploads MD, PDF or DOCX, or lets AI write security documents from your code. AI extracts items with quotes, a person reviews them, and new versions show a diff | [Documents](docs/documents.md) |
 | **Document refresher** | Checks document sets against their sources and proposes new editions, new documents, replacements and retirements. A person applies them, and unchanged sources cost no AI | [Document refresher](docs/document-refresher.md) |
 | **Matrix** | An inexpensive `n/a` triage, then `pass`, `finding` or `needs_human` verdicts with reasons and code references. Runs by column, row or section, always after a token estimate | [Matrix](docs/matrix.md) |
-| **Findings** | A `suspected → verified, false_positive, accepted_risk, fixed` lifecycle, mandatory deduplication, merging, independent verification, and fix sessions | [Findings](docs/findings.md) |
+| **Vulnerability hunt** | Reads every file of a module for exploitable flaws of any kind, beyond what the requirements name. Tracks which files were read, and the next hunt reads only unread and changed ones | [Modules](docs/modules.md#vulnerability-hunt) |
+| **Findings** | A `suspected → verified, false_positive, accepted_risk, fixed` lifecycle, mandatory deduplication, merging, the data flow from attacker input to the sink, independent verification, and fix sessions | [Findings](docs/findings.md) |
 | **SAST signals** | Semgrep, Gitleaks and Trivy run once per commit. Results are normalized and given to the agent as hints. Suppressions record a reason, author and expiry | [Signals](docs/signals.md) |
 | **SCA** | An AI dependency inventory backed by tool reports, a prefilter without AI, and reachability per package. A reachable vulnerability becomes a finding | [SCA](docs/sca.md) |
 | **PoC tester** | Starts a test instance from a worktree and checks a finding with requests only to `base_url`, in an OS sandbox. An agent can work out how to start your project | [PoC tester](docs/poc.md) |
 | **Branch checks** | Checks a branch's changes, as a pull request shows them, against a document set before merging. Results stay separate from the audit | [Branch checks](docs/branch-check.md) |
-| **Schedules** | Runs matrices, SCA, scanners, entry point maps, document and branch checks and free-form tasks on cron, with token limits and history | [Schedules](docs/schedules.md) |
+| **Schedules** | Runs matrices, SCA, scanners, entry point maps, vulnerability hunts, document and branch checks and free-form tasks on cron, with token limits and history | [Schedules](docs/schedules.md) |
 | **Freshness** | Each verdict is tied to a commit and its evidence files. Code changes mark it `stale`, so you recheck only that | [Concepts](docs/concepts.md#freshness-stale) |
 | **Service and CLI** | One Linux executable runs without a window, and a CLI offers the same actions as the app | [Service and CLI](docs/service.md) |
 | **Choice of agent** | Claude Code or pi, for the whole app, a project, a role or a module | [Agents](docs/agents.md) |

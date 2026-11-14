@@ -13,7 +13,7 @@ Screenshots show a small demo API (Node.js/Express with deliberate vulnerabiliti
 ## Audit
 
 - [Matrix](matrix.md): requirements × modules, triage, verdicts, estimates
-- [Findings](findings.md): lifecycle, deduplication, merging, independent verification, fix sessions
+- [Findings](findings.md): lifecycle, deduplication, data flow, merging, independent verification, fix sessions
 - [SCA](sca.md): dependency inventory, prefilter, reachability
 - [Signals](signals.md): scanners, signals, suppressions
 - [Entry points](entry-points.md): maps, versions, comparison
@@ -22,7 +22,7 @@ Screenshots show a small demo API (Node.js/Express with deliberate vulnerabiliti
 
 ## Sources
 
-- [Modules](modules.md): globs, AI markup, history
+- [Modules](modules.md): globs, AI markup, history, vulnerability hunt
 - [Documents and requirements](documents.md): upload, extraction, review, versions, documents written by AI
 - [Document refresher](document-refresher.md): sets, checks, proposals, network limits
 
