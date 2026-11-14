@@ -16,7 +16,7 @@ The data directory is:
 | Windows | `%APPDATA%\aiegis\` |
 | Linux | `$XDG_DATA_HOME/aiegis/`, by default `~/.local/share/aiegis/` |
 
-`AIEGIS_HOME` overrides `~/.aiegis`, and `AIEGIS_DATA` overrides the data directory. Together they give you a fully separate instance.
+`AIEGIS_HOME` overrides `~/.aiegis`, `AIEGIS_DATA` overrides the data directory; setting both gives a fully separate instance.
 
 ## The data directory
 
@@ -39,20 +39,17 @@ runtime/<hash>/                files the service unpacks
 
 A project's id is the first 16 hex characters of the SHA-256 of the real path of its root.
 
-Audit data lives in the database, not in settings: modules, documents, verdicts and schedules are not in `config.yaml`. Most of it is append-only, so the database grows with use. Worktrees can be large on big repositories.
+Audit data (modules, documents, verdicts, schedules) lives in the database, not in `config.yaml`. Most tables are append-only, so the database only grows. Worktrees of large repositories take significant disk space.
 
-**To back up** a project, stop the app and copy its `<project-id>` directory, plus `<repo>/.aiegis/`. Removing a project from the list does not delete its data: to free the space, delete the `<project-id>` directory while the app is stopped. You lose that project's audit history.
+Backup: stop the app and copy the `<project-id>` directory and `<repo>/.aiegis/`. Removing a project from the list keeps its data; to free the space, delete `<project-id>` while the app is stopped, which destroys the project's audit history.
 
 ## What goes in the repository
 
-`<repo>/.aiegis/config.yaml`, `<repo>/.aiegis/instructions/**` and `<repo>/.aiegis/poc/` belong in git, so your team reviews them with the code. If you do not want them in the repository, add `.aiegis/` to `.git/info/exclude`.
+`<repo>/.aiegis/config.yaml`, `<repo>/.aiegis/instructions/**` and `<repo>/.aiegis/poc/` are meant to be committed and reviewed with the code. To keep them local, add `.aiegis/` to `.git/info/exclude`.
 
 ## Logs
 
-There are two kinds:
-
-- **App log:** stderr and `<data>/logs/aiegis.log`, rotated by size. Plain text with time, level, category and message.
-- **Run logs:** an agent's output, in `<project-id>/logs/<run-id>.jsonl`. **Open the run log** opens one from a run's details, and `aiegis run show <run>` includes it.
+The app log goes to stderr and `<data>/logs/aiegis.log`, rotated by size, as plain text lines with time, level, category and message. Run logs hold agent output in `<project-id>/logs/<run-id>.jsonl`; **Open the run log** in run details and `aiegis run show <run>` show them.
 
 | Level | What it records |
 |---|---|
@@ -62,9 +59,9 @@ There are two kinds:
 | `debug` | API and MCP calls (name and ids), commands starting agents and scanners, git and worktrees |
 | `trace` | Queue steps and stream event types, without content |
 
-At every level, the log leaves out MCP tokens, `env` values, prompts and agent output.
+No level logs MCP tokens, `env` values, prompts or agent output.
 
-Settings are in [`logging`](configuration.md#logging), in the global config. Edits through the app or CLI apply immediately, and edits by hand apply after a restart. To change a level until the service restarts:
+Settings: [`logging`](configuration.md#logging) in the global config. Changes through the app or CLI apply immediately, manual file edits after restart. Temporary level change until restart:
 
 ```bash
 aiegis log-level debug
@@ -75,16 +72,16 @@ aiegis log-level queue trace
 
 | Problem | What to do |
 |---|---|
-| `claude` or a scanner is not found | Check it runs in a terminal, or use a full path in `claude.binary` or `scanners.<name>.binary`. Then use **Check scanner availability again** |
-| A second instance refuses to start | The app or the service already runs on this data directory. Use a different `AIEGIS_DATA`, or stop the other |
+| `claude` or a scanner isn't found | Check that it runs in a terminal, or set a full path in `claude.binary` or `scanners.<name>.binary`, then **Check scanner availability again** |
+| A second instance refuses to start | The app or the service already uses this data directory. Stop it or set a different `AIEGIS_DATA` |
 | `aiegis` exits with code 2 | The service is not running |
 | A run ends with `token_limit` | Raise `limits.max_tokens_per_run`, or lower `matrix.batch_size` (`matrix.economy_batch_size` for a merged session). **Retry** continues with what is left |
-| A job fails with "the MCP server did not connect" | Claude Code could not reach the app's MCP server at the start of the session (its connect timeout is 30 s), so the session could record nothing. Usually the app was busy; **Retry** runs it again. Applies to Claude Code; pi reports MCP errors as tool errors |
-| A run ends with `refused` | The provider's safety filter declined the task. Filters are probabilistic: **Retry** may pass. If it repeats, check with your provider how to enable security work for your account, or use another model for the role. After `queue.pause_after_refusals` declined runs in a row the queue pauses for `queue.refusal_pause_sec`: **Continue** in **Queue** resumes it |
-| The queue is paused | A provider limit was hit. Wait, or click **Continue** |
-| A cell is `stale` after a commit | Expected: run **Stale**. The code or the requirement changed |
-| A new role setting did not appear after an upgrade | Values of existing roles are not updated. Compare with [`defaults/config.yaml`](../defaults/config.yaml) |
-| A warning says default files changed | You edited a prompt that also changed upstream. Merge it by hand |
-| PoC says the environment did not start | Read the run's output, then run **Environment** to let env-setup fix it |
+| A job fails with "the MCP server did not connect" | Claude Code didn't reach the MCP server within its 30 s connect timeout, so the session couldn't record anything. Usually the app was busy; **Retry**. Claude Code only; pi reports MCP errors as tool errors |
+| A run ends with `refused` | The provider's safety filter declined the task. The filter is probabilistic, so **Retry** may pass. If refusals repeat, ask the provider about enabling security work for the account, or set another model for the role. `queue.pause_after_refusals` refusals in a row pause the queue for `queue.refusal_pause_sec`; **Continue** in **Queue** resumes it |
+| The queue is paused | A provider rate limit was hit. Wait or press **Continue** |
+| A cell is `stale` after a commit | Expected: its code or requirement changed. Run **Stale** |
+| A new role setting is missing after an upgrade | Upgrades don't change existing role values. Compare with [`defaults/config.yaml`](../defaults/config.yaml) |
+| A warning says default files changed | A prompt you edited also changed upstream. Merge by hand |
+| PoC reports the environment didn't start | Read the run output, then run **Environment** so env-setup fixes it |
 | `bwrap` fails on Ubuntu | See [PoC on Linux](poc.md#linux) |
-| A session says it was created by another agent | Set `agent` back to the one that made it |
+| A session reports it was created by another agent | Set `agent` back to the agent that created it |

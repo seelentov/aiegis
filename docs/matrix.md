@@ -1,14 +1,14 @@
 # Matrix
 
-A matrix crosses requirements with modules. Each cell gets its own verdict with a reason and code references.
+A matrix is requirements × modules. Each cell holds a verdict with a reason and code references.
 
 ![The matrix with the details of a cell](screenshots/matrix.png)
 
 ## Creating a matrix
 
-A matrix has a name, documents (their approved versions) and modules. With no modules selected, it means all current modules. Click **+** to create one and the pencil to edit it. Ticking a document set takes all its approved documents.
+A matrix has a name, a list of documents (their approved versions) and a list of modules; an empty module list means all current modules. **+** creates a matrix, the pencil edits it. Ticking a document set adds all its approved documents.
 
-A cell is global: a verdict for a module and a requirement is shared by every matrix that contains that cell.
+Cells are global: the verdict for a module × requirement pair is shared by every matrix that contains it.
 
 ## Cell statuses
 
@@ -20,15 +20,15 @@ A cell is global: a verdict for a module and a requirement is shared by every ma
 | `finding` | The requirement is broken | A reason, code references and a linked finding |
 | `needs human` | The agent could not decide | A reason |
 
-A `pass` must cite the code that meets the requirement. The agent checks every place in the module that does what the requirement is about, and a control it did not find is a violation or `needs human`. A `pass` argued from silent scanners is rejected.
+A `pass` must cite the code that satisfies the requirement. The agent has to check every place in the module the requirement applies to; a missing control means `finding` or `needs human`. A `pass` based on empty scanner output is rejected.
 
-`stale` is a separate flag on top of a status: the code or the requirement changed after the verdict. See [freshness](concepts.md#freshness-stale). `applicable` marks a cell the triage left for the verdict stage; the cell stays `not checked`.
+`stale` is a flag on top of the status: the code or the requirement changed after the verdict, see [freshness](concepts.md#freshness-stale). `applicable` marks a cell that triage passed on to the verdict stage; its status stays `not checked`.
 
-The counters above the grid filter the rows, and the filter of the requirement column also matches the document title. The grid is grouped by document and section, and the header shows which commit the verdicts are displayed for.
+Counters above the grid act as row filters; the requirement column filter also matches document titles. Rows are grouped by document and section. The header shows the commit the verdicts are evaluated against.
 
 ## Running checks
 
-Every run opens an [estimate](#estimates) first.
+Each run starts with an [estimate](#estimates).
 
 | Button | Stage | Cells it takes |
 |---|---|---|
@@ -39,45 +39,50 @@ Every run opens an [estimate](#estimates) first.
 | **n/a triage** in the same actions | Stage 1 | The cells of that slice the whole-matrix triage would take |
 | **Recheck** in the details | Stage 2 | The selected cell |
 
-The actions open with a right-click on a column header, a row, a section or a cell, or with **⋯** beside them. **Set a verdict…** there gives every cell of the slice one manual verdict with one rationale and evidence: all cells change or none does.
+These actions are in the context menu of a column header, row, section or cell, and under **⋯** next to them. **Set a verdict…** in the same menu writes one manual verdict with one rationale and evidence to every cell of the slice, in a single transaction.
 
-Cells already covered by a queued or running job are skipped. A cell with its own `requirements.<key>` configuration level gets a separate session so that the level applies.
+Cells already covered by a queued or running job are skipped. A cell with its own `requirements.<key>` configuration level gets a separate session so that level takes effect.
 
-Runs are atomic per cell: a verdict is written as soon as it is decided. After a crash, a rate limit or a token limit, **Retry** takes only the cells with no result and rebuilds the prompt. If nothing is left, the job finishes without starting the agent. A successful run that leaves cells without a verdict ends with an error, so that **Retry** can pick them up.
+Verdicts are written per cell as soon as the agent decides them. After a crash, rate limit or token limit, **Retry** rebuilds the prompt from the cells still without a result; if none are left, the job finishes without starting the agent. A run that exits normally but leaves cells undecided ends with an error so **Retry** picks them up.
 
-With `signals.auto_scan` on, missing scans of the batch's modules are queued first, and verdict sessions wait for them without blocking other jobs. Agents get signals as hints only. See [Signals](signals.md).
+With `signals.auto_scan` on, missing scans for the batch's modules are queued first; verdict sessions wait for them without blocking other jobs. Agents receive signals as hints only, see [Signals](signals.md).
 
 ### Estimates
 
 ![The estimate before a verdict run](screenshots/matrix-estimate.png)
 
-The estimate shows sessions, cells and tokens (cells × tokens per cell). The per-cell figure is the average billable tokens over the last `matrix.estimate_history_runs` successful runs of the role, or `matrix.estimate_tokens_per_cell` when there is no history. A warning appears when a session may exceed `limits.max_tokens_per_run`; lower `matrix.batch_size` or raise that limit. Another one names the modules with no complete entry point map, an interrupted map included: their sessions search the code without it. **Build maps** queues those maps; on the command line the same list is `modulesWithoutMap` of the estimate, and `entry-points build <module>` builds a map.
+The estimate shows sessions, cells and tokens (cells × tokens per cell). Tokens per cell is the average billable tokens over the role's last `matrix.estimate_history_runs` successful runs, or `matrix.estimate_tokens_per_cell` without history.
 
-The token limit counts input, cache creation and output tokens, not cache reads. A run over the limit is stopped with the status `token_limit`.
+Warnings:
+
+- a session may exceed `limits.max_tokens_per_run`: lower `matrix.batch_size` or raise the limit;
+- modules without a complete entry point map (interrupted maps count as incomplete): their sessions search the code without a map. **Build maps** queues the missing maps. In the CLI the list is `modulesWithoutMap` in the estimate output, and `entry-points build <module>` builds a map.
+
+The token limit counts input, cache creation and output tokens, not cache reads. A run that exceeds it stops with the status `token_limit`.
 
 ### Merged sessions for large runs
 
-A verdict run estimated above `matrix.economy_above_tokens` (one million tokens) goes as a few merged sessions (task `matrix_economy`, role `matrix-economy`): the agent reads the code once and decides requirements in groups. A module's cells stay together, up to `matrix.economy_batch_size` per session, and modules with few cells share one. Cells with their own cascade level keep usual sessions.
+A verdict run estimated above `matrix.economy_above_tokens` (default 1,000,000) runs as a few merged sessions (task `matrix_economy`, role `matrix-economy`): the agent reads the code once and decides requirements in groups. Cells of one module stay in one session, up to `matrix.economy_batch_size`; modules with few cells share a session. Cells with their own cascade level get regular sessions.
 
-This is several times cheaper, but merged sessions miss more, including wrong `pass` verdicts. Their verdicts are preliminary: a star in the cell, a label in the details and a filter above the grid. **Preliminary** checks them again in usual sessions; any later verdict removes the mark.
+Merged sessions cost several times less and miss more, including false `pass` verdicts. Their verdicts are marked preliminary: a star in the cell, a label in the details, a filter above the grid. **Preliminary** rechecks them in regular sessions; any later verdict clears the mark.
 
-The estimate panel shows both totals and switches the mode, `--force` keeps usual sessions on the command line. A retry keeps the mode of the job. Schedules follow the threshold. Set the threshold to `0` to turn merged sessions off.
+The estimate panel shows both totals and a mode switch; in the CLI, `--force` keeps regular sessions. A retry keeps the job's mode. Schedules follow the threshold. `0` disables merged sessions.
 
 ## Cell details
 
-- The requirement, its citation and the quote.
-- The status, rationale and evidence, with links to the code.
-- Who decided it, when and on which commit, and a link to the run.
-- **Recheck**, the verdict session, **Verdict** (set manually), **Finding** (create manually), and **Link the finding to the cell**.
+- Requirement, citation, quote.
+- Status, rationale, evidence with links to the code.
+- Author, time, commit, link to the run.
+- Buttons: **Recheck**, the verdict session, **Verdict** (manual), **Finding** (manual), **Link the finding to the cell**.
 - **Findings** linked to the cell.
-- **History**: verdicts, triage and finding events. Tick two verdicts to **compare** them: status, author, commit, model and effort, rationale and evidence.
+- **History** of verdicts, triage and finding events. Ticking two verdicts opens a comparison of status, author, commit, model, effort, rationale and evidence.
 - **Effective configuration of the check**.
 
-A manual verdict is recorded with the author `human` on the `HEAD` of your working copy, and its evidence is checked there. Evidence is one reference per line: `path[:line] [note]`, from the repository root.
+A manual verdict gets the author `human` and the `HEAD` of the working copy; its evidence is validated against that commit. Evidence format: one reference per line, `path[:line] [note]`, relative to the repository root.
 
 ## Rechecking after a fix
 
-After an interactive session makes a commit in your working directory, the app notices the change in `HEAD` and offers to recheck the finding's cells (for a fix session) and the cells whose verdicts depend on the changed files. The offer stays until you act on it, and leads to an estimate and a confirmation. A cell in several matrices uses the level of the matrix it was opened from, or the first by name.
+When an interactive session commits in the working directory, the app detects the new `HEAD` and offers to recheck the cells whose verdicts depend on the changed files, plus the finding's cells after a fix session. The offer stays until accepted or dismissed and leads to an estimate and confirmation. A cell present in several matrices takes the configuration level of the matrix it was opened from, otherwise of the first matrix by name.
 
 ## Command line
 
@@ -98,4 +103,4 @@ aiegis cell verdict <cell> pass 'Checked by the middleware' --evidence lib/auth.
 aiegis cell bulk-verdict n/a 'No HTTP in this module' <cell>...
 ```
 
-Run commands show the estimate and ask for confirmation; `--yes` skips this. See the [CLI reference](cli.md#matrix).
+Run commands print the estimate and ask for confirmation; `--yes` skips it. Full list in the [CLI reference](cli.md#matrix).

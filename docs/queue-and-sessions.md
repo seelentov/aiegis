@@ -1,12 +1,12 @@
 # Queue and sessions
 
-All background work goes through one queue, shared by all projects.
+All background work goes through one queue shared by all projects.
 
-![The Queue tab with the output of a run](screenshots/queue.png)
+![The Queue tab with the details of a run](screenshots/queue.png)
 
 ## Jobs and runs
 
-A **job** is a queue entry. A **run** is one execution of a job or one opening of an interactive session, and a job that is retried has several runs.
+A job is a queue entry. A run is one execution of a job or one opening of an interactive session; a retried job has several runs.
 
 | Job status | Meaning |
 |---|---|
@@ -24,64 +24,74 @@ A **job** is a queue entry. A **run** is one execution of a job or one opening o
 | `exited` | An interactive session ended |
 | `interrupted` | The app stopped during the run |
 
-Runs are permanent: database triggers forbid changing a finished run or deleting one. After a crash, `running` jobs return to `queued` and unfinished runs become `interrupted`.
+Database triggers forbid updating a finished run or deleting any run. After a crash, `running` jobs return to `queued` and unfinished runs become `interrupted`.
 
-The **Sessions and runs** table lists runs. A run's details show the job, role, status, commit, directory, session, tokens, cost, the prompt, the results, the error, the log and the effective configuration.
+The **Sessions and runs** table lists runs. Run details: job, role, status, commit, directory, session, tokens, cost, prompt, results, error, log, effective configuration.
 
 ## Limits
 
-- `queue.parallelism` sets how many jobs run at once. The default is 2, and it is read only from the global configuration.
-- `limits.max_tokens_per_run` stops a run over the limit, counting input, cache creation and output tokens but not cache reads. Reading documents, extraction and document checks use `limits.max_tokens_per_document_run`.
+| Setting | Effect |
+|---|---|
+| `queue.parallelism` | Concurrent jobs, default 2. Read only from the global configuration |
+| `limits.max_tokens_per_run` | Stops a run above the limit. Counts input, cache creation and output tokens, not cache reads |
+| `limits.max_tokens_per_document_run` | The same limit for document reading, extraction and document checks |
 
 ## Rate limits
 
-When a provider limit is hit, the job returns to the queue and the queue pauses until the reset time, or for `queue.rate_limit_fallback_pause_sec` when the time is unknown. **Continue** resumes it early. pi does not report a reset time, so it always uses the fallback.
+On a provider rate limit the job returns to the queue and the queue pauses until the reset time, or for `queue.rate_limit_fallback_pause_sec` if the reset time is unknown. **Continue** resumes earlier. pi doesn't report a reset time and always gets the fallback pause.
 
 ## Background tasks
 
-**Background task** queues any prompt with a role (default `sessions.default_task_role`) and an optional title. It runs as a job like any other.
+**Background task** queues an arbitrary prompt with a role (default `sessions.default_task_role`) and an optional title, as an ordinary job.
 
 ## Sessions tab
 
 ![The Sessions tab with a live session](screenshots/sessions.png)
 
-The **Sessions** tab holds free agent sessions of the project. The list on the left shows each session by its start time, as active or closed, with the first characters of its id; `⌘B` hides it. The selected session's terminal fills the main area, under a line with its role, session id, start time and working directory.
+The **Sessions** tab holds the project's free agent sessions. The list on the left shows start time, active/closed state and an id prefix for each; `⌘B` hides it. The selected session's terminal fills the main area under a line with role, session id, start time and working directory.
 
-- **New session** (`+` above the list) opens a free interactive session of `sessions.free_role` in your working directory, with the aiegis MCP server and `manage` access. It can read all project data and start checks, and it can edit your code.
-- **Stop the session** ends a live one, after a confirmation.
-- **Continue** resumes a closed one in the same terminal; **Open in an external terminal** resumes it outside the app.
+| Control | Action |
+|---|---|
+| **New session** (`+` above the list) | Interactive session of `sessions.free_role` in the working directory, with the aiegis MCP server and `manage` access: reads all project data, starts checks, edits code |
+| **Stop the session** | Ends a live session after confirmation |
+| **Continue** | Resumes a closed session in the same terminal |
+| **Open in an external terminal** | Resumes it outside the app |
 
-Right-click a session for **Continue** or **Stop the session**, **Open in an external terminal**, **Rename** (the name replaces the start time in the list and is kept on this machine), **Copy the session id** and **Copy the working directory**.
+The context menu of a session also has **Rename** (the name replaces the start time and is stored per machine), **Copy the session id** and **Copy the working directory**.
 
-Runs of jobs and of findings, cells and other items are not listed here; open them from **Queue** or the details panel.
+Job runs and runs tied to findings, cells and other items aren't listed here; they open from **Queue** or the details panel.
 
 ## Sessions
 
-- **New session** on the [Sessions tab](#sessions-tab) opens a free session, as described above.
-- **Open session** continues any run's session in its working directory (`claude --resume` or `pi --session-id`), with the same scope. The worktree is recreated from its commit if needed. Each opening is a separate interactive run linked to its parent.
-- **Open in an external terminal** uses `terminal.external_app` on macOS. Its process is not tracked, so the run is recorded as finished at once, and its token lives until the app exits. It cannot write an entry point map.
-- A session continues only with the agent that created it.
+**Open session** continues any run's session in its working directory (`claude --resume` or `pi --session-id`) with the same scope, recreating the worktree from its commit if needed. Each opening is a separate interactive run linked to its parent.
 
-While a background process is alive, its output is shown read-only. **Take over into an interactive session** stops it and opens it interactively.
+**Open in an external terminal** uses `terminal.external_app` on macOS. The app doesn't track that process: the run is recorded as finished immediately, its MCP token stays valid until the app exits, and it can't write an entry point map.
 
-If a session in your working directory makes a commit, the app [offers to recheck](matrix.md#rechecking-after-a-fix) what it affected.
+A session can only be continued by the agent that created it.
+
+A live background process shows read-only output. **Take over into an interactive session** stops it and reopens the session interactively.
+
+A commit made by a session in the working directory triggers a [recheck offer](matrix.md#rechecking-after-a-fix).
 
 Interactive sessions exist only in the desktop app, not in the [service](service.md).
 
 ## Terminal panel
 
-![The terminal panel showing a run's output](screenshots/terminal.png)
+![The terminal panel with a background run's session reopened](screenshots/terminal.png)
 
-Tabs hold read-only streams (**Watch output**) and interactive sessions. The session selected on **Sessions** is shown there, not in the panel. Closing a tab of a live session ends its process, after a confirmation. Ended streams stay available up to `terminal.keep_ended_streams`, after which the oldest leave memory; their logs stay on disk.
+Tabs hold read-only streams (**Watch output**) and interactive sessions. The session selected on **Sessions** renders on that tab, not in the panel. Closing the tab of a live session ends its process after confirmation. The panel keeps up to `terminal.keep_ended_streams` ended streams in memory and drops the oldest; their logs stay on disk.
 
-`⌘J` shows or hides the panel, and double-clicking the tab bar maximizes it.
+`⌘J` toggles the panel; a double-click on the tab bar maximizes it.
 
-- **Right-click a tab**: Close, Close others, Close to the left, Close to the right, Close finished (tabs whose process ended), Close all; Rename; Show the run (its details in **Queue**); Open in an external terminal (an ended interactive session); Copy the run id. Closing several tabs asks once, naming the live processes it would end.
-- **Middle-click a tab** closes it. Drag tabs to reorder them. Double-click a tab's title to rename it; names and order last until the app restarts.
-- **Right-click the empty tab bar**: New session, Close finished, Close all, maximize or restore, show or hide, move the panel to the right or to the bottom.
-- **Right-click the output**: Copy, Paste (live interactive sessions), Select all, Find, Clear.
-- `⌘F` finds in the output (`Enter` next, `Shift+Enter` previous, `Esc` closes); `⌘K` clears it. Elsewhere than macOS these are `Ctrl+Shift+F` and `Ctrl+Shift+K`, so `Ctrl+F` and `Ctrl+K` still reach the program.
-- Links in the output open in the browser; a `path/to/File.java:42` opens in VS Code, relative to the project root.
+| Target | Action |
+|---|---|
+| Tab, context menu | Close, Close others, Close to the left, Close to the right, Close finished (process ended), Close all; Rename; Show the run (details in **Queue**); Open in an external terminal (ended interactive session); Copy the run id. Closing several tabs asks once and lists the live processes that will end |
+| Tab, middle click | Close |
+| Tab, drag / double-click on title | Reorder / rename. Names and order last until restart |
+| Empty tab bar, context menu | New session, Close finished, Close all, maximize or restore, show or hide, move right or bottom |
+| Output, context menu | Copy, Paste (live interactive sessions), Select all, Find, Clear |
+| `⌘F` / `⌘K` | Find in output (`Enter` next, `Shift+Enter` previous, `Esc` close) / clear output. On Windows and Linux: `Ctrl+Shift+F` / `Ctrl+Shift+K`, so `Ctrl+F` and `Ctrl+K` reach the program |
+| Links in output | URLs open in the browser; `path/to/File.java:42` opens in VS Code relative to the project root |
 
 ## Command line
 

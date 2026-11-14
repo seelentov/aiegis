@@ -1,6 +1,6 @@
 # Document refresher
 
-Standards change. The refresher compares your documents with their sources and creates proposals. A person applies them, through the normal extraction and review.
+The refresher compares documents with their online sources and creates proposals: new editions, new documents, replacements, retirements. A person applies them through the normal extraction and review.
 
 ![A proposed new edition of a document](screenshots/document-proposal.png)
 
@@ -8,10 +8,7 @@ Standards change. The refresher compares your documents with their sources and c
 
 A set has a name, a description of what belongs to it, and links. A document belongs to at most one set.
 
-- You decide the membership. The agent only proposes new documents for the set being checked, judging them by the set's description.
-- **New set** creates one on the **Documents** tab, where documents are grouped by set.
-- Removing a set leaves its documents, outside any set.
-- The plan of [AI-written documents](documents.md#security-documents-written-by-ai) creates a set of its own. It has no links, and those documents are updated with **Rewrite**.
+Membership is set by a person; the agent only proposes new documents for the set it checks, based on the set's description. **New set** on the **Documents** tab creates a set. Removing a set keeps its documents outside any set. A plan of [AI-written documents](documents.md#security-documents-written-by-ai) creates its own set without links; those documents are updated with **Rewrite**.
 
 ## Running a check
 
@@ -20,48 +17,54 @@ A set has a name, a description of what belongs to it, and links. A document bel
 | A whole set | A link on the set | The set's links only. Documents out of force are skipped, and the links of individual documents are not opened |
 | One document | A link on the document (it may be outside any set) | That document only |
 
-Start a check with the button on a set or document, with `aiegis doc check`, or with a [schedule](schedules.md). The estimate shows the documents, links and tokens, with the figure taken from run history or configuration. Starting a check that is already active returns the active job.
+A check starts from the button on a set or document, `aiegis doc check`, or a [schedule](schedules.md). The estimate shows documents, links and tokens (from run history or configuration). Starting a check that is already active returns the active job.
 
-**Compare the sources first.** The app downloads the sources from the last successful check again before any agent starts:
+Before starting an agent, the app re-downloads the sources of the last successful check and compares hashes:
 
-- everything matches, and the membership and links are the same: no AI runs, and the document stays `current`;
-- a site does not respond: the status is `unverifiable` with no AI;
-- **Run with AI anyway** (`--force`) always starts the agent.
+| Result | Outcome |
+|---|---|
+| All match, same membership and links | No agent; status stays `current` |
+| A site doesn't respond | `unverifiable`, no agent |
+| **Run with AI anyway** (`--force`) | Agent always starts |
 
-Hashes of HTML pages are taken from the text without menus, scripts and headers. Lines matching `doc_refresh.volatile_lines`, such as view counters, are left out too. A source whose content shifts in other ways, such as a rotating block of links, keeps waking the agent, so prefer an official source for it.
+HTML hashes are computed over the text without menus, scripts and headers, and without lines matching `doc_refresh.volatile_lines` (view counters and the like). A page whose content changes in other ways, such as a rotating link block, starts the agent on every check; use an official source for such documents.
 
 ## How a set is checked
 
 A set check has up to three parts:
 
-1. **Overview** (`doc_refresh`): the agent downloads the set's links, finds each document's page, and hands over pages and catalogues using `request_document_review` and `request_catalogue_review`.
-2. **Document comparison** (`doc_review`): reads both texts and decides. It has its own baseline and runs only if that document's page changed. If a comparison fails, the set's baseline is dropped so that the next check returns to it.
-3. **Catalogue pass** (`doc_catalogue`): the app takes every link from a listing page on the same host, drops the ones already decided, and splits the rest into batches of `doc_refresh.catalogue_batch`. Each entry gets a stored decision, because an agent asked to walk a long catalogue by itself tends to stop early. An entry with no decision makes the run unsuccessful and comes back in the next check. New entries are read only once.
+| Part | Task | What it does |
+|---|---|---|
+| Overview | `doc_refresh` | Downloads the set's links, finds each document's page, hands pages and catalogues over with `request_document_review` and `request_catalogue_review` |
+| Document comparison | `doc_review` | Reads both texts and decides. Has its own baseline and runs only if that document's page changed. A failed comparison drops the set's baseline so the next check repeats it |
+| Catalogue pass | `doc_catalogue` | The app collects every same-host link from a listing page, drops already decided ones and splits the rest into batches of `doc_refresh.catalogue_batch`. Every entry needs a stored decision: an agent left to walk a long catalogue alone stops early. An undecided entry fails the run and returns in the next check. New entries are read once |
 
-**Catalogue entries checked** shows the decisions on the **Documents** tab, and `aiegis doc catalogue <set>` prints them.
+**Catalogue entries checked** on **Documents** and `aiegis doc catalogue <set>` show the decisions.
 
 ## Network limits
 
-The agent has no `WebFetch`, `WebSearch`, shell or write access, and reads only its own directory. Pages are downloaded by the app, through the MCP tool `fetch_url`:
+The agent has no `WebFetch`, `WebSearch`, shell or write access and reads only its own directory. The app downloads pages for it through the MCP tool `fetch_url`:
 
-- **Protocols:** `http` and `https` only.
-- **Allowed hosts:** in a set check, the hosts of the set's links. For a document outside any set, the host of its link. For a document in a set, its link and the links of the set (to look for a replacement). The whole host is allowed, not just the path.
-- **Private addresses:** blocked by checking at DNS resolution. `doc_refresh.allow_private_addresses` allows them, for an internal wiki.
-- **Limits:** `max_bytes`, `timeout_sec`, `max_redirects`. All requests go to the log.
-- **Redirects:** intermediate hosts may be any public host, such as a sign-on service, and the agent does not see their content. The final host must be allowed. Cookies live in memory for one request.
-- **Certificates:** you can set `insecure` on a link for a site whose certificate cannot be verified. It applies to that host in the run, except for other hosts in a redirect chain. A document inherits the flag from a set link to the same host.
+| Rule | Value |
+|---|---|
+| Protocols | `http`, `https` |
+| Allowed hosts | Set check: hosts of the set's links. Document outside a set: its link's host. Document in a set: its link and the set's links (to find a replacement). The whole host is allowed, not only the path |
+| Private addresses | Blocked at DNS resolution; `doc_refresh.allow_private_addresses` allows them (internal wiki) |
+| Limits | `max_bytes`, `timeout_sec`, `max_redirects`; every request is logged |
+| Redirects | Intermediate hosts may be any public host (an SSO service, for example); the agent doesn't see their content. The final host must be allowed. Cookies live in memory for one request |
+| Certificates | `insecure` on a link disables verification for that host in the run, not for other hosts in a redirect chain. A document inherits the flag from a set link to the same host |
 
-Anything received over plain HTTP or without a certificate check is marked as an **unverified channel**, because anyone on the path could have changed it. Compare it with the source before applying it.
+Content received over plain HTTP or without certificate verification is marked **unverified channel**: anyone on the network path could have modified it. Compare it with the source before applying.
 
 ## Pages and text
 
-The app converts HTML to text without AI. The agent names the first and last phrase of the document and the order of its pages. The version is then imported as MD with the pages stored next to it. As a fallback, the agent may submit its own text, labeled as restored by AI, if at least `doc_refresh.restored_min_coverage` of its paragraphs are on the page. The review warns you about this. The `fetch_url` reply shows only the start of a page and the first `max_links` links; the full text and links are in files the agent reads.
+The app converts HTML to text without AI. The agent supplies the document's first and last phrase and the page order; the version is imported as MD with the source pages stored alongside. As a fallback the agent may submit its own text, labeled as restored by AI, if at least `doc_refresh.restored_min_coverage` of its paragraphs occur on the page; the review shows a warning for it. The `fetch_url` reply contains only the start of the page and the first `max_links` links; the full text and links go to files the agent reads.
 
-You cannot upload `.html` by hand.
+Manual upload of `.html` isn't supported.
 
 ## Results and proposals
 
-The agent's `current` and `unverifiable` results are stored directly. A site that refuses, or a document that cannot be found, is `unverifiable`, and the date of the last check is not moved. Changes become proposals:
+`current` and `unverifiable` results are stored directly. A refusing site or a document that can't be found gives `unverifiable`, and the last-check date stays unchanged. Changes become proposals:
 
 | Kind | Meaning | When applied |
 |---|---|---|
@@ -71,20 +74,15 @@ The agent's `current` and `unverifiable` results are stored directly. A site tha
 | `retire` | The document is no longer in force | The document goes out of force |
 | `link` | A link was found for a document | The link is saved |
 
-An `incomplete` result is only a notice: the source shows only part of the document, so no file is stored. Upload the file yourself; applying only marks it as handled.
+An `incomplete` result is a notice only: the source exposes part of the document, so no file is stored. Upload the file by hand; applying the notice just marks it handled.
 
-A proposal is `pending`, `applied`, `rejected` or `outdated`:
+Proposal states: `pending`, `applied`, `rejected`, `outdated`. A repeat check treats a matching pending proposal as a duplicate, and the document stays `changed`. A rejected proposal doesn't return while the source stays the same. A newer change at the source makes the older proposal `outdated`. Files of rejected and outdated proposals are deleted.
 
-- A repeat check finds a pending proposal again as a duplicate, and the document stays `changed`.
-- A rejected proposal does not come back while the source stays the same.
-- Something newer at the source moves the older proposal to `outdated`.
-- Files of rejected and outdated proposals are removed.
+**Apply** and **Reject** are in the proposal's details. Bulk apply of additions works only for the first filling of an empty set.
 
-In the details, **Apply** and **Reject** decide a proposal. Applying all additions at once is available only for the first filling of an empty set.
+## Rejected proposals
 
-## Protection against false changes
-
-A proposal is refused when:
+The MCP server rejects a proposal when:
 
 - its quote is not in the text downloaded in this run (for an update by PDF or DOCX file, the evidence is a different hash and edition instead);
 - an update adds no paragraph and removes at most `same_text_max_removed_lines` lines;
@@ -93,11 +91,11 @@ A proposal is refused when:
 - a cut by start and end phrases keeps less than `crop_min_ratio` of the page, which suggests a wrong end phrase;
 - a `retire` or `replace` has no quote.
 
-A file that matches a document outside any set moves that document into the set; a match with a document in another set is an error.
+A downloaded file that matches a document outside any set moves that document into the set; a match with a document in another set is an error.
 
 ## Settings
 
-See [`doc_refresh`](configuration.md#doc_refresh) for all limits, and `limits.max_tokens_per_document_run` for the token limit of document runs.
+Limits: [`doc_refresh`](configuration.md#doc_refresh). Token limit for document runs: `limits.max_tokens_per_document_run`.
 
 ## Command line
 

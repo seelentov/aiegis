@@ -1,26 +1,28 @@
 # Security
 
-An audit tool reads untrusted code and gives it to an AI agent. This page describes the protections, and what they do not cover.
+aiegis feeds untrusted code, diffs and web pages to an AI agent. This page lists the controls and the gaps they leave.
 
-## What protects you
+## Controls
 
-- **Your working tree stays untouched.** Background runs work on a pinned commit in a separate `git worktree`.
-- **Each session has its own token.** The MCP server listens on `127.0.0.1` with a random port. The token fixes the project, role and writable entities, and writes outside that scope are refused. See [MCP tools](mcp.md#access).
-- **Tool permissions are set by role.** Claude Code gets `--allowedTools` and `--disallowedTools`; for pi, the aiegis extension checks each call. Most background roles only read code. See [Roles](configuration.md#roles).
-- **Background runs are isolated from your setup.** The default `claude.background_args` and `pi.background_args` leave out your hooks, plugins, extensions and skills.
-- **Results are verified.** Evidence must exist, quotes must be found, and vulnerabilities must appear in saved reports. See [Verdicts need evidence](concepts.md#verdicts-need-evidence).
-- **History is append-only.** Database triggers prevent rewriting finished runs, approved versions, verdicts and scans.
+| Control | Mechanism |
+|---|---|
+| Working tree isolation | Background runs use a pinned commit in a separate `git worktree` |
+| Per-session MCP token | The MCP server listens on `127.0.0.1` on a random port. The token binds project, role and writable entities; out-of-scope writes are refused. See [MCP tools](mcp.md#access) |
+| Per-role tool permissions | Claude Code gets `--allowedTools` and `--disallowedTools`; under pi the aiegis extension checks each call. Most background roles are read-only. See [Roles](configuration.md#roles) |
+| Clean agent setup | Default `claude.background_args` and `pi.background_args` exclude your hooks, plugins, extensions and skills from background runs |
+| Result validation | Evidence files must exist, quotes must match, vulnerable packages must appear in saved reports. See [Verdicts need evidence](concepts.md#verdicts-need-evidence) |
+| Append-only history | Database triggers block rewriting finished runs, approved versions, verdicts and scans |
 
 ## Secrets
 
-- Scanner secrets are masked or not stored, and raw reports stay in a `0700` directory until they are normalized. See [Signals](signals.md#what-a-signal-holds).
-- Test account secrets come from the environment or the macOS keychain. They are not written to files or to the run's configuration snapshot, and prompts name only the variables.
-- The log never contains MCP tokens, `env` values, prompts or agent output, and tokens of runs are masked.
-- Agent output stays in the run's log under the data directory. Treat that directory as sensitive: runs of the tester can contain what the instance returned.
+- Scanner secrets are masked or dropped; raw reports live in a `0700` directory until normalization. See [Signals](signals.md#what-a-signal-holds).
+- PoC account secrets come from the environment or the macOS keychain. They aren't written to files or the run's configuration snapshot; prompts contain only variable names.
+- The app log never contains MCP tokens, `env` values, prompts or agent output.
+- Agent output is stored in run logs under the data directory. Treat the directory as sensitive: tester runs can contain instance responses.
 
 ## Untrusted content
 
-Repository code, diffs and web pages can contain text aimed at the agent. Prompts tell agents to treat them as data, and permissions limit what a misled agent can do, but prompts alone are not a security boundary.
+Repository code, diffs and web pages can contain prompt injections. Prompts tell agents to treat such content as data, but a prompt isn't a security boundary; permissions limit what a misled agent can do.
 
 | Role | Reads untrusted input | Main limit |
 |---|---|---|
@@ -32,18 +34,20 @@ Repository code, diffs and web pages can contain text aimed at the agent. Prompt
 
 ## What is not isolated
 
-Know these before you audit a repository you do not trust:
+Review this list before auditing an untrusted repository.
 
-- **`sca-inventory` runs build tools.** Gradle, Maven and others execute the project's build scripts on your machine, with network access and without an OS sandbox. Its permissions limit the commands the agent may start, not what those build scripts do.
-- **`env-setup` has unrestricted `Bash`,** without a sandbox, so it can run builds and remote commands. It does not get account secrets, and sees only `poc.env_passthrough` of your environment.
-- **The test instance** runs the project's code outside the sandbox, with account secrets, when `start` executes.
-- **Most background roles inherit your whole environment** (only the tester, its instance and env-setup are limited to `poc.env_passthrough`). Roles without `Bash` cannot read it, but keep this in mind if you widen a role's permissions.
-- **Interactive sessions** (**New session**, **Fix**) run in your working directory and can change your code, under the agent's normal prompts.
-- **`git diff` can read outside the repository.** Given paths outside the working tree, it compares those files, so roles allowed `Bash(git diff:*)` can read any file your user can. Most roles also have an unrestricted `Read`. `finding-verify` has neither, to keep the transcript of the original session out of reach.
-- **The `manage` token** of the assistant can read all project data and start work.
-- **The tester under Claude Code on macOS** can reach any `localhost` port from scripts, because of `allowLocalBinding`. The internet stays closed, and the MCP server needs a token. See [Isolation](poc.md#isolation).
-- **A project's `.aiegis/config.yaml` is trusted.** It can change prompts, permissions, `env`, scanner binaries and the commands of the PoC environment. Before you add a repository you do not trust, read its `.aiegis/` directory, or delete it in a copy.
-- **The service's socket** has no authentication other than file permissions.
+| Component | Exposure |
+|---|---|
+| `sca-inventory` | Gradle, Maven and other build tools execute the project's build scripts on your machine with network access and no OS sandbox. Role permissions restrict which commands the agent starts, not what the build scripts do |
+| `env-setup` | Unrestricted `Bash` without a sandbox (builds, remote commands). No account secrets; only `poc.env_passthrough` from your environment |
+| PoC test instance | `start` runs the project's code outside the sandbox with account secrets |
+| Environment variables | Most background roles inherit the full environment; only the tester, its instance and env-setup are limited to `poc.env_passthrough`. Roles without `Bash` can't read it; widening a role's permissions changes that |
+| Interactive sessions | **New session** and **Fix** run in the working directory and can modify code |
+| `git diff` | Given paths outside the working tree, it compares those files, so `Bash(git diff:*)` reads any file your user can. Most roles also have unrestricted `Read`. `finding-verify` has neither, which keeps the original session's transcript out of reach |
+| `manage` token | The assistant can read all project data and start work |
+| Tester under Claude Code on macOS | `allowLocalBinding` lets scripts reach any `localhost` port. The internet stays closed; the MCP server requires a token. See [Isolation](poc.md#isolation) |
+| `<repo>/.aiegis/config.yaml` | Trusted as is. It can change prompts, permissions, `env`, scanner binaries and PoC commands. Inspect `.aiegis/` of an untrusted repository before adding it, or delete it in a copy |
+| Service socket | Authentication is file permissions only |
 
 ## Network
 
@@ -57,12 +61,12 @@ Know these before you audit a repository you do not trust:
 
 ## Provider safety filters
 
-Anthropic runs real-time cyber safeguards on its models, and they can block security work. Its [Cyber Verification Program](https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude) reduces blocking. Its help page says generally available models can be used for secure code review, finding vulnerabilities in your own source code and triaging security alerts, while exploit validation may be interrupted.
+Anthropic applies real-time cyber safeguards to its models, and they can block security work. According to its [help page](https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude), generally available models may be used for secure code review, finding vulnerabilities in your own code and triaging alerts, while exploit validation can be interrupted; the Cyber Verification Program described there reduces blocking. That's why `finding-verify` only reads source.
 
-This is why `finding-verify` only reads source code. Test runs on a subscription outside the program were not blocked (Sonnet and Haiku, about 55 sessions on a test repository and on a large real one, 33 of them with Haiku in one series). That is no guarantee: classifiers are probabilistic, larger runs and such a series with Sonnet were not tested, and false blocks are reported.
+aiegis sessions on a regular subscription outside the program haven't been blocked so far, with Sonnet and Haiku. The classifiers are probabilistic, so this isn't a guarantee.
 
-No block has been observed in aiegis, so its exact form is unknown. A run stopped this way ends its job as failed: either with the text of the error, or with "no result was recorded". The run's log shows why. aiegis does not retry such a run and does not switch the model. Whether to join the program is up to the owner of the account.
+A blocked run ends with the status `refused` and fails its job, either with the provider's error text or with "no result was recorded"; the run log shows which. aiegis doesn't retry such runs automatically or switch models. `queue.pause_after_refusals` refusals in a row pause the queue for `queue.refusal_pause_sec`. Joining the program is the account owner's decision.
 
 ## Reporting a vulnerability
 
-Open an [issue](https://github.com/seelentov/aiegis/issues) with no exploit details, and ask for a private channel.
+Use **Report a vulnerability** on the repository's Security tab. If that isn't available, open an [issue](https://github.com/seelentov/aiegis/issues) without exploit details and ask for a private channel.

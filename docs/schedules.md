@@ -4,24 +4,19 @@ Schedules run audit actions on cron.
 
 ![The Schedules tab with the history of a schedule](screenshots/schedules.png)
 
-**Schedules fire only while the desktop app or the service is running.** To run them unattended, use the [service](service.md).
+Schedules fire only while the desktop app or the [service](service.md) is running; for unattended runs use the service.
 
 ## Creating a schedule
 
 ![The form for a new schedule](screenshots/schedule-form.png)
 
-A schedule has a name, a time, an action and optionally a token limit. It belongs to the project.
+A schedule belongs to a project and has a name, a time, an action and an optional token limit.
 
-**Time:** a preset (every hour, every day at 03:00, every Monday at 03:00, first day of the month at 03:00) or a custom expression of five fields, `minute hour day month weekday`:
+### Time
 
-- `*`, lists, ranges and steps are supported, and weekdays are 0–7;
-- when both the day of the month and the weekday are set, a match on either fires;
-- the time zone is that of the OS;
-- the form previews the next firings;
-- an expression firing more often than `schedules.min_interval_minutes` is refused;
-- there is no one-time schedule for a date.
+A preset (hourly; daily at 03:00; Mondays at 03:00; the 1st of the month at 03:00) or a five-field cron expression `minute hour day month weekday`. Supported: `*`, lists, ranges, steps; weekdays 0–7. With both day of month and weekday set, either match fires. Times are in the OS time zone. The form previews the next firings. Expressions that fire more often than `schedules.min_interval_minutes` are rejected. One-time schedules don't exist.
 
-**Actions:**
+### Actions
 
 | Action | CLI value | Runs |
 |---|---|---|
@@ -36,13 +31,13 @@ A schedule has a name, a time, an action and optionally a token limit. It belong
 | Fix checks | `fix_verify` | [Fix checks](findings.md#checking-a-fix) of the stale findings; with none, nothing runs and no tokens are spent |
 | Vulnerability hunt | `hunt` | A [hunt](modules.md#vulnerability-hunt) in the chosen modules, or all: files not read yet and changed since read (every file with **Read every file again**, CLI `--all`); with none, nothing runs |
 
-Part of a matrix takes only its unchecked and stale cells. It does not fall back to all cells, unlike the ▷ buttons. PoC runs, document plans, module markup and environment setup cannot be scheduled.
+A matrix part takes only its unchecked and stale cells and, unlike the ▷ buttons, never falls back to all cells. PoC runs, document plans, module markup and environment setup can't be scheduled.
 
-The table lists each schedule's name, cron expression, action, next time and last firing. A row has a checkbox to enable or disable it and a button to fire it now. Select a row for its parameters and history, with **Run**, edit and remove.
+Table columns: name, cron expression, action, next time, last firing. Each row has an enable checkbox and a fire-now button. The details show parameters and history, with **Run**, edit and remove.
 
 ## How a firing is decided
 
-A scheduler in the app's core looks for due firings every 15 seconds, so it survives sleep and clock changes. Each attempt gets a history record:
+The core scheduler polls for due firings every 15 seconds, which keeps it correct across sleep and clock changes. Every attempt is recorded:
 
 | Outcome | When |
 |---|---|
@@ -53,18 +48,20 @@ A scheduler in the app's core looks for due firings every 15 seconds, so it surv
 | `nothing_to_do` | There is no work (no notification): for example, sources did not change, or the same branch state was checked |
 | `failed` | An error (with a warning). No automatic retry, and the schedule stays enabled |
 
-- **Catching up:** a firing missed by no more than the window runs once, however many were missed. Lateness counts from the newest missed time, so a nightly run still happens after a weekend with the computer off.
-- **Disabling:** enabling a schedule or changing its expression recalculates the next time, so a disabled period does not count as missed. The first firing is counted from creation.
-- **Token limit:** the schedule's own limit, or else `schedules.max_tokens_per_firing`. It applies to matrix, SCA, document check, branch check, fix check and hunt firings. Other actions cannot set one, and only `limits.max_tokens_per_run` constrains them.
-- **Fire now:** the same checks as a planned firing, marked `manual`. The planned time does not move.
-- **Removing:** the schedule is marked as removed and its firings stay in the history. There is no restore.
+| Rule | Behavior |
+|---|---|
+| Catch-up | Missed firings within the window run once in total. Lateness counts from the newest missed time, so a nightly run still happens after a weekend with the machine off |
+| Enable / edit | Enabling or changing the expression recomputes the next time; a disabled period isn't counted as missed. The first firing counts from creation |
+| Token limit | The schedule's own limit, else `schedules.max_tokens_per_firing`. Applies to matrix, SCA, document check, branch check, fix check and hunt firings. Other actions have only `limits.max_tokens_per_run` |
+| Fire now | Same checks as a planned firing, marked `manual`; the planned time doesn't move |
+| Remove | Soft delete; firings stay in history. No restore |
 
 ## Known behavior
 
-- Closing the desktop app cancels the jobs of a running firing, and they are not repeated, because the firing already happened. In the service, jobs return to the queue.
-- On the day clocks go forward, an expression that falls on the missing hour does not fire. When clocks go back, the repeated hour fires once.
-- Schedules are available from the app and the command line, but not to agents over MCP.
-- A task's prompt is not written to the logs.
+- Closing the desktop app cancels the jobs of a running firing; the firing counts as done and doesn't repeat. The service returns such jobs to the queue.
+- On a spring-forward DST day an expression in the skipped hour doesn't fire; in a repeated autumn hour it fires once.
+- Schedules are managed from the app and the CLI; agents have no MCP access to them.
+- Task prompts aren't written to logs.
 
 ## Command line
 

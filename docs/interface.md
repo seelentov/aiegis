@@ -2,14 +2,16 @@
 
 ![The main window with the matrix tab and the details panel](screenshots/matrix.png)
 
-The layout follows VS Code:
+The layout follows VS Code.
 
-- **Activity bar** (far left): the tabs by group, and the [setup guide](#setup-guide) on top while it is open. A badge on **Queue** shows how many jobs are running.
-- **Header** above the content: the project picker with **Add git repository** and **Remove the project from the list**, then the breadcrumbs: tab › selected item. A progress line runs along its lower edge while jobs are running.
-- **Session list** (left of the content): shown only on the [Sessions](queue-and-sessions.md#sessions-tab) tab, and can be hidden.
-- **Details panel** (right): opens when you select a row. Close it with the cross or `Esc`. Its sections collapse, and the app remembers their state by section name. Selecting another row clears the panel at once, along with any unsaved form in it.
-- **Terminal panel** (bottom): tabs with read-only output streams and interactive sessions. See [Queue and sessions](queue-and-sessions.md#terminal-panel).
-- **Status bar**: the project (opens **Sessions**), jobs in progress or a paused queue (opens **Queue**), the number of sessions (opens the terminal), and the notification bell.
+| Area | Position | Content |
+|---|---|---|
+| Activity bar | Far left | Tabs by group; the [setup guide](#setup-guide) on top while open. The **Queue** badge counts running jobs |
+| Header | Above the content | Project picker with **Add git repository** and **Remove the project from the list**; breadcrumbs (tab › selected item); a progress line on the lower edge while jobs run |
+| Session list | Left of the content | Only on the [Sessions](queue-and-sessions.md#sessions-tab) tab; can be hidden |
+| Details panel | Right | Opens on row selection; closes with the cross or `Esc`. Collapsed sections are remembered by name. Selecting another row replaces the panel and discards unsaved forms in it |
+| Terminal panel | Bottom | Read-only output streams and interactive sessions, see [Queue and sessions](queue-and-sessions.md#terminal-panel) |
+| Status bar | Bottom edge | Project (opens **Sessions**), running jobs or paused queue (opens **Queue**), session count (opens the terminal), notification bell |
 
 ## Tabs and keyboard shortcuts
 
@@ -45,13 +47,15 @@ Double `Shift` does not open search while the terminal has focus; use `⌘P` the
 
 ## Search everywhere
 
-`⌘P` or `Shift` pressed twice opens a search over the whole project: findings, signals of the commit **Signals** opens on, suppressions, SCA vulnerabilities, modules, documents and their proposals, matrices, branch checks, schedules, jobs and free sessions. An item matches when its id, title, details (severity, status, CWE, scanner, rule, package) or `file:line` hold every word you type, in any case. Exact ids come first, then titles that start with the query.
+![Search everywhere with the query "orders": a finding, jobs and a module](screenshots/search.png)
 
-Results are grouped by kind. `↑`/`↓` move, `Enter` goes to the item: the app opens its tab, selects it, shows its details and brings its row into view, switching the page and dropping filters that hide it. `⌘Enter` opens the item's file at its line in VS Code instead. With an empty query, the recently opened items are listed.
+`⌘P` or double `Shift` searches the whole project: findings, signals of the commit **Signals** opens on, suppressions, SCA vulnerabilities, modules, documents and their proposals, matrices, branch checks, schedules, jobs and free sessions. An item matches when every query word occurs, case-insensitively, in its id, title, details (severity, status, CWE, scanner, rule, package) or `file:line`. Exact id matches rank first, then titles starting with the query.
+
+Results are grouped by kind. `↑`/`↓` move the selection. `Enter` opens the item's tab, selects the row, opens its details and scrolls to it, switching the page and clearing filters that hide it. `⌘Enter` opens the item's file at its line in VS Code. An empty query lists recently opened items.
 
 A prefix narrows the search: `f:` findings, `s:` signals and suppressions, `sca:` SCA, `m:` modules, `d:` documents, proposals and matrices, `j:` jobs, sessions, schedules and branch checks. For example, `f: sql orders`.
 
-Rows of the **Queue** tables are not scrolled to: a found job opens in the details panel only.
+**Queue** rows aren't scrolled to; a found job opens only in the details panel.
 
 ## Command palette
 
@@ -59,76 +63,70 @@ Rows of the **Queue** tables are not scrolled to: a found job opens in the detai
 
 ## Context menus
 
-Right-click works as in VS Code:
+Context menus:
 
-- **Text fields and selected text**: Cut, Copy, Paste, Select all.
-- **Table rows**: Open (as a click), open the `file:line` shown in the cell in VS Code, copy the cell value, the row or all visible rows (tab-separated, with the headings), filter the column by the cell value, hide the column.
-- **Table headings**: sort ascending or descending, reset filters and sorting, show or hide each column, show all columns. Hidden columns are remembered on this machine.
-- **Section headings in the details panel**: collapse or expand all sections, copy the item's id, close the details.
-- **Dividers**: reset the size; the terminal's divider also moves the panel.
-- **Terminal tabs, terminal output and the session list**: see [Queue and sessions](queue-and-sessions.md#terminal-panel).
+| Target | Items |
+|---|---|
+| Text fields, selected text | Cut, Copy, Paste, Select all |
+| Table rows | Open; open the cell's `file:line` in VS Code; copy the cell, the row or all visible rows (TSV with headings); filter the column by the cell value; hide the column |
+| Table headings | Sort ascending or descending; reset filters and sorting; show or hide columns (remembered per machine) |
+| Section headings in the details panel | Collapse or expand all, copy the item id, close the details |
+| Dividers | Reset size; on the terminal divider, also move the panel |
+| Terminal tabs and output, session list | See [Queue and sessions](queue-and-sessions.md#terminal-panel) |
 
 ## Projects
 
-The project picker in the header switches between projects; type in it to search. **Add git repository** opens a folder dialog; the folder must be a git repository. A project's id is derived from the real path of its root, so moving a repository makes it a new project.
+The project picker in the header switches projects and accepts a search query. **Add git repository** opens a folder dialog; the folder must be a git repository. The project id is derived from the real path of the root, so a moved repository becomes a new project.
 
-**Remove the project from the list** forgets the project in the app. Its audit data stays on disk, and adding the same path again brings it back. See [Data and logs](data-and-logs.md).
+**Remove the project from the list** removes it from the app only. Audit data stays on disk; adding the same path restores it. See [Data and logs](data-and-logs.md).
 
 ## Setup guide
 
 ![The setup guide after the first audit pass](screenshots/home.png)
 
-A setup guide opens in place of a tab on the first launch with no projects, and again each time you add a project; then it starts without the step of choosing one. It walks from an empty project to the first findings: choose a project, split it into modules, run the scanners, add security documents, map entry points, create and run the matrix, and check dependencies. Each step reads its state from the project, shows what is done or running, and offers its next action; **Open** goes to the step's tab for the full controls. Optional steps can be skipped.
+The setup guide replaces the tab content on first launch with no projects and after each added project (then without the project step). Steps: choose a project, split it into modules, run scanners, add security documents, map entry points, create and run the matrix, check dependencies. Each step reads its state from the project, shows what is done or running and offers the next action; **Open** switches to the step's tab. Optional steps can be skipped.
 
-The guide stays on top of the activity bar until **Close guide**.
+The guide stays at the top of the activity bar until **Close guide**.
 
 ## Tables
 
-Every table works the same way:
+All tables share the same behavior:
 
-- click a column heading to sort;
-- use the field under the heading to filter by text or by value; text filters ignore case in any alphabet;
-- filters last until the app restarts;
-- **Reset filters and sorting** clears them;
-- long tables are split into pages, with `ui.page_size` rows on each (see [Configuration](configuration.md)). A change of filter or sorting returns to the first page.
+- a click on a column heading sorts;
+- the field under the heading filters by text or value; text filters are case-insensitive for any alphabet;
+- filters are kept until restart; **Reset filters and sorting** clears them;
+- pages hold `ui.page_size` rows (see [Configuration](configuration.md)); changing a filter or sort returns to page 1.
 
-Histories in the details panel are paged too, by `ui.history_page_size`. In the list of documents a set stays together: its heading repeats on each page it spans.
+Histories in the details panel are paged by `ui.history_page_size`. In the document list a set's heading repeats on each page the set spans.
 
-The tables of the **Queue** tab hold every job and run, not only the latest ones: the service pages, filters and sorts them. Dates there are filtered by their stored form in UTC, such as `2026-11-01`; tokens and cost only sort.
+**Queue** tables hold every job and run; paging, filtering and sorting happen in the core. Date filters match the stored UTC form, such as `2026-11-01`; tokens and cost are sortable but not filterable.
 
-Actions on a table work on every row that passes the filters, not only on the current page: **Pick suspected**, **Pick stale** and the run button of a matrix section.
+Table-wide actions (**Pick suspected**, **Pick stale**, the run button of a matrix section) apply to every row that passes the filters, on all pages.
 
-Row and toolbar actions are icons with a tooltip. Form buttons such as **Save** and **Cancel** are text.
+Row and toolbar actions are icons with tooltips; form buttons such as **Save** and **Cancel** are text.
 
 ## Dropdown lists
 
-Every dropdown can be searched:
-
-- type to narrow the list. Every word must match, in any order: `oauth fix` finds `fix/oauth-token`;
-- lists of 7 or more items always show the search field; in shorter ones it appears when you start typing;
-- on a closed dropdown, a letter opens it with that letter in the search, and the arrow keys open it;
-- inside the list, the up and down arrows move, `Enter` picks and `Esc` or `Tab` closes.
+Every dropdown is searchable. All query words must match, in any order: `oauth fix` finds `fix/oauth-token`. Lists of 7+ items always show the search field; shorter ones show it once you type. On a closed dropdown a letter or an arrow key opens it. Inside the list, arrows move, `Enter` picks, `Esc` or `Tab` closes.
 
 ## Resizing
 
-Drag a divider to resize the session list, the details panel or the terminal. With the keyboard, focus a divider and use the arrow keys. Double-click a divider, or right-click it and choose **Reset size**, to restore its default. Sizes and the last open tab are remembered on this machine.
+Dividers resize the session list, the details panel and the terminal, by mouse or by arrow keys when focused. Double-click or **Reset size** in the context menu restores the default. Sizes and the last open tab are stored per machine.
 
-The terminal panel sits at the bottom or on the right of the work area: **Move the panel to the right** or **to the bottom** in the context menu of its tab bar or divider, or in the command palette. The position is remembered.
-
-The terminal can also fill the whole work area: use its button or double-click its tab bar.
+The terminal panel docks at the bottom or the right: **Move the panel to the right** / **to the bottom** in the context menu of its tab bar or divider, or in the command palette. The position is remembered. The maximize button or a double-click on the tab bar makes it fill the work area.
 
 ## Notifications
 
-The bell in the status bar keeps the last 50 notifications of the session and counts unread warnings and errors. Notifications include scanners that are unavailable, default settings added after an upgrade, schedules that did not start, and offers to recheck after a commit.
+The bell in the status bar keeps the session's last 50 notifications and counts unread warnings and errors. Sources: unavailable scanners, defaults added by an upgrade, schedules that failed to start, recheck offers after a commit.
 
 ## Effective configuration
 
-Modules, cells, dependency items, runs and **Settings** can show the effective configuration: the final value of each field (agent, model, effort, instructions, permissions, env) and the level it came from. See [Configuration](configuration.md#effective-configuration).
+Modules, cells, dependency items, runs and **Settings** show the effective configuration: the resolved value of each field (agent, model, effort, instructions, permissions, env) and the cascade level it came from. See [Configuration](configuration.md#effective-configuration).
 
 ## Opening files
 
-File references open in VS Code in your working copy, at the line when one is known. If the reference belongs to another commit, the lines may differ; the signals table warns you about this.
+File references open in VS Code in the working copy, at the line if known. A reference from another commit may point to shifted lines; the signals table warns about it.
 
 ## Language
 
-Set `ui.language` to `en` or `ru` in the global configuration. Role and task titles follow it too. Errors from the core, notifications and MCP replies are always in English.
+`ui.language` in the global configuration: `en` or `ru`. Role and task titles follow it. Core errors, notifications and MCP replies are always English.
