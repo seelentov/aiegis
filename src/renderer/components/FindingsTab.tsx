@@ -80,9 +80,13 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
         <label className="check">
           <Checkbox checked={merged} onChange={(e) => setMerged(e.target.checked)} /> {tr('show merged')}
         </label>
-        <IconButton icon="checkAll" title={tr('Pick every finding that passes the filters, on every page')} label={tr('Pick all')} onClick={() => setPicked(g.all.filter(pickable).map((f) => f.id))} />
-        <IconButton icon="close" title={tr('Clear the picks')} disabled={!picked.length} onClick={() => setPicked([])} />
-        <IconButton icon="check" title={tr('Pick the suspected findings that pass the filters, on every page')} label={tr('Pick suspected')} onClick={() => setPicked(g.all.filter(eligible).map((f) => f.id))} />
+        <span className="toolbar-group">
+          <IconButton icon="checkAll" title={tr('Pick every finding that passes the filters, on every page')} label={tr('Pick all')} onClick={() => setPicked(g.all.filter(pickable).map((f) => f.id))} />
+          <IconButton icon="check" title={tr('Pick the suspected findings that pass the filters, on every page')} label={tr('Pick suspected')} onClick={() => setPicked(g.all.filter(eligible).map((f) => f.id))} />
+          <IconButton icon="check" title={tr('Pick the stale findings that pass the filters, on every page')} label={tr('Pick stale')} onClick={() => setPicked(g.all.filter(stale).map((f) => f.id))} />
+          <IconButton icon="close" title={tr('Clear the picks')} disabled={!picked.length} onClick={() => setPicked([])} />
+        </span>
+        <span className="toolbar-group">
         <IconButton
           icon="play"
           title={tr('Estimate, then run a clean session per picked finding that tries to refute it')}
@@ -90,7 +94,6 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
           disabled={!chosen.length}
           onClick={() => void run(api.estimateFindingVerify(project.id, chosen)).then((e) => { setEstimateFix(false); if (e) setEstimate(e); })}
         />
-        <IconButton icon="check" title={tr('Pick the stale findings that pass the filters, on every page')} label={tr('Pick stale')} onClick={() => setPicked(g.all.filter(stale).map((f) => f.id))} />
         <IconButton
           icon="play"
           title={tr('Estimate, then run a clean session per picked stale finding that judges at HEAD whether it is closed')}
@@ -98,6 +101,7 @@ export function FindingsTab({ project, revision, run, selection, onSelect }: Pro
           disabled={!chosenFix.length}
           onClick={() => void run(api.estimateFixVerify(project.id, chosenFix)).then((e) => { setEstimateFix(true); if (e) setEstimate(e); })}
         />
+        </span>
         {g.count}
       </div>
       {chosenAny.length > 0 && (

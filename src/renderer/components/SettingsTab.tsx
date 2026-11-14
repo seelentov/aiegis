@@ -221,7 +221,8 @@ export function SettingsTab({ project, run, notify }: Props) {
 
       <div className="settings-editor">
         <div className="toolbar">
-          <span className="mono small">{file}</span>
+          <span className="mono small toolbar-path" title={file ?? undefined}>{file}</span>
+          {file && <IconButton icon="external" title={tr('Open the file in an external editor')} onClick={() => void run(api.openInEditor(file))} />}
           {file?.endsWith('.yaml') && (
             <span className="toolbar-group">
               <Button aria-pressed={mode === 'form'} onClick={() => setMode('form')}>
@@ -235,7 +236,6 @@ export function SettingsTab({ project, run, notify }: Props) {
           <Button variant="primary" disabled={!dirty} onClick={() => void save()}>
             {tr('Save')}
           </Button>
-          {file && <IconButton icon="external" title={tr('Open the file in an external editor')} onClick={() => void run(api.openInEditor(file))} />}
         </div>
         {form ? (
           <div className="settings-form">

@@ -20,8 +20,8 @@ The panel at the top shows each scanner's availability and version. Enabled scan
 
 ## Scanning
 
-- **Modules** scans the files of all modules.
-- **Repository** scans the whole repository.
+- **Scan modules** scans the files of all modules.
+- **Scan repository** scans the whole repository.
 - Matrix verdicts queue missing scans of their modules when `signals.auto_scan` is on.
 
 Each scan is a queue job that runs in the commit's worktree, without AI. Scanned paths are the smallest set of static prefixes of the modules' globs. Results are cached by commit: a scan is not queued if a `complete` scan of the same scanner covers those paths on that commit or an equivalent job is active.
