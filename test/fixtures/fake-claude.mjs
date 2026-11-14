@@ -27,7 +27,12 @@ if (!args.includes('-p')) {
   process.stdin.on('data', (d) => (prompt += d));
   process.stdin.on('end', async () => {
     const sid = arg('--session-id');
-    emit({ type: 'system', subtype: 'init', session_id: sid, model: arg('--model'), cwd: process.cwd() });
+    emit({ type: 'system', subtype: 'init', session_id: sid, model: arg('--model'), cwd: process.cwd(), mcp_servers: [{ name: 'aiegis', status: prompt.includes('MCPDOWN') ? 'failed' : 'connected' }] });
+    if (prompt.includes('MCPDOWN')) {
+      emit({ type: 'assistant', message: { id: 'm0', content: [{ type: 'text', text: 'The aiegis server is unavailable, stopping.' }], usage: { input_tokens: 1, output_tokens: 1 } } });
+      emit({ type: 'result', subtype: 'success', is_error: false, result: 'The aiegis server is unavailable, stopping.', usage: {} });
+      process.exit(0);
+    }
     if (prompt.includes('SLEEP')) {
       emit({ type: 'assistant', message: { id: 'm0', content: [{ type: 'text', text: 'working' }], usage: { input_tokens: 1, output_tokens: 1 } } });
       setInterval(() => undefined, 1000);

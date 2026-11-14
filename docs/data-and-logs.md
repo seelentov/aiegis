@@ -79,6 +79,7 @@ aiegis log-level queue trace
 | A second instance refuses to start | The app or the service already runs on this data directory. Use a different `AIEGIS_DATA`, or stop the other |
 | `aiegis` exits with code 2 | The service is not running |
 | A run ends with `token_limit` | Raise `limits.max_tokens_per_run`, or lower `matrix.batch_size` (`matrix.economy_batch_size` for a merged session). **Retry** continues with what is left |
+| A job fails with "the MCP server did not connect" | Claude Code could not reach the app's MCP server at the start of the session (its connect timeout is 30 s), so the session could record nothing. Usually the app was busy; **Retry** runs it again. Applies to Claude Code; pi reports MCP errors as tool errors |
 | A run ends with `refused` | The provider's safety filter declined the task. Filters are probabilistic: **Retry** may pass. If it repeats, check with your provider how to enable security work for your account, or use another model for the role. After `queue.pause_after_refusals` declined runs in a row the queue pauses for `queue.refusal_pause_sec`: **Continue** in **Queue** resumes it |
 | The queue is paused | A provider limit was hit. Wait, or click **Continue** |
 | A cell is `stale` after a commit | Expected: run **Stale**. The code or the requirement changed |

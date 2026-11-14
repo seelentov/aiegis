@@ -5027,6 +5027,10 @@ export class Core extends EventEmitter {
         } else if (sum.rateLimited) {
           status = 'rate_limited';
           error = sum.result?.text ?? 'rate limit';
+        } else if (sum.mcpFailed?.length) {
+          // Without its MCP server the session can read but record nothing; the model's own report would mislead.
+          status = 'failed';
+          error = `the MCP server did not connect (${sum.mcpFailed.join(', ')}): the session could not record results; Retry runs it again`;
         } else if (sum.refused) {
           status = 'refused';
           error = `the model declined the task (provider safety filter); it is not retried automatically: ${sum.result?.text ?? 'refusal'}`;
