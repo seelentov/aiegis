@@ -13,7 +13,7 @@ aiegis has no chat of its own. It starts a local coding agent, stores the audit 
 | Requirement | A reviewed item of an approved document version | [Documents](documents.md) |
 | Document set | A group of documents with links to their sources | [Document refresher](document-refresher.md) |
 | Matrix, cell | Documents × modules; a cell is one requirement × one module | [Matrix](matrix.md) |
-| Finding | A security problem, linked to cells or dependency items | [Findings](findings.md) |
+| Finding | A security problem, linked to cells or dependency items, or found by a [vulnerability hunt](modules.md#vulnerability-hunt) | [Findings](findings.md) |
 | Signal | A normalized scanner result, given to the agent as a hint | [Signals](signals.md) |
 | Suppression | A reasoned decision to hide signals | [Signals](signals.md#suppressions) |
 | SCA item | Module × package@version × vulnerability | [SCA](sca.md) |
