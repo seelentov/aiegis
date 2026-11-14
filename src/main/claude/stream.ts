@@ -12,6 +12,8 @@ export interface StreamSummary {
   rateLimited: boolean;
   /** The model declined the task: a `refusal` stop reason or the provider's policy error. */
   refused?: boolean;
+  /** MCP servers Claude Code reported as failed to connect at the start of the session. */
+  mcpFailed?: string[];
 }
 
 /** Wording of a declined request: Claude Code's API error about the usage policy, the provider's cyber safeguard. */
@@ -27,6 +29,10 @@ export class StreamTracker {
   readonly summary: StreamSummary = { usage: emptyUsage(), rateLimited: false };
 
   feed(ev: Ev): void {
+    if (ev.type === 'system' && ev.subtype === 'init' && Array.isArray(ev.mcp_servers)) {
+      const failed = (ev.mcp_servers as Ev[]).filter((s) => s.status === 'failed').map((s) => String(s.name));
+      if (failed.length) this.summary.mcpFailed = failed;
+    }
     if (ev.type === 'assistant' && ev.message?.stop_reason === 'refusal') this.summary.refused = true;
     // Claude Code retried the declined turn on a fallback model: what counts is how that retry ends.
     if (ev.type === 'system' && ev.subtype === 'model_refusal_fallback' && ev.direction === 'retry') this.summary.refused = false;

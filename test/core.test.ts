@@ -115,6 +115,12 @@ describe('Core with a fake claude', () => {
     expect(core.store(pid).getRun(done.lastRunId!)!.status).toBe('refused');
   });
 
+  it('a session whose MCP server did not connect fails with that reason, not as a success', async () => {
+    const done = await settled(await core.enqueueTask(pid, { role: 'task', prompt: 'MCPDOWN' }));
+    expect(done.status).toBe('failed');
+    expect(done.error).toMatch(/MCP server did not connect \(aiegis\)/);
+  });
+
   it('rate limit requeues and pauses the queue', async () => {
     const j = await core.enqueueTask(pid, { role: 'task', prompt: 'RATELIMIT' });
     await waitFor(() => core.queue.state().pausedUntil);
