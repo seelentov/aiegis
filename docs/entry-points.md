@@ -1,6 +1,6 @@
 # Entry points
 
-An entry point map lists how data gets into a module: its routes, handlers, consumers and commands, what guards them and where the input goes. Verdict sessions and document plans read it through MCP.
+An entry point map lists where data enters a module (routes, handlers, consumers, commands), what guards each entry and where the input flows. Verdict sessions, hunts and document plans read it through MCP.
 
 ![The Entry points tab with an expanded call chain](screenshots/entry-points.png)
 
@@ -15,29 +15,23 @@ An entry point map lists how data gets into a module: its routes, handlers, cons
 | Authorization | The requirements, as text |
 | Parameters | Name, source, and optionally a type |
 | Call chain | `file` and `function` steps, optionally with a line, down to sinks, which are marked |
-| Notes | Anything else worth knowing |
+| Notes | Free text |
 
-`http` is only for routes the module registers itself. `plugin` is for methods a platform or framework calls with user data, such as SPI implementations, listeners and hooks. Its name has the form `Interface.method`, and the notes say which platform flow calls it and what input reaches it.
+`http` covers only routes the module registers itself. `plugin` covers methods a platform or framework calls with user data: SPI implementations, listeners, hooks. A `plugin` name has the form `Interface.method`; its notes name the platform flow that calls it and the input it receives.
 
 File paths must exist in the run's checkout.
 
 ## Building a map
 
-**Build module map** (on this tab) and **Build map** or **Map all** (on **Modules**) queue a session per module. The role is `entry-points`, and the module's cascade level applies. While a job for a module is queued or running, a second one is not queued.
+**Build module map** on this tab and **Build map** / **Map all** on **Modules** queue one session per module, role `entry-points`, with the module's cascade level. A module with a map job already queued or running is skipped.
 
 ## Versions
 
-Each map is a snapshot on a commit:
+Each map is a snapshot bound to a commit. A successful run marks its snapshot `complete` and read-only; a failed run leaves an incomplete snapshot, still visible in the version list. The current map is the latest `complete` snapshot. Background runs build a map from scratch, while an interactive continuation starts from a copy of the parent snapshot and becomes `complete` when the session exits.
 
-- a snapshot is `complete` when its run succeeds, and is then read-only;
-- a failed run leaves an **incomplete** snapshot that is visible in the version list;
-- the current map is the latest `complete` snapshot;
-- each background run builds the map from scratch;
-- an interactive continuation starts from a copy of its parent's snapshot and is `complete` when the session exits.
+The selectors pick a module and a version; **Search all columns** filters the table. Each entry is compared with the previous complete version and marked `new`, `changed`, `removed` or `unchanged`. An expanded row shows middleware, parameters and the call chain; a click on a handler or chain step opens it in VS Code.
 
-Choose a module and a version in the selectors, and use **Search all columns** to narrow the table. The table compares it with the previous complete version and marks each entry `new`, `changed`, `removed` or `unchanged`. Expand a row to see its middleware, parameters and call chain. Click a handler or call chain step to open it in VS Code.
-
-A map is marked `stale` on **Modules** when the module's files or call chain files change after the snapshot. See [freshness](concepts.md#freshness-stale).
+**Modules** marks a map `stale` when the module's files or call chain files change after the snapshot, see [freshness](concepts.md#freshness-stale).
 
 ## Command line
 
@@ -47,4 +41,4 @@ aiegis entry-points build-all
 aiegis entry-points show <module> [--snapshot <id>]
 ```
 
-Schedules can rebuild maps with the `entry_points` action. See [Schedules](schedules.md).
+The schedule action `entry_points` rebuilds maps on cron, see [Schedules](schedules.md).

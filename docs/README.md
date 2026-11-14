@@ -1,8 +1,8 @@
 # aiegis documentation
 
-aiegis is a desktop app and a Linux service for AppSec audits on top of a local coding agent. New here? Start with [Getting started](getting-started.md).
+aiegis is a desktop app and a Linux service that runs AppSec audits with a local coding agent. Installation and the first audit are in [Getting started](getting-started.md).
 
-Screenshots show a small demo API (Node.js/Express with deliberate vulnerabilities): two modules, a six-item guideline, inexpensive models. All the data in them comes from real agent runs.
+Screenshots show `acme-shop`, a small Node.js/Express demo API with planted vulnerabilities: two modules, a guideline of six requirements, Claude Haiku with low effort for every role. The data on them comes from real agent runs; the whole demo cost about $0.35.
 
 ## Start
 

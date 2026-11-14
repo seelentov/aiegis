@@ -1,14 +1,14 @@
 # Contributing to aiegis
 
-Thank you for helping. Bug reports, ideas, code, prompts, translations and documentation are all welcome.
+Bug reports, feature requests, code, prompts, translations and documentation go through GitHub issues and pull requests.
 
 ## Issues
 
-- **Bugs:** what you did, what you expected, what happened, your OS and the aiegis version. Logs are described in [Data and logs](docs/data-and-logs.md); remove anything private before you attach them.
-- **Ideas:** describe the problem first, then the change you have in mind.
-- **Security vulnerabilities in aiegis itself:** do not open a public issue. Use **Report a vulnerability** on the repository's Security tab.
+- Bug: steps, expected result, actual result, OS, aiegis version. Logs are described in [Data and logs](docs/data-and-logs.md); remove anything private before you attach them.
+- Feature request: the problem first, then the proposed change.
+- Vulnerability in aiegis itself: no public issue. Use **Report a vulnerability** on the repository's Security tab.
 
-For a large change, open an issue first so we can agree on the approach before you write the code.
+Open an issue before a large change to agree on the approach.
 
 ## Setting up
 
@@ -27,16 +27,16 @@ npm run typecheck
 npm test           # unit tests; they never call an AI agent
 ```
 
-Both must pass. Add or update tests for the behavior you change.
+Both must pass. Changed behavior needs a new or updated test.
 
 ## Conventions
 
-- **Nothing hardcoded.** Role prompts, permissions, models, effort, scanners and limits live in [`defaults/`](defaults) and reach the code through the configuration cascade. See [Configuration](docs/configuration.md).
-- **Two UI languages.** English is the default, Russian is the second one. Every new UI text goes through `tr('English text')`, with its translation in `src/renderer/i18n-ru.ts`. Messages of the core, notifications and MCP replies are English only.
-- **English in code.** Identifiers, comments and commit messages are in English.
-- **Match the surrounding code.** Keep the existing structure, naming and comment density; prefer reusing a helper over adding a new one.
-- **Documentation.** If you change what a user sees or does, update the matching page in [`docs/`](docs).
-- **Commits.** One topic per pull request. Commit subjects are short and say what changed, for example `Signals: import SARIF 2.1.0 reports`.
+- No hardcoded values. Role prompts, permissions, models, effort, scanners and limits live in [`defaults/`](defaults) and reach the code through the configuration cascade. See [Configuration](docs/configuration.md).
+- UI languages are English (default) and Russian. Every new UI string goes through `tr('English text')`, with its translation in `src/renderer/i18n-ru.ts`. Core messages, notifications and MCP replies are English only.
+- Identifiers, comments and commit messages are in English.
+- Follow the surrounding code: its structure, naming and comment density. Reuse an existing helper before adding one.
+- A change in what users see or do updates the matching page in [`docs/`](docs).
+- One topic per pull request. Commit subject format is `Area: what changed`, for example `Signals: import SARIF 2.1.0 reports`.
 
 ## License
 

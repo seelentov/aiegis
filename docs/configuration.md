@@ -1,6 +1,6 @@
 # Configuration
 
-Nothing is hardcoded. The agent, models, effort, role prompts, tool permissions, scanners, limits and parallelism are all in editable files, and settings are not kept in the database.
+The agent, models, effort, role prompts, tool permissions, scanners, limits and parallelism are defined in YAML and Markdown files, not in code and not in the database.
 
 | Location | What | Notes |
 |---|---|---|
@@ -26,7 +26,7 @@ global → project → role → module → matrix/standard → item
 | Matrix or standard | `matrices.<name>`, project config |
 | Item | `requirements.<key>`, project config. If documents share a key, they share the level |
 
-Each level may set these fields:
+Fields allowed at each level:
 
 | Field | How levels combine |
 |---|---|
@@ -59,31 +59,31 @@ requirements:
     effort: high
 ```
 
-All other sections are not part of the cascade: they merge per key from global to project. A required key with no value is a configuration error, because the code has no built-in values. An invalid global config is reported, and the last valid settings stay in use.
+Other sections aren't part of the cascade; they merge per key from global to project. The code has no built-in fallback values, so a required key without a value is a configuration error. An invalid global config is reported and the last valid settings stay in effect.
 
 ## The Settings tab
 
 ![The configuration form](screenshots/settings.png)
 
-Settings edits the same files. On the left are the sections of `config.yaml` (General, then one per map) for the global and project configs, and below them the instruction files by name.
+The **Settings** tab edits the same files. The left column lists the sections of `config.yaml` (General, then one per map) for the global and project configs, followed by instruction files.
 
-- **Form** builds fields from the YAML: the type comes from the value (checkbox, number, text, one value per line in a list), and the hint comes from the comment above the key. Comments survive editing.
-- In a project config, global values show as inherited. Clearing a field or **Restore the global value** removes the key.
-- **YAML** edits the file as text, for new keys and complex values.
-- Leaving the tab with unsaved changes asks for a confirmation.
+- **Form** generates fields from the YAML: the control type follows the value (checkbox, number, text, one list item per line), the hint is the comment above the key. Comments are preserved on save.
+- In a project config, global values show as inherited; clearing a field or **Restore the global value** deletes the key.
+- **YAML** edits the raw file, for new keys and complex values.
+- Leaving the tab with unsaved changes asks for confirmation.
 - **Open the file in an external editor** opens it in VS Code.
 
 ### Effective configuration
 
 ![The effective configuration of a role](screenshots/settings-effective.png)
 
-**Effective configuration for role** lists the final value of each field and the level it came from. Cells, modules, SCA items and runs show the same thing in their details; a run keeps a snapshot from when it ran. From the command line: `aiegis config effective <role> [--module <name>] [--matrix <name>] [--item <key>]`.
+**Effective configuration for role** lists each field's resolved value and source level. Cells, modules, SCA items and runs show the same in their details; a run stores a snapshot taken at start. CLI: `aiegis config effective <role> [--module <name>] [--matrix <name>] [--item <key>]`.
 
 ## Upgrades
 
 On every start:
 
-- missing top-level keys and missing entries of `roles`, `tasks`, `scanners`, `poc`, `terminal`, `limits`, `doc_refresh`, `matrix`, `findings` and `diff_check` are added to your global `config.yaml`. Existing values and comments are not changed, so the **values** of a role you already have, such as its permissions, are not updated;
+- missing top-level keys and missing entries of `roles`, `tasks`, `scanners`, `poc`, `terminal`, `limits`, `doc_refresh`, `matrix`, `findings` and `diff_check` are added to your global `config.yaml`. Existing values and comments stay as they are, so values of an existing role, such as its permissions, aren't updated;
 - `~/.aiegis/.defaults.json` holds the hash of each default file. A default file that changed replaces yours if you did not edit it, with a notification. If you edited it, your file stays, and one warning lists what to merge by hand.
 
 ## Settings reference
@@ -297,7 +297,7 @@ See [PoC tester](poc.md).
 
 ## Roles
 
-`roles.<name>` has the cascade fields plus `title` (a string or `{ en, ru }`), `kind` (`interactive` or `background`) and `mcp_access` (`manage` or `scoped`). Add your own for background tasks.
+`roles.<name>` has the cascade fields plus `title` (a string or `{ en, ru }`), `kind` (`interactive` or `background`) and `mcp_access` (`manage` or `scoped`). Custom roles can be added for background tasks.
 
 | Role | Model, effort | Default tools beyond `Read`, `Grep`, `Glob` and MCP |
 |---|---|---|

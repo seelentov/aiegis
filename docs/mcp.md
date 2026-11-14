@@ -1,16 +1,16 @@
 # MCP tools
 
-Agents talk to aiegis through an MCP server inside the app (stateless Streamable HTTP on `127.0.0.1`, a random port, `/mcp`). You do not call these tools yourself; this page shows what an agent can do and how it is limited.
+Agents talk to aiegis through an MCP server inside the app: stateless Streamable HTTP on `127.0.0.1`, random port, path `/mcp`. Only agents call these tools; this page documents what each one allows.
 
 ## Access
 
-Each session gets its own token, in a `0600` file that is removed when the run ends. The token fixes:
+Each session gets its own token in a `0600` file deleted when the run ends. The token binds:
 
-- **project**: a token reads only its own project;
-- **scope**: the entities it may write, for example `cell:<module>/<requirement>` or `doc_version:<id>`;
-- **access**: `scoped` for background roles. `manage` for the interactive assistant, which can also start and cancel work. Management does not grant write access to entities.
+- project: the token reads only its own project;
+- scope: the entities it may write, such as `cell:<module>/<requirement>` or `doc_version:<id>`;
+- access: `scoped` for background roles, `manage` for the interactive assistant, which can also start and cancel work. `manage` grants no write access to entities.
 
-Writes that check files need a live run, so a token stops writing once its run ends. Refusals are logged. Schedules are not available over MCP.
+Writes that validate files require a live run, so a token can't write after its run ends. Refusals are logged. Schedules aren't exposed over MCP.
 
 ## Common
 

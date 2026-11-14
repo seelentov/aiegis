@@ -1,13 +1,13 @@
 # CLI reference
 
-Every command talks to the running [service](service.md). In the examples, `aiegis` is the executable; for development, use `node dist/cli.js`.
+Every command talks to the running [service](service.md). Examples use the `aiegis` executable; in development use `node dist/cli.js`.
 
 ```text
 aiegis                      run the service until SIGTERM or SIGINT
 aiegis <command> [options]  talk to the running service
 ```
 
-**Options of every command:**
+Global options:
 
 | Option | Meaning |
 |---|---|
@@ -15,9 +15,9 @@ aiegis <command> [options]  talk to the running service
 | `--json` | Print JSON instead of a table |
 | `--yes` | Skip the confirmation after an estimate |
 
-**Exit codes:** `0` success, `1` error, `2` the service is not running.
+Exit codes: `0` success, `1` error, `2` service not running.
 
-A repeated option, written as `--module <name>...`, can be given several times. Run `aiegis help` for this list in your version.
+An option written as `--module <name>...` can repeat. `aiegis help` prints this list for the installed version.
 
 ## General
 
@@ -195,7 +195,7 @@ Findings. See [Findings](findings.md).
 
 ## poc
 
-PoC. See [Poc](poc.md).
+PoC. See [PoC tester](poc.md).
 
 | Command | What it does |
 |---|---|
@@ -234,7 +234,7 @@ Suppressions. See [Signals](signals.md#suppressions).
 
 ## sca
 
-SCA. See [Sca](sca.md).
+SCA. See [SCA](sca.md).
 
 | Command | What it does |
 |---|---|
@@ -305,4 +305,4 @@ Configuration. See [Configuration](configuration.md).
 
 ## Not available from the command line
 
-These need a screen or a terminal, so they exist only in the desktop app: interactive sessions (new session, opening a run, taking over, fix sessions), the external terminal, opening files in the editor, and writing to or resizing a terminal. File dialogs are replaced by path arguments.
+Desktop-only operations, because they need a screen or a terminal: interactive sessions (new session, opening a run, take over, fix sessions), the external terminal, opening files in the editor, writing to or resizing a terminal. File dialogs are replaced by path arguments.

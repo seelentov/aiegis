@@ -1,6 +1,6 @@
 # Findings
 
-A finding is one security problem, separate from the checks that found it. One finding can link to many matrix cells and SCA items.
+A finding is one security problem, stored apart from the checks that produced it. A finding links to any number of matrix cells and SCA items.
 
 ![The Findings tab](screenshots/findings.png)
 
@@ -10,59 +10,59 @@ A finding is one security problem, separate from the checks that found it. One f
 suspected → verified | false_positive | accepted_risk | fixed
 ```
 
-Agents create findings as `suspected` and never change a status. Only people do, and `false_positive` and `accepted_risk` require a reason. A successful [PoC](poc.md) suggests `verified`, and an [independent verification](#independent-verification) gives a second opinion, but you set the status.
+Agents create findings as `suspected` and can't change a status; only a person can. `false_positive` and `accepted_risk` require a reason. A successful [PoC](poc.md) and an [independent verification](#independent-verification) are inputs to that decision; neither sets the status.
 
-A finding itself cannot change; its state comes from an append-only list of events (`created`, `status`, `link`, `merged`).
+The finding record is immutable. Its state is derived from an append-only event list: `created`, `status`, `link`, `merged`.
 
 ## Fields
 
 Title, description, severity, CWE, entry point, files, data flow, recommendation, module. Severity uses one scale for findings and signals.
 
-The **data flow** is set by the agent that creates the finding: the steps in order, from where attacker input enters to the sink, each with `file:line` and a note. It is empty when the flaw is not a flow (for example a missing check), and for findings created by hand. The [independent verification](#independent-verification) checks each step, and the [PoC tester](poc.md) and fix sessions receive it in their prompts.
+The agent that creates a finding fills in the data flow: ordered steps from the point where attacker input enters to the sink, each with `file:line` and a note. It stays empty for flaws that aren't flows (a missing check, say) and for manual findings. [Independent verification](#independent-verification) checks each step; the [PoC tester](poc.md) and fix sessions get it in their prompts.
 
 ## Where findings come from
 
 - Matrix verdicts (`create_finding`, `link_finding`).
 - SCA reachability (`create_sca_finding`, `link_sca_finding`).
-- [Vulnerability hunt](modules.md#vulnerability-hunt) (`create_hunt_finding`): not tied to a requirement.
-- Manual input: **Finding** on a cell or an SCA item.
+- [Vulnerability hunt](modules.md#vulnerability-hunt) (`create_hunt_finding`), with no requirement attached.
+- Manual: **Finding** on a cell or an SCA item.
 
 ## Deduplication
 
-Before creating a finding, an agent must call `find_similar`. It ranks live findings: the same entry point scores +3, the same CWE +2, shared files up to +3. A finding scoring at least 3 is a candidate, and up to `findings.similar_limit` are returned. `create_finding` is refused without the `check_id` issued to that run, and if a candidate is the same flaw, the agent links to it instead.
+An agent must call `find_similar` before creating a finding. It scores live findings: same entry point +3, same CWE +2, shared files up to +3. Findings scoring 3 or more are candidates; at most `findings.similar_limit` are returned. `create_finding` is refused without the `check_id` that `find_similar` issued to the run. If a candidate describes the same flaw, the agent links to it instead of creating a new one.
 
-You can also merge by hand. The **Similar (manual merge)** section offers **Into current** and **Current into it**: the source becomes a link to the target, and its cells move to the target. Links to a merged finding go to its target. Merged findings are hidden unless you tick **show merged**.
+Manual merge is in the **Similar (manual merge)** section: **Into current** or **Current into it**. The source becomes a link to the target and its cells move to the target; links to a merged finding resolve to the target. Merged findings are hidden unless **show merged** is ticked.
 
 ## The table
 
-Columns: picker, finding, severity, status, verification, CWE, module, document, links (the number of cells) and created. The filters work like all [table filters](interface.md#tables). The document filter goes through the requirements of the linked cells.
+Columns: picker, finding, severity, status, verification, CWE, module, document, links (number of cells), created. Filters behave like all [table filters](interface.md#tables); the document filter matches through the requirements of linked cells.
 
-Any finding that is not merged can be ticked; **Pick all** ticks every one the filters show, on every page, and **Clear the picks** unticks them. While findings are ticked, a second toolbar sets one status with one reason for all of them: all change or, if one of them cannot (it was merged meanwhile, or a required reason is missing), none does. Each action takes only the ticked findings it applies to: **Verify** the suspected ones, **Check fix** the stale ones.
+Any unmerged finding can be ticked. **Pick all** ticks every finding that passes the filters, across pages; **Clear the picks** unticks them. With findings ticked, a second toolbar sets one status with one reason on all of them in a single transaction: if one can't change (merged in the meantime, or a required reason is missing), none changes. **Verify** applies only to ticked `suspected` findings, **Check fix** only to ticked stale ones.
 
 ## Details
 
 ![The details of a finding with its independent verification](screenshots/finding.png)
 
-- **Status** with **Change the status**.
-- Description, recommendation, entry point, files and the data flow.
-- **Cells**, which rechecks the linked matrix cells after an estimate.
-- **Matrix cells** and **Vulnerable dependencies (SCA)** linked to the finding.
-- **Similar (manual merge)**.
-- **[Independent verification](#independent-verification)** with **Verify**.
-- **[PoC tester](poc.md)** with **Environment**.
-- **Sessions**: the agent sessions behind the finding; any of them can be reopened.
-- **History**: its events.
-- **Fix**, which opens a [fix session](#fix-sessions).
+| Section or button | Content |
+|---|---|
+| **Status** | Current status, **Change the status** |
+| Body | Description, recommendation, entry point, files, data flow |
+| **Cells** | Rechecks linked matrix cells after an estimate |
+| **Matrix cells**, **Vulnerable dependencies (SCA)** | Linked cells and SCA items |
+| **Similar (manual merge)** | Merge candidates |
+| [Independent verification](#independent-verification) | Results, **Verify** |
+| [PoC tester](poc.md) | Results, **Environment** |
+| **Sessions** | Agent sessions that touched the finding; each can be reopened |
+| **History** | Events |
+| **Fix** | Opens a [fix session](#fix-sessions) |
 
 ## Independent verification
 
-An agent that refutes its own finding in the same session tends to defend it. **Verify** runs a separate background session of the role `finding-verify` whose only goal is to refute a `suspected` finding. It needs no running environment, unlike the [PoC tester](poc.md).
+An agent asked to refute its own finding in the same session tends to defend it. **Verify** starts a separate background session of the role `finding-verify` whose only goal is to refute a `suspected` finding. Unlike the [PoC tester](poc.md), it needs no running environment.
 
-- **Clean session.** It gets what the finding states and its code locations, as JSON that it must treat as data. It does not get the recommendation, the notes on the code references, the author or the run. Its MCP token reaches only `whoami` and `set_finding_verification`, so verdict reasons, runs and other findings are out of reach. It reads only its checkout, which keeps the transcript of the original session out of reach too.
-- **Code.** A read-only worktree at the commit of the session that made the finding. A manual finding has no such commit, so it uses HEAD at the time of the run.
-- **Method.** It reads the source only: it writes no exploits, runs no code and probes no system.
-- **Result.** One of the outcomes below, with a reason. Results are only added, never changed. The latest one is shown in the **Verification** column.
-- **Status.** The result never changes the status: you decide.
+Input is the finding's claim and code locations, passed as JSON marked as data. The session doesn't receive the recommendation, the notes on code references, the author or the run. Its MCP token allows only `whoami` and `set_finding_verification`, so verdict reasons, runs and other findings are unavailable; file access is limited to its checkout, which excludes the original session's transcript.
+
+The checkout is a read-only worktree at the commit of the session that created the finding, or at the current HEAD for a manual finding. The session only reads source: no exploit code, no execution, no network probes. It records one outcome with a reason. Outcomes are append-only; the **Verification** column shows the latest. The finding's status stays as it was.
 
 | Outcome | Meaning | Code references |
 |---|---|---|
@@ -70,35 +70,37 @@ An agent that refutes its own finding in the same session tends to defend it. **
 | `confirmed` | It tried to refute the claim and could not. A true claim that matters less than it says is still `confirmed`, and the reason says why the impact is lower | Required |
 | `undetermined` | The repository does not decide it (deployment, proxy, identity provider), or the session could not finish. The reason names the deciding fact | Optional |
 
-Read the reason before you set a status. For example, `confirmed` with a note on low impact may lead to `accepted_risk`, not `verified`.
+Read the reason before setting a status: `confirmed` with a note on low impact can justify `accepted_risk` rather than `verified`.
 
-To verify several findings, tick them in the table (**Pick suspected** takes the ones the filters show), press **Verify** in the toolbar and confirm the estimate. Each finding takes its own session. The estimate uses the average of recent runs of the role (`findings.verify_estimate_history_runs`), or `findings.verify_estimate_tokens`. In a test on a large repository, sessions with the default model and effort took 12k to 25k billable tokens, about 18k on average.
+Batch verification: tick findings (**Pick suspected** ticks the filtered `suspected` ones), press **Verify** in the toolbar, confirm the estimate. One session per finding. The estimate is the average of the role's last `findings.verify_estimate_history_runs` runs, or `findings.verify_estimate_tokens` without history. With the default model and effort a session typically takes 12k–25k billable tokens.
 
-The **Verify** button of a single finding starts at once, without an estimate, like **PoC**.
+**Verify** on a single finding starts immediately, without an estimate, as **PoC** does.
 
-The check does not replace your judgement. In that test, on 11 claims written by hand, the outcome matched the expected one in 10 and the eleventh was arguable. That shows the role works, not how accurate it is on real findings: the sample is small and the cases were clear on purpose.
+The outcome is a second opinion from a model, not a proof.
 
-Model, effort, prompts and permissions come from the role and the task `finding_verify`, like any [role](configuration.md). A safety filter of the model provider can stop a run. See [Provider safety filters](security.md#provider-safety-filters).
+Model, effort, prompts and permissions come from the role and the task `finding_verify`, see [Configuration](configuration.md). The provider's safety filter can stop a run, see [Provider safety filters](security.md#provider-safety-filters).
 
 ## Checking a fix
 
-Every live `suspected` or `verified` finding is compared with HEAD without AI: `git diff` from the finding's commit against its files and, for a dependency finding, the package manifest. When they changed, the finding is marked **stale** in the table and **Check fix** appears in its details. When they did not, there is nothing to check.
+Each live `suspected` or `verified` finding is compared with HEAD without AI: `git diff` from the finding's commit over its files, plus the package manifest for a dependency finding. If any of them changed, the table marks the finding stale and its details show **Check fix**.
 
 **Check fix** runs one background session per finding, in the read-only role `finding-verify`, in a worktree at HEAD, after an estimate.
 
-- **Result.** `closed`, `not closed` (both with code references) or `undetermined`, with a reason. Results are only added.
-- **What counts next.** After `closed` or `not closed` the finding is compared from the checked commit, so it stays quiet until its files change again. After `undetermined` it stays stale.
-- **Status.** The result never changes the status: only you set `fixed`.
-- **Older manual findings** have no recorded commit and show as stale, because a change cannot be ruled out.
-- **Limit.** A fix made only in other files does not mark a finding stale. After a [fix session](#fix-sessions) the app offers the check anyway.
+| Outcome | Code references | Next comparison starts from |
+|---|---|---|
+| `closed` | Required | The checked commit |
+| `not closed` | Required | The checked commit |
+| `undetermined` | Optional | Unchanged; the finding stays stale |
 
-To check several findings, tick them in the table (**Pick stale** takes the stale ones the filters show), press **Check fix** in the toolbar and confirm the estimate. To check them on a timer, use the [schedule action](schedules.md) `fix_verify`.
+Outcomes are append-only and don't change the status; `fixed` is set by a person. Old manual findings without a recorded commit always show as stale. A fix made only in other files doesn't mark the finding stale, so after a [fix session](#fix-sessions) the app offers the check regardless.
+
+Batch check: tick findings (**Pick stale** ticks the filtered stale ones), press **Check fix** in the toolbar, confirm the estimate. For periodic checks use the [schedule action](schedules.md) `fix_verify`.
 
 Model, effort and permissions come from the role, the prompt from the task `fix_verify`, and the estimate from the `findings.verify_estimate_*` settings.
 
 ## Fix sessions
 
-**Fix** starts an interactive session of the role `assistant` in your working directory, not a worktree, with the finding as the initial prompt (task `fix`). It can edit your code, so review the result. When a commit appears after the session ends, the app also offers to [check the fix](#checking-a-fix), and [offers to recheck](matrix.md#rechecking-after-a-fix). This is a normal agent session; there is no separate fix generator.
+**Fix** starts an interactive session of the role `assistant` in the working directory (not a worktree) with the finding as the initial prompt (task `fix`). The session edits your code; review its changes. If a commit appears after the session ends, the app offers to [check the fix](#checking-a-fix) and to [recheck affected cells](matrix.md#rechecking-after-a-fix).
 
 ## Command line
 
@@ -118,4 +120,4 @@ aiegis finding link <finding> <cell>
 aiegis finding poc <finding>
 ```
 
-Fix sessions need a terminal, so they exist only in the desktop app.
+Fix sessions need a terminal and exist only in the desktop app.
