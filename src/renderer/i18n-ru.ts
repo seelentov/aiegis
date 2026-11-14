@@ -520,7 +520,8 @@ export const RU: Record<string, string> = {
   'Build the entry point map': 'Построить карту точек входа',
   'Edit the module': 'Изменить модуль',
   'reason for deletion': 'причина удаления',
-  'Delete the module (a reason is required)': 'Удалить модуль (нужна причина)',
+  'Delete the module': 'Удалить модуль',
+  'Delete': 'Удалить',
   'History': 'История',
   'deleted: {reason}': 'удалён: {reason}',
   'Effective configuration of the entry point map': 'Итоговая конфигурация карты точек входа',
@@ -558,7 +559,7 @@ export const RU: Record<string, string> = {
   'Confirm the suppression at HEAD': 'Подтвердить подавление на HEAD',
   'Confirm': 'Подтвердить',
   'reason for revoking': 'причина отзыва',
-  'Revoke the suppression (a reason is required)': 'Отозвать подавление (нужна причина)',
+  'Revoke the suppression': 'Отозвать подавление',
   'Revoke': 'Отозвать',
   // ScaDetails
   'Upgrade {package} to {version} or newer.': 'Обновить {package} до {version} или новее.',

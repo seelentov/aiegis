@@ -39,14 +39,7 @@ export function ModuleForm({ project, run, module, onDone }: FormProps) {
         {tr('Globs (one per line, “!” excludes)')}
         <Textarea rows={3} value={globs} onChange={(e) => (setGlobs(e.target.value), setPreview(null))} placeholder="service-a/**" />
       </label>
-      <label className="wide">
-        {tr('Description')}
-        <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-      </label>
       <div className="wide row">
-        <Button variant="primary" disabled={!name.trim() || !list().length} onClick={() => void save()}>
-          {tr('Save')}
-        </Button>
         <IconButton
           icon="search"
           title={tr('Show the files the module will contain')}
@@ -54,7 +47,6 @@ export function ModuleForm({ project, run, module, onDone }: FormProps) {
           disabled={!list().length}
           onClick={() => void run(api.previewGlobs(project.id, list())).then((p) => p && setPreview(p))}
         />
-        <Button onClick={() => onDone(undefined)}>{tr('Cancel')}</Button>
         {preview && <span className="muted">{tr('files: {n}', { n: preview.count })}</span>}
       </div>
       {preview && preview.sample.length > 0 && (
@@ -63,6 +55,16 @@ export function ModuleForm({ project, run, module, onDone }: FormProps) {
           {preview.count > preview.sample.length ? '\n…' : ''}
         </pre>
       )}
+      <label className="wide">
+        {tr('Description')}
+        <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+      </label>
+      <div className="wide row">
+        <Button variant="primary" disabled={!name.trim() || !list().length} onClick={() => void save()}>
+          {tr('Save')}
+        </Button>
+        <Button onClick={() => onDone(undefined)}>{tr('Cancel')}</Button>
+      </div>
     </div>
   );
 }
