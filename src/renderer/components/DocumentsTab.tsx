@@ -360,7 +360,7 @@ function DocSetForm({ project, run, set, docs, onDone }: { project: ProjectInfo;
         </Button>
         <Button onClick={onDone}>{tr('Cancel')}</Button>
         {set && (
-          <Button onClick={() => confirm(tr('Remove the set? Its documents stay, outside any set.')) && void run(api.removeDocSet(project.id, set.id)).then(onDone)}>
+          <Button variant="danger" onClick={() => confirm(tr('Remove the set? Its documents stay, outside any set.')) && void run(api.removeDocSet(project.id, set.id)).then(onDone)}>
             {tr('Remove the set')}
           </Button>
         )}

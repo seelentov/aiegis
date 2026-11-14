@@ -173,6 +173,8 @@ body.resizing-y { cursor: row-resize; }
 .details dt { color: var(--color-muted); }
 .details dd { margin: 0; word-break: break-all; }
 .details .actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin: var(--space-sm) 0; }
+/* Destructive actions sit apart at the far end, away from the ones clicked often. */
+.details .actions > .danger:not(.confirm), .row > .danger:not(.confirm) { margin-left: auto; }
 .result { border-top: var(--rule-hair) solid var(--color-rule); padding: var(--space-xs) 0; }
 
 h3 { font-size: var(--text-sm); font-weight: 600; letter-spacing: 0; margin: var(--space-lg) 0 var(--space-xs); max-width: none; }

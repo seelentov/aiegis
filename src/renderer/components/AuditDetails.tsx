@@ -445,7 +445,9 @@ export function FindingDetailsView({ project, id, revision, run, onSelect, onTer
               ))}
             </Select>
             <Input placeholder={tr('reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
-            <IconButton icon="check" title={tr('Change the status')} disabled={status === f.status} onClick={() => void run(api.setFindingStatus(project.id, f.id, status, reason))} />
+            <Button disabled={status === f.status} onClick={() => void run(api.setFindingStatus(project.id, f.id, status, reason))}>
+              {tr('Change the status')}
+            </Button>
           </div>
         </>
       )}

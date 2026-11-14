@@ -13,7 +13,7 @@ import { ScheduleDetailsView } from './SchedulesTab';
 import { Section } from './Section';
 import { SignalDetailsView, SuppressionDetailsView } from './SignalDetails';
 import { tr } from '../i18n';
-import { IconButton, Input, Paged } from '../ui';
+import { Button, IconButton, Input, Paged } from '../ui';
 
 export interface Selection {
   kind: 'job' | 'run' | 'module' | 'cell' | 'finding' | 'signal' | 'suppression' | 'sca' | 'doc-proposal' | 'schedule' | 'diff';
@@ -40,6 +40,7 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
   const [coverage, setCoverage] = useState<HuntFileReview[]>([]);
   const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -90,11 +91,17 @@ function ModuleDetails({ project, id, revision, run, onSelect, onOpenMap }: Omit
             <IconButton icon="route" variant="primary" title={tr('Build the entry point map')} label={tr('Build map')} disabled={Boolean(mod.activeJob)} onClick={() => void run(api.enqueueEntryPoints(project.id, id))} />
             <IconButton icon="map" title={tr('Open map')} disabled={!mod.latestSnapshot} onClick={() => onOpenMap(id)} />
             <IconButton icon="edit" title={tr('Edit the module')} onClick={() => setEditing(true)} />
+            <IconButton icon="trash" variant="danger" title={tr('Delete the module')} aria-pressed={deleting} onClick={() => setDeleting(!deleting)} />
           </div>
-          <div className="actions">
-            <Input placeholder={tr('reason for deletion')} value={reason} onChange={(e) => setReason(e.target.value)} />
-            <IconButton icon="trash" variant="danger" title={tr('Delete the module (a reason is required)')} disabled={!reason.trim()} onClick={() => void remove()} />
-          </div>
+          {deleting && (
+            <div className="actions">
+              <Input autoFocus placeholder={tr('reason for deletion')} value={reason} onChange={(e) => setReason(e.target.value)} />
+              <Button variant="danger" className="confirm" disabled={!reason.trim()} onClick={() => void remove()}>
+                {tr('Delete')}
+              </Button>
+              <Button onClick={() => setDeleting(false)}>{tr('Cancel')}</Button>
+            </div>
+          )}
         </>
       )}
       {mod && editing && <ModuleForm project={project} run={run} module={mod} onDone={() => setEditing(false)} />}

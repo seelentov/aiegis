@@ -160,6 +160,7 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
   const [list, setList] = useState<SuppressionView[]>([]);
   const [reason, setReason] = useState('');
   const [expires, setExpires] = useState('');
+  const [revoking, setRevoking] = useState(false);
 
   useEffect(() => {
     void run(api.listSuppressions(project.id)).then((l) => l && setList(l));
@@ -251,11 +252,17 @@ export function SuppressionDetailsView({ project, id, revision, run, onSelect }:
           <div className="actions">
             <Input type="date" title={tr('new expiry date (optional)')} value={expires} onChange={(e) => setExpires(e.target.value)} />
             <IconButton icon="check" className={s.state === 'active' ? '' : 'primary'} title={tr('Confirm the suppression at HEAD')} label={tr('Confirm')} onClick={() => void renew()} />
+            <IconButton icon="undo" variant="danger" title={tr('Revoke the suppression')} label={tr('Revoke')} aria-pressed={revoking} onClick={() => setRevoking(!revoking)} />
           </div>
-          <div className="actions">
-            <Input placeholder={tr('reason for revoking')} value={reason} onChange={(e) => setReason(e.target.value)} />
-            <IconButton icon="undo" variant="danger" title={tr('Revoke the suppression (a reason is required)')} label={tr('Revoke')} disabled={!reason.trim()} onClick={() => void run(api.revokeSuppression(project.id, s.id, reason))} />
-          </div>
+          {revoking && (
+            <div className="actions">
+              <Input autoFocus placeholder={tr('reason for revoking')} value={reason} onChange={(e) => setReason(e.target.value)} />
+              <Button variant="danger" className="confirm" disabled={!reason.trim()} onClick={() => void run(api.revokeSuppression(project.id, s.id, reason))}>
+                {tr('Revoke')}
+              </Button>
+              <Button onClick={() => setRevoking(false)}>{tr('Cancel')}</Button>
+            </div>
+          )}
         </>
       )}
     </section>
